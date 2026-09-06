@@ -193,7 +193,13 @@
 		if (!browser || nodeQueryRead) return;
 		nodeQueryRead = true;
 		const requested = (page.url.searchParams.get('node') ?? '').trim().slice(0, 120);
-		if (requested && !form.nodeId.trim()) form.nodeId = requested;
+		// The explicit member link takes precedence over a draft for another
+		// node. This also covers opening "This is mine" in a new tab, where the
+		// members page's click handler cannot reset the singleton first.
+		if (requested && requested !== form.nodeId.trim()) {
+			form.reset();
+			form.nodeId = requested;
+		}
 	});
 
 	// Resolve whatever is in the field once the ring is actually available.

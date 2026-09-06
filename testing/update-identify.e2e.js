@@ -41,16 +41,31 @@ test('a member finds their node by site address or by name', async ({ page }) =>
 });
 
 test('the members list links a creator straight into the change form', async ({ page }) => {
-	await page.addInitScript(() => localStorage.clear());
+	await page.addInitScript((key) => {
+		localStorage.clear();
+		localStorage.setItem(
+			key,
+			JSON.stringify({
+				nodeId: 'remembered-last-entry',
+				entry: { creator: 'Previous draft' }
+			})
+		);
+	}, KEY);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/members');
 
 	const claim = page.getByRole('link', { name: 'This is mine' }).first();
 	await expect(claim).toBeVisible();
+	const clickedNode = new URL(
+		(await claim.getAttribute('href')) ?? '',
+		'http://localhost'
+	).searchParams.get('node');
 	await claim.click();
 
-	// Arrives already identified, with no id typed by hand.
+	// The clicked member replaces the previous update draft rather than the
+	// old site name winning merely because the identify field was non-empty.
 	await expect(page).toHaveURL(/\/update\?node=/);
 	await expect(page.locator('.note')).toContainText('Found it');
-	await expect(page.locator('#f-node-id')).not.toHaveValue('');
+	await expect(page.locator('#f-node-id')).toHaveValue(clickedNode ?? '');
+	await expect(page.locator('#f-node-id')).not.toHaveValue('remembered-last-entry');
 });
