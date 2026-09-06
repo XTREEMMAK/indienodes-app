@@ -164,3 +164,53 @@ test('transient drag collisions do not permanently displace neighbours', async (
 	await expect.poll(() => storedNode('n-comic-1').then((node) => node?.x)).toBeLessThan(8);
 	await expect.poll(() => storedNode('n-audio-1')).toMatchObject({ x: 12, y: 0 });
 });
+
+for (const mixedSizes of [false, true]) {
+	test(`window restore clears responsive offsets (${mixedSizes ? 'mixed' : 'default'} sizes)`, async ({
+		page
+	}) => {
+		if (mixedSizes) {
+			await page.addInitScript(() => {
+				localStorage.setItem(
+					'indienode:layout:v1',
+					JSON.stringify([
+						{ id: 'a', type: 'audio', tags: [], x: 0, y: 0, w: 7, h: 7 },
+						{ id: 'b', type: 'comic', tags: [], x: 7, y: 0, w: 4, h: 6 },
+						{ id: 'c', type: 'audio', tags: [], x: 11, y: 0, w: 6, h: 6 },
+						{ id: 'd', type: 'game', tags: [], x: 17, y: 0, w: 4, h: 4 }
+					])
+				);
+			});
+		}
+		await page.setViewportSize({ width: 1900, height: 1000 });
+		await page.goto('/');
+		await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+		const boxes = () =>
+			page.locator('.grid-stack-item').evaluateAll((elements) =>
+				elements.map((el) => {
+					const { x, y, width, height } = el.getBoundingClientRect();
+					return { x, y, width, height };
+				})
+			);
+		const original = await boxes();
+		const saved = await page.evaluate(() => localStorage.getItem('indienode:layout:v1'));
+		for (const width of [900, 700, 400, 900]) {
+			await page.setViewportSize({ width, height: 1000 });
+			await expect
+				.poll(() => page.locator('.grid-stack').evaluate((el) => el.gridstack.getColumn()))
+				.toBeLessThan(24);
+			await page.setViewportSize({ width: 1900, height: 1000 });
+			await expect.poll(boxes).toEqual(original);
+			await expect
+				.poll(() =>
+					page
+						.locator('.grid-stack-item')
+						.evaluateAll((elements) => elements.every((el) => el.style.transform === ''))
+				)
+				.toBe(true);
+			await expect
+				.poll(() => page.evaluate(() => localStorage.getItem('indienode:layout:v1')))
+				.toBe(saved);
+		}
+	});
+}
