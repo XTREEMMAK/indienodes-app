@@ -37,7 +37,15 @@ class FakeAudioContext {
 	}
 
 	createGain() {
-		return Object.assign(new FakeAudioNode(), { gain: { value: 1 } });
+		return Object.assign(new FakeAudioNode(), {
+			gain: {
+				value: 1,
+				/** @param {number} value */
+				setTargetAtTime(value) {
+					this.value = value;
+				}
+			}
+		});
 	}
 
 	createBiquadFilter() {
