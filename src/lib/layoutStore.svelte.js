@@ -136,8 +136,37 @@ function load() {
 
 let nextId = 0;
 
+/**
+ * How many arrangements back undo can reach. Bounded because history is
+ * every node's geometry per step and arranging is a long series of small
+ * moves; unbounded, a session spent nudging things would grow it without
+ * limit for depth nobody reaches.
+ */
+const HISTORY_LIMIT = 50;
+
+/**
+ * Nodes are replaced rather than mutated everywhere in this file (every
+ * method rebuilds the array through `map`/`filter`), so a snapshot only
+ * needs to copy one level down to be safe against a later edit that
+ * forgets that. `tags` is the one array inside a node, hence its own copy.
+ * @param {FieldNodeConfig[]} list
+ * @returns {FieldNodeConfig[]}
+ */
+function snapshot(list) {
+	return list.map((node) => ({ ...node, tags: [...node.tags] }));
+}
+
 function createLayoutStore() {
 	let nodes = $state(load());
+	// Past arrangements, oldest first, each the whole field as it stood
+	// *before* one change. Redo is the same thing forward. Deliberately not
+	// persisted: it is a within-session affordance for the arranging you just
+	// did, and restoring a stack of positions across reloads would let a
+	// visitor undo their way into an arrangement from days ago.
+	/** @type {FieldNodeConfig[][]} */
+	let past = $state([]);
+	/** @type {FieldNodeConfig[][]} */
+	let future = $state([]);
 
 	function persist() {
 		if (!browser) return;
@@ -146,9 +175,57 @@ function createLayoutStore() {
 		safeWriteJson(STORAGE_KEY, nodes);
 	}
 
+	/**
+	 * Records the arrangement as it stands right now, before the caller
+	 * changes it. Every mutation below calls this first, so undo covers
+	 * placement, sizing, adding, removing, retyping and retagging alike
+	 * rather than only the ones that happen to move a node.
+	 *
+	 * Any new change discards the redo branch, which is the standard shape:
+	 * once you undo twice and then do something else, the thing you undid is
+	 * no longer reachable forward.
+	 */
+	/** @param {FieldNodeConfig[]} before */
+	function pushHistory(before) {
+		past = [...past, before].slice(-HISTORY_LIMIT);
+		future = [];
+	}
+
+	function record() {
+		pushHistory(snapshot(nodes));
+	}
+
 	return {
 		get nodes() {
 			return nodes;
+		},
+
+		get canUndo() {
+			return past.length > 0;
+		},
+
+		get canRedo() {
+			return future.length > 0;
+		},
+
+		/** Steps back one arrangement, keeping the current one for redo. */
+		undo() {
+			const previous = past.at(-1);
+			if (!previous) return;
+			past = past.slice(0, -1);
+			future = [snapshot(nodes), ...future];
+			nodes = previous;
+			persist();
+		},
+
+		/** Steps forward again after an undo. */
+		redo() {
+			const next = future[0];
+			if (!next) return;
+			future = future.slice(1);
+			past = [...past, snapshot(nodes)].slice(-HISTORY_LIMIT);
+			nodes = next;
+			persist();
 		},
 
 		/**
@@ -158,6 +235,7 @@ function createLayoutStore() {
 		 * @param {{ id?: string, x?: number, y?: number, w?: number, h?: number }[]} changed
 		 */
 		applyGeometry(changed) {
+			const before = snapshot(nodes);
 			let touched = false;
 			nodes = nodes.map((node) => {
 				const update = changed.find((c) => c.id === node.id);
@@ -171,7 +249,10 @@ function createLayoutStore() {
 					h: update.h ?? node.h
 				};
 			});
-			if (touched) persist();
+			if (touched) {
+				pushHistory(before);
+				persist();
+			}
 		},
 
 		/**
@@ -189,6 +270,7 @@ function createLayoutStore() {
 		 * @param {import('./ring.js').RingEntry[]} [entries]
 		 */
 		setType(id, type, entries) {
+			record();
 			nodes = nodes.map((node) => {
 				if (node.id !== id) return node;
 				const snapped = snapToAllowedShape(type, node.w, node.h);
@@ -205,6 +287,7 @@ function createLayoutStore() {
 		 * @param {string[]} tags
 		 */
 		setTags(id, tags) {
+			record();
 			const normalized = normalizeTags(tags);
 			nodes = nodes.map((node) => (node.id === id ? { ...node, tags: normalized } : node));
 			persist();
@@ -226,6 +309,7 @@ function createLayoutStore() {
 		 *   position to cells, since only the grid knows its own pitch.
 		 */
 		add(type, at) {
+			record();
 			const size = defaultSizeFor(type);
 			nextId += 1;
 			const node = {
@@ -263,18 +347,21 @@ function createLayoutStore() {
 			if (order.length !== nodes.length) return;
 			const byId = new Map(nodes.map((node) => [node.id, node]));
 			if (!order.every((id) => byId.has(id))) return;
+			record();
 			nodes = order.map((id) => /** @type {FieldNodeConfig} */ (byId.get(id)));
 			persist();
 		},
 
 		/** @param {string} id */
 		remove(id) {
+			record();
 			nodes = nodes.filter((node) => node.id !== id);
 			persist();
 		},
 
 		/** Restores the shipped arrangement, for an "undo my mess" affordance. */
 		reset() {
+			record();
 			nodes = defaultLayout();
 			persist();
 		}
