@@ -181,7 +181,11 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<!-- type is required, not decorative: without it, a browser has to sniff
+	     the response to tell this is SVG rather than assume PNG like the two
+	     app.html fallback links below, and at least one real browser gets
+	     that wrong and falls back to those instead of this one. -->
+	<link rel="icon" type="image/svg+xml" href={favicon} />
 
 	<!-- Site-wide defaults: every route sets its own <title>, but none has a
 	     reason to differ on description or preview image, so one block here
@@ -213,6 +217,58 @@
 	{/if}
 
 	{#snippet arrangeButton()}
+		{#if editModeStore.active}
+			<div class="arrange-history" transition:flyFade={{ x: 12, duration: 180 }}>
+				<button
+					type="button"
+					class="tool-button glass-panel"
+					aria-label="Undo arrangement"
+					title="Undo arrangement"
+					disabled={!layoutStore.canUndo}
+					onclick={() => layoutStore.undo()}
+				>
+					<svg
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						aria-hidden="true"
+					>
+						<path
+							d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				</button>
+				<button
+					type="button"
+					class="tool-button glass-panel"
+					aria-label="Redo arrangement"
+					title="Redo arrangement"
+					disabled={!layoutStore.canRedo}
+					onclick={() => layoutStore.redo()}
+				>
+					<svg
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						aria-hidden="true"
+					>
+						<path
+							d="m15 14 5-5-5-5M20 9H9a5 5 0 0 0 0 10h3"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				</button>
+			</div>
+		{/if}
 		<button
 			type="button"
 			class="tool-button glass-panel"
@@ -850,6 +906,18 @@
 
 	.tool-button.active {
 		color: var(--accent);
+	}
+
+	.arrange-history {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.tool-button:disabled {
+		opacity: 0.4;
+		cursor: default;
+		pointer-events: none;
 	}
 
 	/* Bottom-right counterpart to the top-left brand mark and top-right

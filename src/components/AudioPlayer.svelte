@@ -35,6 +35,7 @@
 	import { hiddenStore } from '$lib/hiddenStore.svelte.js';
 	import { suggestNext } from '$lib/audioSuggest.js';
 	import { rampVolume } from '$lib/audioRamp.js';
+	import { fadePlayback } from '$lib/playbackFade.js';
 	import { coverImageUrl } from '$lib/ring.js';
 	import { flyFade } from '$lib/transitions.js';
 	import MiniPlayerDock from './MiniPlayerDock.svelte';
@@ -353,11 +354,18 @@
 		const suspended = previewing;
 		if (!el || !track) return;
 		if (suspended) return;
-		if (wantPlaying && el.paused) {
-			el.play().catch(() => audioPlayerStore.setPlaying(false));
-		} else if (!wantPlaying && !el.paused) {
-			el.pause();
-		}
+		return untrack(() =>
+			fadePlayback(
+				el,
+				wantPlaying,
+				playbackGain,
+				(value) => {
+					playbackGain = value;
+					applyMainLevel(el);
+				},
+				() => audioPlayerStore.setPlaying(false)
+			)
+		);
 	});
 
 	/** @param {number} seconds */
@@ -413,17 +421,17 @@
 	// chosen level. Keeping them as two numbers is what makes that structural
 	// rather than something the UI has to remember not to display.
 	let duckGain = $state(1);
+	let playbackGain = $state(0);
 	/** @type {import('$lib/audioRamp.js').RampHandle | null} */
 	let duckRamp = null;
 
 	const DUCK_OUT_MS = 240;
 	const DUCK_IN_MS = 420;
 
-	$effect(() => {
-		const el = audioEl;
-		const value = (muted ? 0 : volume) * duckGain;
-		if (!el) return;
-		if (isGraphWired && gainNode) {
+	/** @param {HTMLAudioElement} el */
+	function applyMainLevel(el) {
+		const value = (muted ? 0 : volume) * duckGain * playbackGain;
+		if (isGraphWired && gainNode && audioCtx) {
 			// Once the element is routed through Web Audio, its own `.volume`
 			// still attenuates everything downstream in the graph — the
 			// analyser included — because a MediaElementAudioSourceNode keeps
@@ -436,11 +444,16 @@
 			// analysed signal always reflects the track itself, never the
 			// listener's chosen level. `el.volume` is pinned at 1 so it never
 			// reintroduces that attenuation upstream of the whole graph.
-			gainNode.gain.value = value;
+			// Smooth envelope steps on the audio clock, between timer ticks.
+			gainNode.gain.setTargetAtTime(value, audioCtx.currentTime, 0.003);
 			el.volume = 1;
 		} else {
 			el.volume = value;
 		}
+	}
+
+	$effect(() => {
+		if (audioEl) applyMainLevel(audioEl);
 	});
 
 	// Drives the duck in both directions. Reads `duckGain` through `untrack`
@@ -493,10 +506,11 @@
 	/** @type {HTMLAudioElement | undefined} */
 	let previewEl = $state(undefined);
 	let previewLoadedUrl = '';
+	let previewPlaybackGain = $state(0);
 
 	$effect(() => {
 		const el = previewEl;
-		const value = muted ? 0 : volume;
+		const value = (muted ? 0 : volume) * previewPlaybackGain;
 		if (el) el.volume = value;
 	});
 
@@ -523,11 +537,18 @@
 
 		// Same idempotence rule as the main element: compare against the real
 		// state first so a re-run for any reason cannot issue a command.
-		if (wantPlaying && el.paused) {
-			el.play().catch(() => audioPlayerStore.stopPreview());
-		} else if (!wantPlaying && !el.paused) {
-			el.pause();
-		}
+		return untrack(() =>
+			fadePlayback(
+				el,
+				wantPlaying,
+				previewPlaybackGain,
+				(value) => {
+					previewPlaybackGain = value;
+					el.volume = (muted ? 0 : volume) * value;
+				},
+				() => audioPlayerStore.stopPreview()
+			)
+		);
 	});
 
 	/** @param {Event} event */
@@ -708,7 +729,7 @@
 			gainNode ??= audioCtx.createGain();
 			sourceNode.connect(gainNode);
 			gainNode.connect(audioCtx.destination);
-			gainNode.gain.value = (muted ? 0 : volume) * duckGain;
+			gainNode.gain.value = (muted ? 0 : volume) * duckGain * playbackGain;
 			el.volume = 1;
 			isGraphWired = true;
 

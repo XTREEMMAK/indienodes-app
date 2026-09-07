@@ -28,6 +28,18 @@ const geometry = (page) =>
 		)
 	);
 
+/** Like `geometry`, but carrying w/h too -- for the resize suite below,
+ * which needs to compare sizes, not just position. */
+const geometryWithSize = (page) =>
+	page.evaluate(() =>
+		Object.fromEntries(
+			[...document.querySelectorAll('.grid-stack-item[gs-id]')].map((el) => {
+				const n = el.gridstackNode;
+				return [el.getAttribute('gs-id'), { x: n?.x, y: n?.y, w: n?.w, h: n?.h }];
+			})
+		)
+	);
+
 /** The saved layout, or null when nothing has been persisted this session. */
 const stored = (page) =>
 	page.evaluate(() => {
@@ -671,4 +683,484 @@ test('the mobile stack still reads a drag as a reorder', async ({ page }) => {
 	expect(order).not.toEqual(['n-comic-1', 'n-text-1', 'n-audio-1', 'n-game-1', 'n-art-1']);
 	const placed = await geometry(page);
 	for (const cell of Object.values(placed)) expect(cell.split(',')[0]).toBe('0');
+});
+
+/**
+ * Clicks a card at the same safe point `pressOn` presses on, so a click
+ * meant to select never lands on a cancel-listed control (the config bar,
+ * the Visit link) instead.
+ * @param {import('@playwright/test').Page} page
+ * @param {string} id
+ * @param {{ shift?: boolean }} [options]
+ */
+async function clickOn(page, id, { shift = false } = {}) {
+	const locator = page.locator(`.grid-stack-item[gs-id="${id}"]`);
+	const box = await locator.boundingBox();
+	if (!box) throw new Error(`${id} has no bounding box`);
+	await locator.click({
+		position: { x: box.width / 2, y: box.height * 0.45 },
+		modifiers: shift ? ['Shift'] : []
+	});
+}
+
+test.describe('multi-select drag', () => {
+	test('shift-click selects a group, and dragging one member moves all of them together', async ({
+		page
+	}) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(2);
+
+		const before = await geometry(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		// Grabbed by the node under the pointer, but the whole selected group
+		// is what should move.
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 4 * cell, from.y + 4 * cell, { steps: 25 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometry(page).then((now) => now['n-text-1']))
+			.not.toBe(before['n-text-1']);
+		const after = await geometry(page);
+		/** @param {string} id */
+		const delta = (id) => {
+			const [bx, by] = before[id].split(',').map(Number);
+			const [ax, ay] = after[id].split(',').map(Number);
+			return `${ax - bx},${ay - by}`;
+		};
+		expect(delta('n-text-1')).toBe(delta('n-comic-1'));
+		// Not part of the selection, so untouched by the group's move.
+		expect(after['n-audio-1']).toBe(before['n-audio-1']);
+	});
+
+	test('dragging a node outside the selection moves only that node', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const before = await geometry(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-audio-1');
+		await page.mouse.move(from.x + 3 * cell, from.y, { steps: 25 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometry(page).then((now) => now['n-audio-1']))
+			.not.toBe(before['n-audio-1']);
+		const after = await geometry(page);
+		expect(after['n-comic-1']).toBe(before['n-comic-1']);
+		expect(after['n-text-1']).toBe(before['n-text-1']);
+	});
+
+	test('Escape clears the selection', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(1);
+		await page.keyboard.press('Escape');
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(0);
+	});
+
+	test('a plain click replaces the selection with just the clicked node', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(2);
+
+		await clickOn(page, 'n-audio-1');
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(1);
+		await expect(page.locator('.grid-stack-item[gs-id="n-audio-1"]')).toHaveClass(/selected/);
+	});
+
+	test('clicking the empty canvas clears the selection', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(1);
+
+		// Top-left corner of the grid: nothing is authored to sit there (every
+		// node starts at x >= 8 in the fixture), so it is background at every
+		// width `arrangeAt` is called with above the mobile stack.
+		const gridBox = await page.locator('.grid-stack').boundingBox();
+		if (!gridBox) throw new Error('the grid has no bounding box');
+		await page.mouse.click(gridBox.x + 5, gridBox.y + 5);
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(0);
+	});
+});
+
+test.describe('proportional group resize', () => {
+	/**
+	 * Moves a node clear of every other one, cell by cell, so a later corner
+	 * grow has nowhere to legitimately collide with anything and a test can
+	 * assert on the scale math alone rather than also on gridstack's own
+	 * collision-push (already covered by the resize suite's own tests).
+	 * @param {import('@playwright/test').Page} page
+	 * @param {string} id
+	 * @param {number} cellsX
+	 * @param {number} cellsY
+	 */
+	async function moveClearBy(page, id, cellsX, cellsY) {
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, id);
+		await page.mouse.move(from.x + cellsX * cell, from.y + cellsY * cell, { steps: 25 });
+		await page.mouse.up();
+		await page.waitForTimeout(400);
+	}
+
+	test('dragging the SE corner of one selected node scales every selected node together', async ({
+		page
+	}) => {
+		await arrangeAt(page, 2200);
+		// Comic and text stay exactly where the fixture puts them, stacked at
+		// the same x -- only the audio/game/art column needs to move, so
+		// growing comic and text rightward has clear space to grow into.
+		await moveClearBy(page, 'n-audio-1', 20, 0);
+		await moveClearBy(page, 'n-game-1', 20, 0);
+		await moveClearBy(page, 'n-art-1', 20, 0);
+
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		const before = await geometryWithSize(page);
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const handle = page.locator(
+			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
+		);
+		const handleBox = await handle.boundingBox();
+		if (!handleBox) throw new Error('n-text-1 has no se handle');
+		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(handleBox.x + 3 * cell, handleBox.y + 3 * cell, { steps: 25 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometryWithSize(page).then((now) => now['n-text-1'].w))
+			.not.toBe(before['n-text-1'].w);
+		const after = await geometryWithSize(page);
+
+		const scaleW = after['n-text-1'].w / before['n-text-1'].w;
+		const scaleH = after['n-text-1'].h / before['n-text-1'].h;
+
+		expect(scaleW).toBeGreaterThan(1);
+		expect(after['n-comic-1'].w / before['n-comic-1'].w).toBeCloseTo(scaleW, 5);
+		expect(after['n-comic-1'].h / before['n-comic-1'].h).toBeCloseTo(scaleH, 5);
+		// Anchored at the top-left: comic's own corner does not move even
+		// though its size does.
+		expect(after['n-comic-1'].x).toBe(before['n-comic-1'].x);
+		expect(after['n-comic-1'].y).toBe(before['n-comic-1'].y);
+		// Not part of the selection, so untouched by the group's scale.
+		expect(after['n-audio-1']).toEqual(before['n-audio-1']);
+	});
+
+	test('an edge-handle resize does not scale the rest of the selection', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		const before = await geometryWithSize(page);
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const handle = page.locator(
+			'.grid-stack-item[gs-id="n-comic-1"] .ui-resizable-handle.ui-resizable-e'
+		);
+		const handleBox = await handle.boundingBox();
+		if (!handleBox) throw new Error('n-comic-1 has no e handle');
+		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(handleBox.x + 2 * cell, handleBox.y, { steps: 25 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometryWithSize(page).then((now) => now['n-comic-1'].w))
+			.not.toBe(before['n-comic-1'].w);
+		const after = await geometryWithSize(page);
+
+		// text's own w/h (not necessarily its position, which a genuine
+		// collision push may still legitimately change) stayed the size it
+		// was -- the group did not scale from an edge handle.
+		expect(after['n-text-1'].w).toBe(before['n-text-1'].w);
+		expect(after['n-text-1'].h).toBe(before['n-text-1'].h);
+	});
+});
+
+test.describe('shift-drag sweep selection', () => {
+	/**
+	 * Sweeps a rectangle across the canvas with Shift held.
+	 *
+	 * Starts from the grid's own top-left rather than a point measured off a
+	 * card: the top card's top edge *is* the grid's top edge, so anything
+	 * "just above" a card is outside the grid element and the sweep never
+	 * begins. The left margin is empty at every width this runs at, since the
+	 * shipped arrangement starts at column 8.
+	 * @param {import('@playwright/test').Page} page
+	 * @param {{ x: number, y: number }} to
+	 */
+	async function sweepTo(page, to) {
+		const grid = await page.locator('.grid-stack').boundingBox();
+		if (!grid) throw new Error('the grid has no bounding box');
+		await page.keyboard.down('Shift');
+		await page.mouse.move(grid.x + 5, grid.y + 5);
+		await page.mouse.down();
+		await page.mouse.move(to.x, to.y, { steps: 20 });
+		await page.mouse.up();
+		await page.keyboard.up('Shift');
+	}
+
+	/** @param {import('@playwright/test').Page} page @param {string} id */
+	async function cardBox(page, id) {
+		const box = await page.locator(`.grid-stack-item[gs-id="${id}"]`).boundingBox();
+		if (!box) throw new Error(`${id} has no bounding box`);
+		return box;
+	}
+
+	test('a shift-drag selects every node the rectangle touches', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		const comic = await cardBox(page, 'n-comic-1');
+		const text = await cardBox(page, 'n-text-1');
+
+		// Stops 12px short of the left column's right edge, so the right-hand
+		// column is outside the rectangle and proves the sweep is bounded.
+		await sweepTo(page, {
+			x: comic.x + comic.width - 12,
+			y: text.y + text.height - 10
+		});
+
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(2);
+		await expect(page.locator('.grid-stack-item[gs-id="n-comic-1"]')).toHaveClass(/selected/);
+		await expect(page.locator('.grid-stack-item[gs-id="n-text-1"]')).toHaveClass(/selected/);
+		// The sweep's own overlay is gone once the pointer is released.
+		await expect(page.locator('.sweep')).toHaveCount(0);
+	});
+
+	test('a sweep adds to the selection rather than replacing it', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-audio-1');
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(1);
+
+		const comic = await cardBox(page, 'n-comic-1');
+		const text = await cardBox(page, 'n-text-1');
+		await sweepTo(page, { x: comic.x + comic.width - 12, y: text.y + text.height - 10 });
+
+		// Shift means "and also", the same as it does for a shift-click.
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(3);
+		await expect(page.locator('.grid-stack-item[gs-id="n-audio-1"]')).toHaveClass(/selected/);
+	});
+
+	test('a swept group moves together', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		const comic = await cardBox(page, 'n-comic-1');
+		const text = await cardBox(page, 'n-text-1');
+		await sweepTo(page, { x: comic.x + comic.width - 12, y: text.y + text.height - 10 });
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(2);
+
+		const before = await geometry(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 4 * cell, from.y + 1 * cell, { steps: 25 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometry(page).then((now) => now['n-text-1']))
+			.not.toBe(before['n-text-1']);
+		const after = await geometry(page);
+		/** @param {string} id */
+		const delta = (id) => {
+			const [bx, by] = before[id].split(',').map(Number);
+			const [ax, ay] = after[id].split(',').map(Number);
+			return `${ax - bx},${ay - by}`;
+		};
+		expect(delta('n-comic-1')).toBe(delta('n-text-1'));
+		expect(after['n-audio-1']).toBe(before['n-audio-1']);
+	});
+});
+
+test.describe('live group-drag preview', () => {
+	test('the rest of a selection visually follows the grabbed node while dragging', async ({
+		page
+	}) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const comicBefore = await page.locator('.grid-stack-item[gs-id="n-comic-1"]').boundingBox();
+		if (!comicBefore) throw new Error('n-comic-1 has no bounding box');
+		const from = await pressOn(page, 'n-text-1');
+
+		// Comic never had a finger on it — text is the one gridstack is
+		// actually dragging — so any on-screen movement here is this feature,
+		// not gridstack's own native drag rendering.
+		await page.mouse.move(from.x + 150, from.y + 100, { steps: 15 });
+
+		const comic = page.locator('.grid-stack-item[gs-id="n-comic-1"]');
+		await expect(comic).toHaveClass(/group-gesture-follower/);
+		const comicDuring = await comic.boundingBox();
+		if (!comicDuring) throw new Error('n-comic-1 lost its bounding box mid-drag');
+		expect(Math.abs(comicDuring.x - comicBefore.x - 150)).toBeLessThan(15);
+		expect(Math.abs(comicDuring.y - comicBefore.y - 100)).toBeLessThan(15);
+
+		await page.mouse.up();
+
+		// The preview is gone the instant the gesture ends, and does not
+		// linger as a stray class or transform on top of the real, settled
+		// position replayDrop hands it moments later.
+		await expect(comic).not.toHaveClass(/group-gesture-follower/);
+		await expect(comic).toHaveCSS('transform', 'none');
+	});
+
+	test('an abandoned group drag leaves no visual trace on the rest of the selection', async ({
+		page
+	}) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		const before = await geometry(page);
+
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 120, from.y + 90, { steps: 15 });
+		await expect(page.locator('.grid-stack-item[gs-id="n-comic-1"]')).toHaveClass(
+			/group-gesture-follower/
+		);
+		// Back to exactly where it started, same as the single-node "abandoned
+		// drag" case above.
+		await page.mouse.move(from.x, from.y, { steps: 15 });
+		await page.mouse.up();
+
+		await expect(page.locator('.grid-stack-item[gs-id="n-comic-1"]')).not.toHaveClass(
+			/group-gesture-follower/
+		);
+		await expect.poll(() => geometry(page)).toEqual(before);
+	});
+});
+
+test.describe('live group-resize preview', () => {
+	/**
+	 * Moves a node clear of every other one, cell by cell, so a later corner
+	 * grow has nowhere to legitimately collide with anything and a test can
+	 * assert on the live preview alone rather than also on gridstack's own
+	 * collision-push. Mirrors the identically named helper in the
+	 * "proportional group resize" suite above, whose scope does not reach
+	 * this block.
+	 * @param {import('@playwright/test').Page} page
+	 * @param {string} id
+	 * @param {number} cellsX
+	 * @param {number} cellsY
+	 */
+	async function moveClearBy(page, id, cellsX, cellsY) {
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, id);
+		await page.mouse.move(from.x + cellsX * cell, from.y + cellsY * cell, { steps: 25 });
+		await page.mouse.up();
+		await page.waitForTimeout(400);
+	}
+
+	test('the rest of a selection visually scales together while resizing', async ({ page }) => {
+		await arrangeAt(page, 2200);
+		await moveClearBy(page, 'n-audio-1', 20, 0);
+		await moveClearBy(page, 'n-game-1', 20, 0);
+		await moveClearBy(page, 'n-art-1', 20, 0);
+
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const comicBefore = await page.locator('.grid-stack-item[gs-id="n-comic-1"]').boundingBox();
+		if (!comicBefore) throw new Error('n-comic-1 has no bounding box');
+		const gridBefore = await page.locator('.grid-stack').boundingBox();
+		if (!gridBefore) throw new Error('the grid has no bounding box');
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const handle = page.locator(
+			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
+		);
+		const handleBox = await handle.boundingBox();
+		if (!handleBox) throw new Error('n-text-1 has no se handle');
+		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+		await page.mouse.down();
+
+		// Comic never had a handle on it -- text is the one gridstack is
+		// actually resizing -- so any on-screen size change here is this
+		// feature, not gridstack's own native resize rendering.
+		await page.mouse.move(handleBox.x + 3 * cell, handleBox.y + 3 * cell, { steps: 15 });
+
+		const comic = page.locator('.grid-stack-item[gs-id="n-comic-1"]');
+		await expect(comic).toHaveClass(/group-gesture-follower/);
+		const comicDuring = await comic.boundingBox();
+		if (!comicDuring) throw new Error('n-comic-1 lost its bounding box mid-resize');
+		const gridDuring = await page.locator('.grid-stack').boundingBox();
+		if (!gridDuring) throw new Error('the grid has no bounding box mid-resize');
+		expect(comicDuring.width).toBeGreaterThan(comicBefore.width);
+		expect(comicDuring.height).toBeGreaterThan(comicBefore.height);
+		// Anchored at the top-left: comic's own corner does not visually move
+		// *relative to the grid* even though its size does. Measured relative
+		// to the grid rather than the page, because growing the grabbed node's
+		// real height live -- gridstack's own native resize rendering, nothing
+		// to do with this feature -- reflows the grid's own position on the
+		// page, and every node on it moves right along with that, comic
+		// included; that ambient shift is not what this test is about.
+		expect(Math.abs(comicDuring.x - gridDuring.x - (comicBefore.x - gridBefore.x))).toBeLessThan(2);
+		expect(Math.abs(comicDuring.y - gridDuring.y - (comicBefore.y - gridBefore.y))).toBeLessThan(2);
+
+		await page.mouse.up();
+
+		// The preview is gone the instant the gesture ends, and does not
+		// linger as a stray class or transform on top of the real, settled
+		// size replayGroupScale hands it moments later.
+		await expect(comic).not.toHaveClass(/group-gesture-follower/);
+		await expect(comic).toHaveCSS('transform', 'none');
+	});
+
+	test('an abandoned group resize leaves no visual trace on the rest of the selection', async ({
+		page
+	}) => {
+		await arrangeAt(page, 2200);
+		await moveClearBy(page, 'n-audio-1', 20, 0);
+		await moveClearBy(page, 'n-game-1', 20, 0);
+		await moveClearBy(page, 'n-art-1', 20, 0);
+
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+		const before = await geometryWithSize(page);
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const handle = page.locator(
+			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
+		);
+		const handleBox = await handle.boundingBox();
+		if (!handleBox) throw new Error('n-text-1 has no se handle');
+		const start = {
+			x: handleBox.x + handleBox.width / 2,
+			y: handleBox.y + handleBox.height / 2
+		};
+		await page.mouse.move(start.x, start.y);
+		await page.mouse.down();
+		await page.mouse.move(start.x + 3 * cell, start.y + 3 * cell, { steps: 15 });
+		await expect(page.locator('.grid-stack-item[gs-id="n-comic-1"]')).toHaveClass(
+			/group-gesture-follower/
+		);
+		// Back to exactly where it started, same as the drag-preview "abandoned"
+		// case above.
+		await page.mouse.move(start.x, start.y, { steps: 15 });
+		await page.mouse.up();
+
+		await expect(page.locator('.grid-stack-item[gs-id="n-comic-1"]')).not.toHaveClass(
+			/group-gesture-follower/
+		);
+		await expect.poll(() => geometryWithSize(page)).toEqual(before);
+	});
 });

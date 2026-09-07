@@ -40,6 +40,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { GRID_COLUMNS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
 	import { columnsForWidth, computeCenteredLayout } from '$lib/fieldLayout.js';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	// Static CSS import so the stylesheet is in the build's CSS bundle and
 	// present on first paint; only the JS is deferred. Without this the
@@ -75,6 +76,56 @@
 	// $state, not a plain flag: clearing it is what re-runs those effects, so
 	// the layout settles once the gesture is actually over.
 	let interacting = $state(false);
+
+	// Which nodes are held for a group move. Shift-click toggles membership;
+	// a plain click on a node replaces the whole set with just that one, the
+	// same convention file managers and design tools use. Local component
+	// state, not layoutStore: this is ephemeral arrange-mode UI, not part of
+	// the persisted layout, the same reasoning `interacting`/`dragStart`
+	// above already follow.
+	let selectedIds = /** @type {Set<string>} */ (new SvelteSet());
+	// The shift-drag sweep, in viewport coordinates while it is running.
+	// Null whenever no sweep is in progress, which is also what the overlay
+	// renders from.
+	/** @type {{ fromX: number, fromY: number, toX: number, toY: number } | null} */
+	let marquee = $state(null);
+	// Below this, a sweep was really a click that wobbled. Same value and
+	// same reasoning as `FieldNode`'s own tap slop, kept as its own constant
+	// rather than imported because the two are about different gestures and
+	// have no reason to move together.
+	const SWEEP_SLOP_PX = 10;
+	// A sweep ends with a click event on the grid background, and that
+	// background click is what normally clears the selection — so the click
+	// that ends a sweep would immediately undo the sweep's own result. Set
+	// when a real sweep completes, read and cleared by that click.
+	let sweepJustEnded = false;
+
+	$effect(() => {
+		// Selection is meaningless once arranging stops, and on the mobile
+		// stack a drag already means reorder rather than a group move (see
+		// the `change` handler's own column-count branch), so a selection
+		// made at full width has nothing to apply to there either.
+		if (!editMode || columnCount < GRID_COLUMNS) selectedIds.clear();
+	});
+
+	$effect(() => {
+		if (!editMode) return;
+		// Window-level rather than folded into handleKeydown's per-node
+		// listener below: gridstack's own mousedown handler calls
+		// preventDefault (needed to stop text selection while dragging),
+		// which as a side effect suppresses the browser's default
+		// focus-on-click — so a card just clicked to select it is never
+		// actually the focused element, and a per-node keydown would never
+		// see the Escape press that followed. Verified empirically: clicking
+		// a card and checking document.activeElement afterward is <body>,
+		// not the card.
+		/** @param {KeyboardEvent} event */
+		function onKeydown(event) {
+			if (event.key === 'Escape' && selectedIds.size > 0) selectedIds.clear();
+		}
+		window.addEventListener('keydown', onKeydown);
+		return () => window.removeEventListener('keydown', onKeydown);
+	});
 	/** @type {import('gridstack').GridStack | null} */
 	let grid = null;
 
@@ -99,6 +150,85 @@
 	let dragPointerStart = null;
 	/** @type {{ x: number, y: number } | null} */
 	let dragPointerEnd = null;
+	// The rest of a multi-select, when the grabbed node is one member of it —
+	// everyone `handleGridPointerMove` should visually drag along live. Plain
+	// array, not $state: nothing renders from reading it, only from the CSS
+	// this file writes directly onto each follower's element, matching how
+	// `known` above is bookkeeping for an imperative library rather than
+	// component state. `resizeFollowerIds` below is this same idea for a
+	// corner-resize gesture rather than a move.
+	/** @type {string[]} */
+	let dragFollowerIds = [];
+	// The resize equivalent of dragStart/draggedId above: the field as it
+	// stood when the current resize began, plus which node is being resized.
+	// Used by `replayGroupScale` to scale the rest of a multi-select together
+	// when the grabbed node turns out to have been resized by a corner.
+	/** @type {{ id: string, x: number, y: number, w: number, h: number }[] | null} */
+	let resizeStart = null;
+	/** @type {string | null} */
+	let resizedId = null;
+	// Which corner handle, if any, the press that started the current resize
+	// actually landed on. gridstack's own `resizestart` callback is no help
+	// here — its event argument reports `.grid-stack-item` as the target
+	// regardless of which of the five handles was grabbed (verified
+	// empirically), not the handle element itself. And the two dimensions
+	// changing together is not a substitute either: a pure single-edge drag
+	// on a node whose type only allows non-square ratios still comes out of
+	// drop-time snapping with both w and h different (also verified
+	// empirically, dragging just the east handle on a comic node) — snapping
+	// is real and pre-existing, unrelated to which handle was pressed. So
+	// this is set from a plain native pointerdown listener in the capture
+	// phase, which sees the real target before gridstack's own handling of
+	// the same event does.
+	/** @type {'se' | 'sw' | null} */
+	let grabbedCorner = null;
+	// grabbedCorner frozen at the moment the current resize gesture started,
+	// read by the `change` handler once the gesture ends. A stable snapshot
+	// rather than reading the live flag there directly, matching how
+	// dragPointerStart/dragPointerEnd above freeze pointer state per gesture
+	// rather than trusting whatever the live value happens to be later.
+	/** @type {'se' | 'sw' | null} */
+	let resizeCorner = null;
+	// Pointer coordinates at the start and end of the current resize, the
+	// resize equivalent of dragPointerStart/dragPointerEnd. Needed for
+	// exactly the reason replayDrop's own header comment gives for drag:
+	// gridstack's own live resize can be disturbed by the *other* selected
+	// members still sitting at their pre-scale size and position mid-gesture
+	// (verified empirically — the same nominal drag produced a different
+	// final size run to run, because the grabbed node's growing footprint
+	// could brush a still-unmoved sibling and get its own live collision
+	// handling involved before this file's code ever runs). The single
+	// resized node's reported final geometry is exactly as unreliable here as
+	// gridstack's mid-drag position was for a move — so `replayGroupScale`
+	// computes the group's scale from raw pointer travel instead of trusting
+	// it, the same fix for the same class of problem.
+	/** @type {{ x: number, y: number } | null} */
+	let resizePointerStart = null;
+	/** @type {{ x: number, y: number } | null} */
+	let resizePointerEnd = null;
+	// dragFollowerIds' own counterpart for a corner resize: the rest of a
+	// multi-select, when the node being resized is a member of it and the
+	// handle grabbed was a corner (an edge resize never populates this — see
+	// `resizeCorner`'s own comment on why edge and corner are told apart, and
+	// `replayGroupScale`'s doc comment on why only a corner has an obvious
+	// meaning for scaling a 2D group at all).
+	/** @type {string[]} */
+	let resizeFollowerIds = [];
+
+	/**
+	 * The live DOM element for a node id, or null once it's gone. Shared
+	 * rather than a local const inside each of `replayDrop`, `replayGroupScale`
+	 * and the live group-drag preview below, since all three need the exact
+	 * same lookup and a `querySelector` restated three times is one more
+	 * place for the selector itself to drift out of sync with the others.
+	 * @param {string} id
+	 * @returns {import('gridstack').GridItemHTMLElement | null}
+	 */
+	function elementFor(id) {
+		return /** @type {import('gridstack').GridItemHTMLElement | null} */ (
+			gridEl?.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`) ?? null
+		);
+	}
 
 	/** Every node's current cell, read from the engine. */
 	function snapshotGeometry() {
@@ -136,38 +266,220 @@
 	 * wrong answer. The pointer has no such memory: it is simply where the
 	 * visitor let go.
 	 *
+	 * When the grabbed node is part of a multi-select group (`selectedIds`,
+	 * size > 1), every member moves by the same pointer-derived delta rather
+	 * than just the one under the cursor — a group drag, not several
+	 * independent ones. The delta is clamped once, against whichever member
+	 * would go out of bounds first, and that same clamped delta is applied to
+	 * the whole group, so the group moves as one rigid shape and a wall never
+	 * lets one member advance past the others. Everything *not* in the moving
+	 * set still goes back to its `base` position first, same as the
+	 * single-node case, and gridstack's own collision push resolves any
+	 * overlap between a moving member and a stationary neighbour exactly the
+	 * way it already does for a single dragged node.
+	 *
 	 * @param {{ id: string, x: number, y: number, w: number, h: number }[]} base
 	 * @param {string} movedId
 	 * @returns {{ id: string, x: number, y: number, w: number, h: number }[] | null}
 	 */
 	function replayDrop(base, movedId) {
 		if (!grid || !gridEl) return null;
-		/** @param {string} id */
-		const elementFor = (id) =>
-			/** @type {import('gridstack').GridItemHTMLElement | null} */ (
-				gridEl?.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`) ?? null
-			);
-
 		const movedEl = elementFor(movedId);
 		const start = base.find((node) => node.id === movedId);
 		if (!movedEl || !start) return null;
 
-		const drop = { x: start.x, y: start.y, w: start.w, h: start.h };
+		const movingIds =
+			selectedIds.has(movedId) && selectedIds.size > 1 ? selectedIds : new SvelteSet([movedId]);
+		const moving = base.filter((node) => movingIds.has(node.id));
+
+		let dx = 0;
+		let dy = 0;
 		if (dragPointerStart && dragPointerEnd && cellSize.w > 0 && cellSize.h > 0) {
-			const dx = Math.round((dragPointerEnd.x - dragPointerStart.x) / cellSize.w);
-			const dy = Math.round((dragPointerEnd.y - dragPointerStart.y) / cellSize.h);
-			drop.x = Math.max(0, Math.min(start.x + dx, columnCount - start.w));
-			drop.y = Math.max(0, start.y + dy);
+			dx = Math.round((dragPointerEnd.x - dragPointerStart.x) / cellSize.w);
+			dy = Math.round((dragPointerEnd.y - dragPointerStart.y) / cellSize.h);
+		}
+		// Clamp once against the whole group, taking the most restrictive
+		// bound any member imposes, rather than clamping each member on its
+		// own — independent clamping would let a member nearer an edge stop
+		// early while the rest kept going, breaking the shape a multi-select
+		// drag is supposed to preserve.
+		for (const node of moving) {
+			dx = Math.max(-node.x, Math.min(dx, columnCount - node.w - node.x));
+			dy = Math.max(-node.y, dy);
 		}
 
 		restoring = true;
 		grid.batchUpdate();
 		for (const node of base) {
-			if (node.id === movedId) continue;
+			const el = elementFor(node.id);
+			if (!el) continue;
+			if (movingIds.has(node.id)) {
+				grid.update(el, { x: node.x + dx, y: node.y + dy, w: node.w, h: node.h });
+			} else {
+				grid.update(el, { x: node.x, y: node.y, w: node.w, h: node.h });
+			}
+		}
+		grid.batchUpdate(false);
+		restoring = false;
+
+		return snapshotGeometry();
+	}
+
+	/**
+	 * The anchor-relative scale math shared by `replayGroupScale` (applied at
+	 * drop time) and `handleGridPointerMove`'s live preview (applied as a CSS
+	 * transform, every pointer move) — factored out once rather than restated
+	 * in both places, because this exact formula has already needed real
+	 * empirical debugging more than once (see `replayGroupScale`'s own
+	 * history) and a second, independent copy is a second place for it to go
+	 * wrong without the other noticing.
+	 *
+	 * `dxCells`/`dyCells` are the caller's job to derive — drop time reads
+	 * them from `resizePointerStart`/`resizePointerEnd`, the live preview
+	 * from `resizePointerStart` and whatever the current pointer position is
+	 * — everything below this line is pure geometry with no notion of when
+	 * the gesture actually is.
+	 *
+	 * `se`/`sw` are the only corner handles this app configures
+	 * (`draggable`/`resizable` options above), so height only ever grows
+	 * downward and the top edge is always the anchor; `corner` is what says
+	 * which side anchors width.
+	 *
+	 * @param {{ id: string, x: number, y: number, w: number, h: number }[]} base
+	 * @param {string} resizedId
+	 * @param {'se' | 'sw'} corner
+	 * @param {number} dxCells
+	 * @param {number} dyCells
+	 * @returns {{
+	 *   scaleW: number,
+	 *   scaleH: number,
+	 *   targets: Map<string, { rawX: number, rawY: number, rawW: number, rawH: number }>
+	 * } | null}
+	 */
+	function computeGroupScale(base, resizedId, corner, dxCells, dyCells) {
+		const start = base.find((node) => node.id === resizedId);
+		if (!start || start.w <= 0 || start.h <= 0) return null;
+
+		// se grows width to the right (+dx widens); sw grows it to the left
+		// (a more negative dx widens, since the handle itself moved left).
+		// Both grow height downward regardless of which corner.
+		const widthDeltaCells = corner === 'sw' ? -dxCells : dxCells;
+		const newW = Math.max(MIN_W, start.w + widthDeltaCells);
+		const newH = Math.max(1, start.h + dyCells);
+		const scaleW = newW / start.w;
+		const scaleH = newH / start.h;
+
+		const moving = base.filter((node) => selectedIds.has(node.id));
+		if (moving.length < 2) return null;
+
+		const groupLeft = Math.min(...moving.map((n) => n.x));
+		const groupRight = Math.max(...moving.map((n) => n.x + n.w));
+		const groupTop = Math.min(...moving.map((n) => n.y));
+		const anchorsRight = corner === 'sw';
+
+		const targets = new SvelteMap();
+		for (const node of moving) {
+			const rawW = node.w * scaleW;
+			const rawH = node.h * scaleH;
+			const rawX = anchorsRight
+				? groupRight - (groupRight - (node.x + node.w)) * scaleW - rawW
+				: groupLeft + (node.x - groupLeft) * scaleW;
+			const rawY = groupTop + (node.y - groupTop) * scaleH;
+			targets.set(node.id, { rawX, rawY, rawW, rawH });
+		}
+		return { scaleW, scaleH, targets };
+	}
+
+	/**
+	 * Scales every other selected node's box when the grabbed one turns out to
+	 * have been resized by a corner handle — see `resizeCorner`'s own comment
+	 * for how that is actually known (not from comparing `w`/`h`, which the
+	 * drop-time ratio snap can change either one of on its own, corner or
+	 * not) and the `change` handler for what decides whether this runs at all
+	 * rather than the ordinary single-node resize path. An edge handle
+	 * (`e`/`s`/`w`, one dimension only) has no obvious meaning for a 2D group
+	 * and is deliberately excluded there.
+	 *
+	 * The scale factor comes from raw pointer travel
+	 * (`resizePointerStart`/`resizePointerEnd`), not from gridstack's own
+	 * reported final size for the grabbed node — verified empirically to
+	 * matter, not assumed: the grabbed node's growing footprint can brush a
+	 * still-unmoved sibling mid-gesture (every other selected member is still
+	 * sitting at its pre-scale size and position until this function runs
+	 * after the gesture ends), pulling that node's own live collision
+	 * handling into a resize this file never asked for, and the same nominal
+	 * drag produced a different final size run to run because of it. This is
+	 * the exact class of problem `replayDrop`'s own header comment describes
+	 * for a plain move, and the fix is the same one: trust the pointer, not
+	 * the path the engine actually took to get there.
+	 *
+	 * Each member's resulting size is still snapped to its own type's allowed
+	 * ratio afterward, same as any other resize in this app — a deliberate
+	 * choice over keeping the scale exact, so a mixed-type group (a
+	 * square-locked audio node next to a wide comic one, say) never ends up
+	 * with a member outside the shapes its type is normally allowed.
+	 *
+	 * @param {{ id: string, x: number, y: number, w: number, h: number }[]} base
+	 * @param {string} resizedId
+	 * @param {'se' | 'sw'} corner
+	 * @returns {{ id: string, x: number, y: number, w: number, h: number }[] | null}
+	 */
+	function replayGroupScale(base, resizedId, corner) {
+		if (!grid || !gridEl) return null;
+		if (!resizePointerStart || !resizePointerEnd || cellSize.w <= 0 || cellSize.h <= 0) return null;
+
+		const dxCells = Math.round((resizePointerEnd.x - resizePointerStart.x) / cellSize.w);
+		const dyCells = Math.round((resizePointerEnd.y - resizePointerStart.y) / cellSize.h);
+		const result = computeGroupScale(base, resizedId, corner, dxCells, dyCells);
+		if (!result) return null;
+		const { targets } = result;
+		const moving = base.filter((node) => selectedIds.has(node.id));
+
+		const groupLeft = Math.min(...moving.map((n) => n.x));
+		const groupRight = Math.max(...moving.map((n) => n.x + n.w));
+		const groupTop = Math.min(...moving.map((n) => n.y));
+		const anchorsRight = corner === 'sw';
+
+		// Closest to the anchor first. gridstack evaluates collision live as
+		// each grid.update() call within the batch lands, not deferred to the
+		// end of it (verified empirically) -- so placing a far member before
+		// a near one can have the near one's own placement read as colliding
+		// with where the far one already sits, even though the two boxes
+		// never actually overlap once every update in the batch has landed.
+		// The annotation goes above rather than inline in the parameter list:
+		// an inline `/** @type */` comment on an arrow parameter makes
+		// Svelte's own printer emit the parameter parenthesised — `((n)) =>`
+		// — which is not valid JavaScript, and breaks SSR evaluation of every
+		// route that imports this file.
+		/** @param {{ x: number, y: number, w: number, h: number }} n */
+		const anchorDistance = (n) =>
+			Math.hypot(anchorsRight ? groupRight - (n.x + n.w) : n.x - groupLeft, n.y - groupTop);
+		const orderedMoving = [...moving].sort((a, b) => anchorDistance(a) - anchorDistance(b));
+
+		restoring = true;
+		grid.batchUpdate();
+		for (const node of base) {
+			if (selectedIds.has(node.id)) continue;
 			const el = elementFor(node.id);
 			if (el) grid.update(el, { x: node.x, y: node.y, w: node.w, h: node.h });
 		}
-		grid.update(movedEl, drop);
+		for (const node of orderedMoving) {
+			const el = elementFor(node.id);
+			const target = targets.get(node.id);
+			if (!el || !target) continue;
+
+			const type = nodes.find((n) => n.id === node.id)?.type;
+			const snapped = type
+				? snapToAllowedShape(type, target.rawW, target.rawH)
+				: { w: Math.max(1, Math.round(target.rawW)), h: Math.max(1, Math.round(target.rawH)) };
+
+			grid.update(el, {
+				x: Math.max(0, Math.round(target.rawX)),
+				y: Math.max(0, Math.round(target.rawY)),
+				w: snapped.w,
+				h: snapped.h
+			});
+		}
 		grid.batchUpdate(false);
 		restoring = false;
 
@@ -318,6 +630,15 @@
 		/** @type {ResizeObserver | undefined} */
 		let observer;
 		let revealFrame = 0;
+		/** @param {PointerEvent} event */
+		const handlePointerDownCapture = (event) => {
+			const target = /** @type {HTMLElement} */ (event.target);
+			grabbedCorner = target.closest('.ui-resizable-se')
+				? 'se'
+				: target.closest('.ui-resizable-sw')
+					? 'sw'
+					: null;
+		};
 
 		/**
 		 * Reads gridstack's own settled state, sorted into reading order.
@@ -433,6 +754,14 @@
 				const grabbed = /** @type {MouseEvent} */ (event);
 				dragPointerStart = { x: grabbed?.clientX ?? 0, y: grabbed?.clientY ?? 0 };
 				dragPointerEnd = null;
+				// Everyone else in the selection, if the grabbed node is part of
+				// one — what handleGridPointerMove visually drags along live. See
+				// that function's own comment for why this has to be a CSS
+				// overlay rather than moving these through the engine mid-drag.
+				dragFollowerIds =
+					draggedId && selectedIds.has(draggedId) && selectedIds.size > 1
+						? [...selectedIds].filter((id) => id !== draggedId)
+						: [];
 			});
 
 			instance.on('dragstop', (event) => {
@@ -440,6 +769,18 @@
 				interacting = false;
 				const released = /** @type {MouseEvent} */ (event);
 				dragPointerEnd = { x: released?.clientX ?? 0, y: released?.clientY ?? 0 };
+				// Cleared synchronously, not in the microtask below with the rest
+				// of this gesture's bookkeeping: this is the live preview's own
+				// CSS, and it has to be gone the instant the gesture ends,
+				// whether or not a `change` follows to give every follower its
+				// real, settled position moments later.
+				for (const id of dragFollowerIds) {
+					const el = elementFor(id);
+					if (!el) continue;
+					el.style.transform = '';
+					el.classList.remove('group-gesture-follower');
+				}
+				dragFollowerIds = [];
 				// gridstack emits its final `change` synchronously after this, so
 				// the drag's own bookkeeping has to outlive the handler by exactly
 				// that long. A drop that changed nothing produces no `change` to
@@ -453,16 +794,68 @@
 				});
 			});
 
-			instance.on('resizestart', () => {
+			instance.on('resizestart', (event, element) => {
 				if (grid !== instance) return;
 				interacting = true;
+				const id = element?.gridstackNode?.id;
+				resizedId = typeof id === 'string' ? id : null;
+				resizeStart = snapshotGeometry();
+				resizeCorner = grabbedCorner;
+				const grabbed = /** @type {MouseEvent} */ (event);
+				resizePointerStart = { x: grabbed?.clientX ?? 0, y: grabbed?.clientY ?? 0 };
+				resizePointerEnd = null;
+				// Same condition replayGroupScale itself gates on at drop time —
+				// see handleGridPointerMove for what this drives while the
+				// gesture is still live.
+				resizeFollowerIds =
+					resizeCorner && resizedId && selectedIds.has(resizedId) && selectedIds.size > 1
+						? [...selectedIds].filter((id) => id !== resizedId)
+						: [];
+				// A follower's vertical position is ordinary document flow, not an
+				// explicit `top` (only `left` is set inline, from --gs-column-width)
+				// -- confirmed empirically: growing the grabbed node's own real
+				// height live, mid-gesture, reflows every later sibling's rendered
+				// top even though its own row index never changed, which showed up
+				// as a follower's preview visibly drifting off its anchor by
+				// however many pixels the grabbed node had grown by so far. Pinning
+				// an explicit `top` here freezes that flow position for the
+				// gesture's duration, so the translate/scale below is the only
+				// thing still moving it; resizestop puts `top` back to nothing.
+				for (const id of resizeFollowerIds) {
+					const el = elementFor(id);
+					if (el) el.style.top = `${el.offsetTop}px`;
+				}
 			});
 
-			instance.on('resizestop', () => {
+			instance.on('resizestop', (event) => {
 				if (grid !== instance) return;
 				// Cleared before the `change` gridstack emits next, so the store
 				// update that lands there is what the settling effects see.
 				interacting = false;
+				const released = /** @type {MouseEvent} */ (event);
+				resizePointerEnd = { x: released?.clientX ?? 0, y: released?.clientY ?? 0 };
+				// Synchronous, not deferred to the microtask below, for the same
+				// reason dragstop's own cleanup of dragFollowerIds is: this is
+				// live-preview CSS, and it has to be gone the instant the gesture
+				// ends regardless of what replayGroupScale does moments later.
+				for (const id of resizeFollowerIds) {
+					const el = elementFor(id);
+					if (!el) continue;
+					el.style.transform = '';
+					el.style.transformOrigin = '';
+					el.style.top = '';
+					el.classList.remove('group-gesture-follower');
+				}
+				resizeFollowerIds = [];
+				// Same deferral dragstop's own comment explains: change fires
+				// synchronously right after this, and needs resizeStart/resizedId
+				// still in place when it does.
+				queueMicrotask(() => {
+					resizedId = null;
+					resizeStart = null;
+					resizePointerStart = null;
+					resizePointerEnd = null;
+				});
 			});
 
 			instance.on('change', (_event, items) => {
@@ -517,6 +910,28 @@
 					}
 				}
 
+				// A corner-handle resize of a node that is part of a multi-select
+				// scales the whole group together; see `replayGroupScale`. An edge
+				// resize, or a corner resize outside a multi-select, falls through
+				// to the ordinary per-item path below exactly as before this
+				// existed. Which handle was actually grabbed comes from
+				// `resizeCorner`, frozen at `resizestart` — not from comparing w/h
+				// here, which that field's own comment explains is not a safe
+				// substitute.
+				if (resizeStart && resizedId) {
+					const base = resizeStart;
+					const id = resizedId;
+					const corner = resizeCorner;
+					resizeStart = null;
+					if (corner && selectedIds.has(id) && selectedIds.size > 1) {
+						const settled = replayGroupScale(base, id, corner);
+						if (settled) {
+							onGeometryChange?.(settled);
+							return;
+						}
+					}
+				}
+
 				// Only the authored column count round-trips losslessly. At a
 				// reduced count a node wider than the grid is clamped to fit
 				// (a 16-wide node becomes 12 at 12 columns), and persisting
@@ -542,6 +957,13 @@
 			observer?.disconnect();
 			observer = new ResizeObserver(() => measureCells());
 			observer.observe(gridEl);
+			// Capture phase, so this sees the real press target before gridstack's
+			// own same-element handling of the same event does — see
+			// `grabbedCorner`'s own comment for why `resizestart` can't tell us
+			// this itself. Reset on every press, not just set on a match, so a
+			// stale true from a previous corner grab can never leak into an
+			// unrelated later gesture (a body drag, an edge resize).
+			gridEl?.addEventListener('pointerdown', handlePointerDownCapture, true);
 			instance.on('change', () => {
 				if (grid !== instance) return;
 				// Not while we are the ones writing. `measureCells` sets state the
@@ -597,6 +1019,7 @@
 			disposed = true;
 			cancelAnimationFrame(revealFrame);
 			observer?.disconnect();
+			gridEl?.removeEventListener('pointerdown', handlePointerDownCapture, true);
 			grid?.destroy(false);
 			grid = null;
 		};
@@ -616,6 +1039,25 @@
 					grid.makeWidget(/** @type {HTMLElement} */ (el));
 					known.push(id);
 				}
+			}
+
+			// Dropping the id from `known` is not enough on its own: Svelte
+			// removes the element, but gridstack keeps its own record of that
+			// widget in the engine indefinitely, and nothing above ever told
+			// it otherwise. That went unnoticed while removal was one-way --
+			// until undo made re-adding a removed node possible, and gridstack
+			// met an id it still believed it owned. It resolves that collision
+			// by renaming the *new* widget (`n-art-1` came back as
+			// `n-art-1_1`), which silently desynchronises the engine from the
+			// store: every later geometry change for that node is then
+			// reported under an id `applyGeometry` cannot find, so moving or
+			// resizing it stops persisting at all.
+			//
+			// `removeDOM` is false because the element is Svelte's and is
+			// already gone; this is only about the engine forgetting it.
+			for (const id of known.filter((candidate) => !ids.includes(candidate))) {
+				const stale = grid.engine.nodes.find((node) => node.id === id);
+				if (stale) grid.engine.removeNode(stale, false, false);
 			}
 			known = known.filter((id) => ids.includes(id));
 		});
@@ -659,6 +1101,10 @@
 				);
 				const current = el?.gridstackNode;
 				if (!el || !current) continue;
+				// Column restoration can recover the engine geometry from its
+				// cache without needing an update. Clear the narrow layout's
+				// visual offset even for those already-correct nodes.
+				el.style.transform = '';
 				if (
 					current.x !== wanted.x ||
 					current.y !== wanted.y ||
@@ -678,11 +1124,6 @@
 			grid.batchUpdate();
 			for (const { el, wanted } of pending) {
 				grid.update(el, { x: wanted.x, y: wanted.y, w: wanted.w, h: wanted.h });
-				// Cleared here rather than left over from a prior reduced-column
-				// visit: at the authored width every row spans exactly the full
-				// column count, so there is never a leftover half-cell to correct
-				// for and a stale nudge would otherwise just shift the node.
-				el.style.transform = '';
 			}
 			grid.batchUpdate(false);
 			restoring = false;
@@ -947,6 +1388,227 @@
 	});
 
 	/**
+	 * Shift-click toggles a node in/out of the group; a plain click replaces
+	 * the whole selection with just that one, the standard multi-select
+	 * convention. Only meaningful in the open canvas — the mobile stack's
+	 * drag already means reorder, not a group move (see the `change`
+	 * handler's own column-count branch).
+	 *
+	 * Gridstack's own drag detection already suppresses the native `click`
+	 * a real drag would otherwise fire (verified empirically, not assumed —
+	 * the header comment's own history is why that distinction gets checked
+	 * here rather than trusted on the library's behalf), so this needs no
+	 * pointer-travel tracking of its own the way `FieldNode`'s primary-tap
+	 * handling does for the resting field.
+	 * @param {MouseEvent} event
+	 * @param {string} nodeId
+	 */
+	function handleNodeClick(event, nodeId) {
+		if (!editMode || columnCount < GRID_COLUMNS) return;
+		// The same selector gridstack's own `draggable.cancel` option uses to
+		// keep a press on a real control from starting a drag — matched here
+		// so a click on the type dropdown, a tag chip, or Visit toggles that
+		// control rather than the card's selection.
+		if (
+			/** @type {HTMLElement} */ (event.target).closest(
+				'button, a, select, input, textarea, option'
+			)
+		)
+			return;
+
+		if (event.shiftKey) {
+			if (selectedIds.has(nodeId)) selectedIds.delete(nodeId);
+			else selectedIds.add(nodeId);
+		} else {
+			selectedIds.clear();
+			selectedIds.add(nodeId);
+		}
+	}
+
+	/**
+	 * Clears the selection on a click that lands on the grid's own background
+	 * rather than bubbling up from a card — the `currentTarget`/`target`
+	 * check is what tells the two apart, same pattern `NavDrawer`'s backdrop
+	 * click uses.
+	 * @param {MouseEvent} event
+	 */
+	function handleGridBackgroundClick(event) {
+		// A sweep finishes with a click on this same background. Clearing here
+		// would throw away the selection the sweep just made, so the sweep
+		// claims that one click on its way out.
+		if (sweepJustEnded) {
+			sweepJustEnded = false;
+			return;
+		}
+		if (event.target === event.currentTarget) selectedIds.clear();
+	}
+
+	/**
+	 * Shift-drag across empty canvas to sweep up every node the rectangle
+	 * touches.
+	 *
+	 * Only from the background, never from a card: with a card under the
+	 * pointer that press is gridstack's to interpret as a drag, and taking it
+	 * would mean a selected group could no longer be moved by grabbing one of
+	 * its own members. Shift is what separates a sweep from the plain
+	 * background click that clears the selection.
+	 *
+	 * Touching counts, rather than requiring a node to be fully enclosed —
+	 * the same rule design tools use, and the forgiving one at these card
+	 * sizes, where enclosing even two of them takes most of the viewport.
+	 * Additive, for the same reason shift-click is: shift means "and also".
+	 * @param {PointerEvent} event
+	 */
+	function handleGridPointerDown(event) {
+		if (!editMode || columnCount < GRID_COLUMNS) return;
+		if (!event.shiftKey || event.button !== 0) return;
+		if (event.target !== event.currentTarget) return;
+		// Otherwise the browser starts a text selection across the whole page
+		// as the pointer moves.
+		event.preventDefault();
+		/** @type {HTMLElement} */ (event.currentTarget).setPointerCapture(event.pointerId);
+		marquee = {
+			fromX: event.clientX,
+			fromY: event.clientY,
+			toX: event.clientX,
+			toY: event.clientY
+		};
+	}
+
+	/**
+	 * Drags or scales the rest of a multi-select along with the one node
+	 * gridstack is actually moving or resizing, so the group visually
+	 * travels or grows as one shape instead of only the grabbed card
+	 * changing while everyone else it's selected alongside sits frozen
+	 * until the gesture ends. Without this the shape of the selection was
+	 * only ever *true* before the gesture started and after it ended —
+	 * during the gesture itself there was nothing on screen to judge where
+	 * the group would land, and worse, gridstack's own live collision
+	 * handling for the one node it knows is changing could shove a
+	 * still-stationary member of the same selection out of its way, which
+	 * looked exactly like the selection breaking apart even though nothing
+	 * about the final, committed arrangement (still resolved by
+	 * `replayDrop`/`replayGroupScale`, unchanged by any of this) was ever
+	 * actually wrong.
+	 *
+	 * A pure CSS overlay, not a real move or resize: this never calls
+	 * `grid.update()` on a follower mid-gesture, which is exactly the thing
+	 * `replayDrop`'s own header comment already warns is unrecoverable once
+	 * gridstack's collision engine gets involved for more than the one node
+	 * it is actually tracking. Every follower's transform is discarded the
+	 * instant the gesture ends (`dragstop`/`resizestop`, synchronously) and
+	 * its real, settled position is set moments later the same way it
+	 * already was — from the pointer's start and end, never from wherever a
+	 * mid-gesture transform happened to leave the element.
+	 *
+	 * The resize case reuses `computeGroupScale`, the same pure geometry
+	 * `replayGroupScale` applies for real at drop time, so the live preview
+	 * and the committed result can never independently drift apart the way
+	 * restating this formula a second time would risk. `translate() scale()`
+	 * (in that order, with `transform-origin: 0 0`) is what lets one
+	 * transform both resize a follower from its own top-left corner and
+	 * reposition it relative to the anchor in a single declaration: per the
+	 * CSS transform-function composition order, `scale()` — the rightmost
+	 * function — applies first, against the origin, and `translate()` then
+	 * shifts that already-scaled box by a fixed pixel amount unaffected by
+	 * the scale, which is exactly the "grows from the anchor, and everything
+	 * else's distance from that anchor grows with it" shape the drop-time
+	 * math already computes in grid cells.
+	 *
+	 * Reuses this handler rather than adding a second listener for either
+	 * gesture: gridstack's own `drag` event fires far too coarsely for a
+	 * smooth follow (confirmed empirically — two firings across a 40-step
+	 * move that produced over forty native `pointermove` events on this same
+	 * element), so the raw pointer position already being tracked here for
+	 * the marquee sweep is the thing to drive both from instead.
+	 * @param {PointerEvent} event
+	 */
+	function handleGridPointerMove(event) {
+		if (marquee) {
+			marquee = { ...marquee, toX: event.clientX, toY: event.clientY };
+			return;
+		}
+
+		if (draggedId && dragFollowerIds.length && dragPointerStart) {
+			const dx = event.clientX - dragPointerStart.x;
+			const dy = event.clientY - dragPointerStart.y;
+			for (const id of dragFollowerIds) {
+				const el = elementFor(id);
+				if (!el) continue;
+				el.classList.add('group-gesture-follower');
+				el.style.transform = `translate(${dx}px, ${dy}px)`;
+			}
+			return;
+		}
+
+		if (
+			resizedId &&
+			resizeFollowerIds.length &&
+			resizeStart &&
+			resizeCorner &&
+			resizePointerStart &&
+			cellSize.w > 0 &&
+			cellSize.h > 0
+		) {
+			const dxCells = Math.round((event.clientX - resizePointerStart.x) / cellSize.w);
+			const dyCells = Math.round((event.clientY - resizePointerStart.y) / cellSize.h);
+			const result = computeGroupScale(resizeStart, resizedId, resizeCorner, dxCells, dyCells);
+			if (!result) return;
+			const { scaleW, scaleH, targets } = result;
+			for (const id of resizeFollowerIds) {
+				const node = resizeStart.find((n) => n.id === id);
+				const el = elementFor(id);
+				const target = targets.get(id);
+				if (!node || !el || !target) continue;
+				const dxpx = (target.rawX - node.x) * cellSize.w;
+				const dypx = (target.rawY - node.y) * cellSize.h;
+				el.classList.add('group-gesture-follower');
+				el.style.transformOrigin = '0 0';
+				el.style.transform = `translate(${dxpx}px, ${dypx}px) scale(${scaleW}, ${scaleH})`;
+			}
+		}
+	}
+
+	/** @param {PointerEvent} event */
+	function handleGridPointerUp(event) {
+		if (!marquee) return;
+		const box = marqueeBox(marquee);
+		marquee = null;
+		/** @type {HTMLElement} */ (event.currentTarget).releasePointerCapture?.(event.pointerId);
+		// A sweep that never really moved is a shift-click on empty space, and
+		// selecting nothing is the honest result of that — but it must not
+		// count as a sweep, or it would also eat the click that clears.
+		if (box.width < SWEEP_SLOP_PX && box.height < SWEEP_SLOP_PX) return;
+		sweepJustEnded = true;
+
+		for (const el of gridEl?.querySelectorAll('.grid-stack-item[gs-id]') ?? []) {
+			const id = el.getAttribute('gs-id');
+			if (!id) continue;
+			const rect = el.getBoundingClientRect();
+			const touches =
+				rect.left < box.right &&
+				rect.right > box.left &&
+				rect.top < box.bottom &&
+				rect.bottom > box.top;
+			if (touches) selectedIds.add(id);
+		}
+	}
+
+	/** @param {{ fromX: number, fromY: number, toX: number, toY: number }} m */
+	function marqueeBox(m) {
+		const left = Math.min(m.fromX, m.toX);
+		const top = Math.min(m.fromY, m.toY);
+		return {
+			left,
+			top,
+			right: Math.max(m.fromX, m.toX),
+			bottom: Math.max(m.fromY, m.toY),
+			width: Math.abs(m.toX - m.fromX),
+			height: Math.abs(m.toY - m.fromY)
+		};
+	}
+
+	/**
 	 * Keyboard equivalents for drag and resize. gridstack provides none, and
 	 * the field is fully keyboard navigable today, so pointer-only placement
 	 * would be a real regression. Routed through `grid.update()` for the
@@ -1079,6 +1741,12 @@
 		class:gs-visible={revealed}
 		class:edit-mode={editMode}
 		bind:this={gridEl}
+		role="presentation"
+		onclick={handleGridBackgroundClick}
+		onpointerdown={handleGridPointerDown}
+		onpointermove={handleGridPointerMove}
+		onpointerup={handleGridPointerUp}
+		onpointercancel={handleGridPointerUp}
 	>
 		{#each nodes as node, nodeIndex (node.id)}
 			<!--
@@ -1093,6 +1761,7 @@
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div
 				class="grid-stack-item"
+				class:selected={selectedIds.has(node.id)}
 				{...{
 					'gs-id': node.id,
 					'gs-x': node.x,
@@ -1104,10 +1773,11 @@
 				tabindex={editMode ? 0 : undefined}
 				aria-label={editMode
 					? columnCount >= GRID_COLUMNS
-						? `${node.type} node, ${node.w} by ${node.h}. Arrow keys to move, shift and arrow keys to resize.`
+						? `${node.type} node, ${node.w} by ${node.h}. Arrow keys to move, shift and arrow keys to resize. Shift-click to select multiple nodes and move them together.`
 						: `${node.type} node, ${node.w} by ${node.h}. Arrow keys to move.`
 					: undefined}
 				onkeydown={(event) => handleKeydown(event, node)}
+				onclick={(event) => handleNodeClick(event, node.id)}
 			>
 				<div class="grid-stack-item-content">
 					{@render children(node)}
@@ -1141,12 +1811,42 @@
 			</div>
 		{/each}
 	</div>
+	{#if marquee}
+		{@const box = marqueeBox(marquee)}
+		<!-- position: fixed and viewport coordinates, so the rectangle tracks
+		     the pointer exactly even though the grid it sits over scrolls and
+		     is itself positioned. Purely decorative: the selection it produces
+		     is announced by the cards' own selected state, so this carries no
+		     role of its own. -->
+		<div
+			class="sweep"
+			aria-hidden="true"
+			style:left={`${box.left}px`}
+			style:top={`${box.top}px`}
+			style:width={`${box.width}px`}
+			style:height={`${box.height}px`}
+		></div>
+	{/if}
 </div>
 
 <style>
 	.grid-viewport {
 		position: relative;
 		width: 100%;
+	}
+
+	/* The shift-drag sweep. Same blue the selected cards use, so the
+	   rectangle and the thing it is about to select read as one gesture.
+	   pointer-events: none because the sweep is driven by the grid
+	   underneath it — an overlay that swallowed the pointer would end the
+	   drag the moment it appeared. */
+	.sweep {
+		position: fixed;
+		z-index: 3;
+		pointer-events: none;
+		border: 1px solid #3b82f6;
+		border-radius: var(--radius-sm);
+		background: color-mix(in oklch, #3b82f6 14%, transparent);
 	}
 
 	.grid-stack {
@@ -1503,6 +2203,44 @@
 		outline: 2px solid var(--accent);
 		outline-offset: 3px;
 		border-radius: var(--radius-lg);
+	}
+
+	/* Persistent, unlike :focus-visible above: several cards can carry this
+	   at once with only one of them (if any) actually focused, so it needs
+	   its own rule rather than reusing focus's. Deliberately blue rather
+	   than var(--accent) (a warm rust/orange in this app): selection is a
+	   universal UI convention independent of brand color, and reusing the
+	   accent would read as "this card is special" the same way :focus-visible
+	   already does, rather than "this card is selected" specifically. A flush
+	   box-shadow ring instead of outline, since outline needs an offset gap
+	   to read as a ring and that gap made two adjacent selected cards look
+	   like they shared one boundary; box-shadow sits directly on the card
+	   edge and stays legible packed tight against a neighbour. */
+	.grid-stack.edit-mode :global(.grid-stack-item.selected) {
+		box-shadow: 0 0 0 3px #3b82f6;
+		border-radius: var(--radius-lg);
+	}
+
+	/* Applied and removed directly by handleGridPointerMove/dragstop/
+	   resizestop, not from editMode/selectedIds like every other rule in
+	   this file — its whole lifetime is the span of one drag-or-resize
+	   gesture, which is imperative by nature. Shared by both gestures: a
+	   move sets only `transform: translate()`, a resize sets
+	   `transform: translate() scale()` plus `transform-origin`, but the
+	   z-index/transition treatment below is identical either way. Same
+	   z-index gridstack's own .ui-draggable-dragging/.ui-resizable-resizing
+	   use, so a follower and the one node gridstack is natively changing sit
+	   at the same visual layer instead of the followers passing *under*
+	   other cards they slide past or grow across. `transition: none` for the
+	   same reason gridstack's own dragging/resizing classes override
+	   transition on themselves (.grid-stack-animate
+	   .ui-draggable-dragging/.ui-resizable-resizing in gridstack.css): this
+	   sets a fresh transform on nearly every pointermove, and a card
+	   animating toward each new value instead of snapping to it would lag
+	   visibly behind the one card actually under the cursor. */
+	.grid-stack.edit-mode :global(.grid-stack-item.group-gesture-follower) {
+		z-index: 10000;
+		transition: none;
 	}
 
 	/* Where the node will land. gridstack's default is a faint fill that

@@ -48,6 +48,7 @@
 	const isMembers = $derived(page.url.pathname === resolve('/members'));
 	const isJoin = $derived(page.url.pathname === resolve('/join'));
 	const isUpdate = $derived(page.url.pathname === resolve('/update'));
+	const isWidget = $derived(page.url.pathname === resolve('/widget'));
 	const isSettings = $derived(page.url.pathname === resolve('/settings'));
 	const isContact = $derived(page.url.pathname === resolve('/contact'));
 
@@ -211,6 +212,20 @@
 						/>
 					</svg>
 					Update my Node
+				</a>
+				<a href={resolve('/widget')} class:active={isWidget}>
+					<svg
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						aria-hidden="true"
+					>
+						<path d="M9 6 3 12l6 6M15 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+					Get Widget Code
 				</a>
 				<button
 					type="button"

@@ -31,6 +31,20 @@
 		onkeydown={(event) => event.key === 'Escape' && close()}
 		transition:flyFade={{ y: 16, duration: 180 }}
 	>
+		<a href={resolve('/widget')} role="menuitem">
+			<svg
+				viewBox="0 0 24 24"
+				width="19"
+				height="19"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				aria-hidden="true"
+			>
+				<path d="M9 6 3 12l6 6M15 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+			</svg>
+			Get Widget Code
+		</a>
 		<button
 			type="button"
 			role="menuitem"

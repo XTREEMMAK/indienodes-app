@@ -2,10 +2,21 @@
 // logo (static/images/IndieNodes_Logo.png, 1920x1920 with alpha) into
 // static/icons/. Re-run this after the master logo changes; nothing else
 // in the build pipeline regenerates these automatically.
+//
+// favicon-16.png/favicon-32.png are the one exception, sourced from
+// MARK_SOURCE instead (see their squareIcon calls below): the tab-bar
+// favicon is docs/decisions.md's "LOCKED: Logo is four rounded nodes" mark,
+// a deliberately different, simpler asset from the master logo --
+// src/lib/assets/favicon.svg is the primary favicon for browsers with
+// SVG-favicon support, and these two PNGs exist only as the fallback for
+// browsers without it, so they need to be the same mark a browser would
+// otherwise have shown, not the master logo's fine detail collapsed into an
+// indistinct blur at 16-32px.
 import sharp from 'sharp';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const SOURCE = 'static/images/IndieNodes_Logo.png';
+const MARK_SOURCE = 'src/lib/assets/favicon.svg';
 const OUT_DIR = 'static/icons';
 const BADGE_OUT_DIR = 'static/badges';
 const BADGE_LOGO_SIZE = 64;
@@ -34,8 +45,8 @@ const WIDGET_MARK_OUT = 'src/widget/mark.js';
 // renders transparent areas black instead.
 const BRAND_BG = '#0f1420';
 
-async function squareIcon(size, { background } = {}) {
-	const image = sharp(SOURCE).resize(size, size, { fit: 'contain' });
+async function squareIcon(size, { background, source = SOURCE } = {}) {
+	const image = sharp(source).resize(size, size, { fit: 'contain' });
 	// `resize`'s own `background` option only fills letterboxing from a
 	// fit mismatch; the source is already square, so it never applies and
 	// the logo's transparent diagonal would pass straight through into a
@@ -95,8 +106,8 @@ async function main() {
 		['icon-maskable-512.png', maskableIcon(512)],
 		// iOS: no transparency, no rounded corners (the OS applies its own mask).
 		['apple-touch-icon.png', squareIcon(180, { background: BRAND_BG })],
-		['favicon-32.png', squareIcon(32)],
-		['favicon-16.png', squareIcon(16)],
+		['favicon-32.png', squareIcon(32, { source: MARK_SOURCE })],
+		['favicon-16.png', squareIcon(16, { source: MARK_SOURCE })],
 		['og-image.png', ogImage()]
 	];
 

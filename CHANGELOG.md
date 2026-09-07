@@ -8,6 +8,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.5.0-rc.1] - 2026-09-07
+
+Release candidate, published gated for the widget-and-ring validation pass the roadmap
+calls for before this becomes 1.5.0 — not yet a tagged release.
+
+### Added
+
+- **Shift-click or shift-drag select multiple nodes in Arrange mode.** Dragging or
+  corner-resizing one member of the selection moves or scales the whole group together,
+  with a live preview that tracks the pointer during the gesture instead of only the
+  grabbed node updating until drop. A mixed-type group snaps each member back to its own
+  type's allowed shape after a proportional resize.
+- **Undo and redo for arrange-mode placement and resizing**, from a pair of buttons next to
+  the arrange toggle.
+- **A "Get Widget Code" nav entry**, so a visitor who has already been to `/widget` can find
+  it again without re-discovering the URL.
+
+### Changed
+
+- **The widget page is now four tabs** — Full widget, Badges, Text only, Advanced — each
+  with its own live preview and copy-paste snippet, replacing the previous two-section
+  layout.
+- **Play and pause fade the audio in and out** instead of snapping straight to full or zero
+  gain.
+
+### Fixed
+
+- **`/embed-frame`'s CSP no longer blocks its own ring fetch** under the production
+  configuration, where it was silently falling back to the same-origin ring mirror instead
+  of the configured origin.
+- **The node preview card on `/update`** renders once a node is verified, instead of
+  collapsing to a 2×2px box.
+- **The sound dock stays centered** independent of its own fly transition.
+- **Claiming a different node from `/update` replaces a stale in-progress draft** instead of
+  the old draft's fields winning because the id field was already non-empty.
+- **The PNG favicon fallback** is generated from the small mark rather than the full logo.
+
 ## [1.4.0] - 2026-09-03
 
 The arranging release. The field stopped being a canvas that shrank to fit and

@@ -23,6 +23,7 @@
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { reducedMotion } from '$lib/motion.svelte.js';
+	import { updateStore } from '$lib/updateStore.svelte.js';
 
 	let { data } = $props();
 
@@ -261,10 +262,15 @@
 						     how a creator who no longer remembers theirs reaches the change
 						     form at all. Quiet on purpose: it is for the one person on this
 						     page it belongs to, not for everyone reading it. -->
-						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved app route with an appended node query -->
-						<a class="claim" href={`${resolve('/update')}?node=${encodeURIComponent(entry.id)}`}>
+						<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved app route with an appended node query -->
+						<a
+							class="claim"
+							href={`${resolve('/update')}?node=${encodeURIComponent(entry.id)}`}
+							onclick={() => updateStore.reset()}
+						>
 							This is mine
 						</a>
+						<!-- eslint-enable svelte/no-navigation-without-resolve -->
 					</div>
 				</li>
 			{/each}

@@ -27,11 +27,13 @@
 	import Honeypot from '../../components/Honeypot.svelte';
 	import Turnstile from '../../components/Turnstile.svelte';
 	import ExactDataDisclosure from '../../components/ExactDataDisclosure.svelte';
+	import FieldNode from '../../components/FieldNode.svelte';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { hasBackend, useMock } from '$lib/submissionApi.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { updateStore as form, UPDATE_STEPS } from '$lib/updateStore.svelte.js';
 	import { newArtwork, newExcerpt, newTrack, newPage } from '$lib/submissionStore.svelte.js';
+	import { snapToAllowedShape } from '$lib/nodeShape.js';
 	import {
 		MAX_ARTWORKS,
 		MAX_EXCERPTS,
@@ -46,6 +48,36 @@
 	onMount(() => ringStore.ensureLoaded());
 
 	const entry = $derived(form.entry);
+
+	// A live preview of the cover, ported from JoinEntryStep.svelte's own
+	// previewEntry/FieldNode pattern: this step previously offered a
+	// thumb_url text input and CoverPositionControls' two framing sliders
+	// with nothing rendering the picture either was describing, so a
+	// creator adjusting focal point had no way to see the crop they were
+	// choosing, and there was no way to notice a bad/broken cover URL
+	// before submitting. `tracks`/`pages`/`artworks`/`excerpts` stay empty
+	// the same way join's own preview leaves them: this card exists to show
+	// the cover and framing, not to be a full reader, and it keeps the two
+	// forms' preview behavior identical rather than one being a richer
+	// simulation than the other for no functional reason.
+	const previewType = $derived(
+		/** @type {'audio' | 'comic' | 'text' | 'game' | 'art'} */ (entry.type || 'audio')
+	);
+	const previewSize = $derived(snapToAllowedShape(previewType, 8, 8));
+	const previewEntry = $derived({
+		id: form.nodeId || 'update-preview',
+		creator: entry.creator?.trim() || 'Your name',
+		type: previewType,
+		why: entry.why?.trim() || 'Your one-line introduction will appear here.',
+		thumb_url: entry.thumb_url?.trim() || '',
+		thumb_position: entry.thumb_position ?? { x: 50, y: 50 },
+		source_url: entry.source_url || '#',
+		tags: entry.tags ?? [],
+		tracks: [],
+		pages: [],
+		excerpts: [],
+		verification_token: 'preview'
+	});
 
 	let tagDraft = $state('');
 
@@ -161,7 +193,13 @@
 		if (!browser || nodeQueryRead) return;
 		nodeQueryRead = true;
 		const requested = (page.url.searchParams.get('node') ?? '').trim().slice(0, 120);
-		if (requested && !form.nodeId.trim()) form.nodeId = requested;
+		// The explicit member link takes precedence over a draft for another
+		// node. This also covers opening "This is mine" in a new tab, where the
+		// members page's click handler cannot reset the singleton first.
+		if (requested && requested !== form.nodeId.trim()) {
+			form.reset();
+			form.nodeId = requested;
+		}
 	});
 
 	// Resolve whatever is in the field once the ring is actually available.
@@ -900,6 +938,23 @@
 								/>
 							{/if}
 
+							{#if entry.type}
+								<div class="node-preview-stage">
+									<div
+										class="node-preview-card"
+										inert
+										style:height="100%"
+										style:aspect-ratio={`${previewSize.w} / ${previewSize.h}`}
+									>
+										<FieldNode
+											entry={previewEntry}
+											aspect={`${previewSize.w} / ${previewSize.h}`}
+											motionReducedOverride={true}
+										/>
+									</div>
+								</div>
+							{/if}
+
 							{#if entry.type === 'game'}
 								<FormField
 									id="f-preview"
@@ -1407,5 +1462,33 @@
 			padding-inline: 0.5rem;
 			font-size: var(--text-base);
 		}
+	}
+
+	/* Same card JoinEntryStep.svelte's own live preview uses, ported rather
+	   than reinvented so the two forms' preview looks and behaves alike. */
+	.node-preview-stage {
+		display: grid;
+		place-items: center;
+		height: clamp(12rem, 32vh, 20rem);
+		min-height: 0;
+		padding: 1.2rem;
+		margin-block: 0.5rem;
+		border-radius: var(--radius-sm);
+		background:
+			radial-gradient(
+				circle at 20% 20%,
+				color-mix(in oklch, var(--accent) 16%, transparent),
+				transparent 36%
+			),
+			var(--bg);
+		overflow: hidden;
+	}
+	.node-preview-card {
+		width: auto;
+		max-width: 20rem;
+		max-height: 100%;
+	}
+	.node-preview-card :global(.node) {
+		height: 100%;
 	}
 </style>

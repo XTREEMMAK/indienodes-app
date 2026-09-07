@@ -125,7 +125,12 @@ test.describe('the main-app Content-Security-Policy', () => {
 		page
 	}) => {
 		await withCsp(page, MAIN_CSP);
+		// The default tab already renders the iframe; violations accumulate
+		// for the page's whole lifetime (see withCsp), so switching to the
+		// Advanced tab to also mount the script-tag embed before reading
+		// them still catches a violation from either one.
 		await page.goto('/widget', { waitUntil: 'networkidle' });
+		await page.getByRole('tab', { name: 'Advanced' }).click();
 		await expect(page.locator('indienode-widget')).toBeVisible();
 		// Not asserting into the nested iframe's own content here: that iframe
 		// navigates to /embed-frame, a real cross-document load this same

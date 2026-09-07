@@ -1211,7 +1211,8 @@
 		align-items: stretch;
 		gap: 0.55rem;
 		width: min(46rem, calc(100% - 1.5rem));
-		transform: translateX(-50%);
+		/* Keep centering independent of flyFade's animated transform. */
+		translate: -50% 0;
 	}
 
 	.sound-dock {
