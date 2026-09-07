@@ -107,6 +107,7 @@ test.describe('optional theming via query params', () => {
 		// /embed-frame, no query string, just ordinary CSS custom-property
 		// inheritance across the open shadow boundary.
 		await page.goto('/widget');
+		await page.getByRole('tab', { name: 'Advanced' }).click();
 		await page.addStyleTag({ content: 'indienode-widget { --indienode-accent: #00aa55; }' });
 
 		const widget = page.locator('indienode-widget');

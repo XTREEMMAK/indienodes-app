@@ -53,6 +53,13 @@ test('the members list links a creator straight into the change form', async ({ 
 	}, KEY);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/members');
+	// This page renders the server-baked ring snapshot first and swaps to the
+	// live-fetched one once it arrives (see members/+page.svelte's `source`),
+	// which can reorder the list out from under a locator read before that
+	// swap lands. Waiting for a fixture-only entry -- present live, absent
+	// from the baked snapshot -- confirms the swap already happened, the same
+	// idiom members-search.e2e.js's own `hydrated` helper uses.
+	await expect(page.getByText('Paper Lantern', { exact: false }).first()).toBeVisible();
 
 	const claim = page.getByRole('link', { name: 'This is mine' }).first();
 	await expect(claim).toBeVisible();
