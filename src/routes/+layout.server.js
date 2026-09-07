@@ -20,12 +20,14 @@ import changelogRaw from '../../CHANGELOG.md?raw';
  * baking them in costs nothing and saves a fetch.
  */
 
-const HEADING = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/gm;
+const HEADING = /^## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\] - (\d{4}-\d{2}-\d{2})$/gm;
 
 /**
- * Reads `## [X.Y.Z] - YYYY-MM-DD` headings only; body content stays out of
- * scope. Newest-first order is inherited from the file itself (Keep a
- * Changelog convention, which every entry so far follows), not re-sorted.
+ * Reads `## [X.Y.Z] - YYYY-MM-DD` headings only (a trailing `-rc.N`-style
+ * prerelease identifier is also matched, since a gated build carries one);
+ * body content stays out of scope. Newest-first order is inherited from the
+ * file itself (Keep a Changelog convention, which every entry so far
+ * follows), not re-sorted.
  * @param {string} markdown
  */
 function parseReleases(markdown) {
@@ -37,7 +39,9 @@ function parseReleases(markdown) {
 		// punctuation a version heading has, spaces and the separating dash
 		// collapse to hyphens. Verified against the live rendering rather
 		// than derived blind: `## [1.4.0] - 2026-07-29` anchors at
-		// `#140---2026-07-29`, not the more guessable `#1-4-0---...`.
+		// `#140---2026-07-29`, not the more guessable `#1-4-0---...`; a
+		// prerelease identifier's own periods (`1.5.0-rc.1`) strip the same
+		// way, landing on `#150-rc1---2026-09-07`.
 		anchor: `${version.replace(/\./g, '')}---${date}`
 	}));
 }
