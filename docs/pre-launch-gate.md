@@ -114,6 +114,37 @@ gated publish always a manual, explicit action removes that ambiguity: the repo 
 set for as long as maintenance/widget-testing on production is wanted, without any risk of an
 unrelated ordinary release inheriting that state by accident.
 
+## The staging deploy loop
+
+**A `git push` to `preview-gated` does not, by itself, produce anything Semaphore can pull.**
+`docker-publish.yml` only builds on a push to `main`, a `v*` tag, a pull request into `main`,
+or a manual dispatch — pushing commits to any other branch, `preview-gated` included, updates
+GitHub and nothing else. Semaphore's Staging environment pulls the `:preview-gated` image
+tag from GHCR, and that tag is only as fresh as the last dispatch that targeted it. The loop,
+every time Staging needs to reflect new work:
+
+1. Commit and push to `preview-gated`, as usual.
+2. Actions tab → "Build and Push Docker Image" → "Run workflow" → ref `preview-gated` → check
+   **enable_gate** → Run. (Or `gh workflow run "Build and Push Docker Image" --ref
+preview-gated -f enable_gate=true`.) This is the step a plain push cannot do for you.
+3. Confirm the run's job summary says "🔒 Pre-launch gate: ENABLED for this build" — a
+   dispatch with the checkbox left unchecked still succeeds, silently publishing ungated.
+4. Deploy from Semaphore's Staging environment. It re-pulls whatever `:preview-gated`
+   currently points to, which after step 2 is this dispatch's build. The About modal's
+   version string (`package.json`, bumped per release — see the changelog) is the fastest way
+   to confirm which build actually landed, since Staging has no other visible marker of it.
+
+**Do not merge `preview-gated` into `main` to get a preview build published.** It looks like
+the obvious way to move the branch's work somewhere Semaphore can see it, but `main` is the
+default branch: a push there always resolves the gate to `false` regardless of repo
+config (see above), and its build is also tagged `:latest` — the tag reserved for the real,
+ungated go-live. A merge here does not refresh the gated staging image at all; it publishes
+an entirely different, ungated one under a different tag. This repository also has "automatically
+delete head branches" enabled, so merging `preview-gated` into `main` deletes it in the same
+action — a second reason a routine preview refresh should never go through a merge. `main`
+stays untouched until [removing the gate at launch](#removing-it-at-launch) is the actual
+intent of the push.
+
 ## Verifying it before you deploy
 
 A gate that silently fails open is worse than none, and an incomplete open-path list breaks

@@ -56,6 +56,37 @@ describe('the embeddable assets are reachable cross-origin', () => {
 });
 
 /**
+ * The same failure class one layer down: /embed-frame's opaque (`null`)
+ * origin -- deliberate, from its `sandbox="allow-scripts ..."` with no
+ * `allow-same-origin` -- makes the browser fetch its own SvelteKit hydration
+ * chunks under /_app/immutable/* in CORS mode, same as any other cross-origin
+ * module script. Missing this header here left the iframe-tier widget dead on
+ * every site (including this app's own /widget preview), with the exact
+ * console signature this fix addresses: "Access to script at
+ * '.../_app/immutable/...' from origin 'null' has been blocked by CORS
+ * policy". Asserted the same way as the block above, against a separate
+ * matcher, since @immutable is a distinct `@name path ...` line.
+ */
+describe('the sandboxed embed-frame iframe can fetch its own build assets', () => {
+	const immutableMatcher = [...caddyfile.matchAll(/^\s*@(\w+)\s+path\s+(.+)$/gm)].find(
+		([, , paths]) => paths.split(/\s+/).includes('/_app/immutable/*')
+	);
+
+	it('declares a matcher for /_app/immutable/*', () => {
+		expect(immutableMatcher, 'no `@name path ...` matcher covers /_app/immutable/*').not.toBeNull();
+	});
+
+	it('applies Access-Control-Allow-Origin "*" to that matcher', () => {
+		const name = immutableMatcher?.[1];
+		const header = caddyfile.match(
+			new RegExp(`^\\s*header\\s+@${name}\\s+Access-Control-Allow-Origin\\s+"(.+)"\\s*$`, 'm')
+		);
+		expect(header, `no Access-Control-Allow-Origin header applied to @${name}`).not.toBeNull();
+		expect(header?.[1]).toBe('*');
+	});
+});
+
+/**
  * The same failure class one layer down, in CSP rather than CORS.
  *
  * `/embed-frame` (the default, recommended widget tier) carries its own

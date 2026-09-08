@@ -130,8 +130,24 @@
 	# reuses one of these paths for different bytes, so caching them for a
 	# year is safe: a deploy that changes anything ships under new filenames,
 	# which the newly-built HTML references, not these.
+	#
+	# Access-Control-Allow-Origin is needed here for the same reason it's
+	# needed on @embeddable above, one layer further down: /embed-frame is
+	# loaded by a member's page in a `sandbox="allow-scripts ..."` iframe with
+	# no `allow-same-origin` (deliberate -- see docs/decisions.md), which
+	# gives that document a permanently opaque (`null`) origin. Module scripts
+	# and dynamic `import()` are always fetched in CORS mode regardless of
+	# physical same-hostness, so the browser loading /embed-frame's own
+	# SvelteKit hydration chunks from under here needs this header exactly
+	# like embed.v1.js does -- missing it left every iframe-tier embed dead on
+	# any page but this one (and even this app's own /widget preview, whose
+	# same-origin iframe hits the identical opaque-origin fetch). `*` is safe
+	# for the same reason it's safe on @embeddable: these are public,
+	# content-hashed build assets with no user data and no credentialed
+	# request anywhere in this app ever reaches them.
 	@immutable path /_app/immutable/*
 	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	header @immutable Access-Control-Allow-Origin "*"
 
 	# ring.json updates near-real-time (repository_dispatch from the ring repo
 	# publishing, see .github/workflows/sync-ring.yml, with a twice-daily cron
