@@ -8,6 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.5.0-rc.2] - 2026-09-08
+
+Release candidate, published gated for the same widget-and-ring validation pass as rc.1 —
+specifically to confirm the CORS fix below reaches Staging.
+
+### Fixed
+
+- **The sandboxed iframe widget tier loads on member sites again.** `/embed-frame`'s
+  deliberately opaque-origin iframe fetches its own SvelteKit hydration chunks under
+  `/_app/immutable/*` in CORS mode, and that path never carried
+  `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
+  preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
+  policy`, found live on real member sites.
+- **An arrangement authored wider than the canvas's authored column count no longer
+  cascades on overflow.** Whether the field renders the authored layout or a derived one
+  now checks real fit, not just column count, and derived layouts are packed rather than
+  left to gridstack's own collision resolution, which previously clamped one overflowing
+  node and shoved its neighbours out from under it.
+- **Batch-restoring several nodes to their saved positions on load no longer risks a later
+  restoration colliding with an earlier one's just-corrected spot** (gridstack evaluates
+  collisions live even inside a batched update).
+- **A hover flicker on the rating stars**, caused by the lift transform moving each star's
+  own hit-box out from under a stationary pointer.
+
+### Changed
+
+- **The default first-visit arrangement scales with the actual viewport** instead of
+  assuming exactly the authored column count, so a wide first load gets a centered,
+  appropriately sized starting layout instead of one that reads as small and off-center.
+- **The rating stars** carry a gold gradient fill, a hover particle burst, and a Ko-fi mark
+  on the support step.
+
 ## [1.5.0-rc.1] - 2026-09-07
 
 Release candidate, published gated for the widget-and-ring validation pass the roadmap
