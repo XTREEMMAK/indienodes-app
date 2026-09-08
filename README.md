@@ -145,10 +145,10 @@ production build; unset `VITE_RING_URL` means the app reads its own committed mi
 instead of the canonical endpoint. The complete configuration contract is documented in
 [`.env.example`](./.env.example).
 
-A deployment that needs to be live before the application is meant to be public — to test
-the embeddable widget against real host pages — can be built behind a temporary credential
-gate. It is compiled in at image build time and absent from any image built without it; see
-[`docs/pre-launch-gate.md`](./docs/pre-launch-gate.md).
+A deployment that needs to be live before it is meant to be public — to test the embeddable
+widget against real host pages, or any other staging round — can be built behind a
+credential gate. It is compiled in at image build time and absent from any image built
+without it; see [`docs/pre-launch-gate.md`](./docs/pre-launch-gate.md).
 
 Images are published to GHCR on pushes to `main` and on version tags, gated on
 [`ci.yml`](./.github/workflows/ci.yml) — which includes a structural check on the

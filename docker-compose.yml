@@ -30,11 +30,11 @@ services:
         VITE_KOFI_URL: ${VITE_KOFI_URL:-}
         VITE_RING_REPO_URL: ${VITE_RING_REPO_URL:-}
         VITE_RING_URL: ${VITE_RING_URL:-}
-        # Temporary pre-launch access gate (see gate/gate.caddy). Both empty by
-        # default, which builds an ungated image; set both in .env to build a
-        # gated one. Not VITE_ vars and not in .env.example on purpose --
-        # nothing here reaches the client bundle, and this whole feature is
-        # deleted at launch.
+        # Access gate for staging/preview builds (see gate/gate.caddy and
+        # docs/pre-launch-gate.md). Both empty by default, which builds an
+        # ungated image; set both in .env to build a gated one. Not VITE_ vars
+        # and not in .env.example on purpose -- nothing here reaches the
+        # client bundle.
         #
         # Put the hash in .env rather than inlining it here: Compose does NOT
         # re-interpolate values it reads from .env, so `GATE_PASSWORD_HASH=$2a$14$...`

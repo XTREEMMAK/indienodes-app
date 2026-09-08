@@ -4,9 +4,14 @@ A temporary HTTP credential gate on the production deployment, so the site can b
 the public widget testable from real third-party host pages before the app itself is meant
 to be public.
 
-**This whole feature is temporary and is deleted at launch.** It is documented here rather
-than folded into [`platform-builds.md`](./platform-builds.md) for that reason: when the
-gate goes, so does this file.
+**This started as a pre-launch-only feature and is now kept permanently.** It shipped
+expecting to be deleted once 1.5.0 went live, but the same need — a gated image for
+testing a preview build against real host pages, or for any other staging round where the
+app should not be publicly reachable yet — recurs on an ongoing basis, so the feature
+stays rather than being rebuilt from scratch next time. Nothing below changes: same
+Caddy-enforced mechanism, same build-arg-only activation, same manual `workflow_dispatch`
+step to actually get a gated image out of CI. This file just stops being scheduled for
+deletion.
 
 - **Why it is enforced in Caddy rather than as a PIN screen in the app** —
   [`decisions.md`](./decisions.md), "the pre-launch gate is enforced by Caddy".
@@ -240,10 +245,11 @@ Rebuild with the two arguments unset (or empty):
 docker build -t indienodes .
 ```
 
-## Removing it at launch
+## If this ever does need to be removed
 
-Delete [`gate/`](../gate/), the `import /etc/caddy/conf.d/*.caddy` line in
-[`Caddyfile`](../Caddyfile), the two `ARG`s and the install `RUN` in
-[`Dockerfile`](../Dockerfile), the two entries in `docker-compose.yml`, and this file. Leave
-the healthcheck pointed at `/ring.json`; it is correct either way and does not depend on the
-gate.
+Not planned as of 1.5.0 — the feature is being kept for future staging/dev use (see above).
+If a later decision does retire it for good: delete [`gate/`](../gate/), the
+`import /etc/caddy/conf.d/*.caddy` line in [`Caddyfile`](../Caddyfile), the two `ARG`s and
+the install `RUN` in [`Dockerfile`](../Dockerfile), the two entries in `docker-compose.yml`,
+and this file. Leave the healthcheck pointed at `/ring.json`; it is correct either way and
+does not depend on the gate.

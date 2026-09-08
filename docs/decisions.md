@@ -2089,6 +2089,14 @@ so one probe is correct gated and ungated alike. And `caddy adapt` runs during t
 build in _both_ branches, so a malformed gate fails the build rather than the container's
 first start.
 
+**Update, 1.5.0: kept permanently rather than deleted at launch.** The entry above and
+`pre-launch-gate.md` both originally scoped this as removed once the app went public. That
+changed because the need it solves — a gated image for testing a build against real host
+pages, or any other staging round where the app should not be reachable yet — is not a
+one-time pre-launch problem, it recurs. Nothing about the mechanism changes: still
+Caddy-enforced, still build-arg-only, still a manual `workflow_dispatch` to actually produce
+a gated image. Only the "delete this at launch" instruction is retracted.
+
 ## LOCKED: EULA 1.3 authorizes the rules /join was already stating
 
 `decisions.md`'s own inclusion entry above establishes that an eligibility criterion which
