@@ -20,7 +20,7 @@ specifically to confirm the CORS fix below reaches Staging.
   `/_app/immutable/*` in CORS mode, and that path never carried
   `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
   preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
-  policy`, found live on real member sites.
+policy`, found live on real member sites.
 - **An arrangement authored wider than the canvas's authored column count no longer
   cascades on overflow.** Whether the field renders the authored layout or a derived one
   now checks real fit, not just column count, and derived layouts are packed rather than
