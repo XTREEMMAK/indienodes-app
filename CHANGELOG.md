@@ -8,42 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.5.0-rc.2] - 2026-09-08
+## [1.5.0] - 2026-09-08
 
-Release candidate, published gated for the same widget-and-ring validation pass as rc.1 —
-specifically to confirm the CORS fix below reaches Staging.
-
-### Fixed
-
-- **The sandboxed iframe widget tier loads on member sites again.** `/embed-frame`'s
-  deliberately opaque-origin iframe fetches its own SvelteKit hydration chunks under
-  `/_app/immutable/*` in CORS mode, and that path never carried
-  `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
-  preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
-policy`, found live on real member sites.
-- **An arrangement authored wider than the canvas's authored column count no longer
-  cascades on overflow.** Whether the field renders the authored layout or a derived one
-  now checks real fit, not just column count, and derived layouts are packed rather than
-  left to gridstack's own collision resolution, which previously clamped one overflowing
-  node and shoved its neighbours out from under it.
-- **Batch-restoring several nodes to their saved positions on load no longer risks a later
-  restoration colliding with an earlier one's just-corrected spot** (gridstack evaluates
-  collisions live even inside a batched update).
-- **A hover flicker on the rating stars**, caused by the lift transform moving each star's
-  own hit-box out from under a stationary pointer.
-
-### Changed
-
-- **The default first-visit arrangement scales with the actual viewport** instead of
-  assuming exactly the authored column count, so a wide first load gets a centered,
-  appropriately sized starting layout instead of one that reads as small and off-center.
-- **The rating stars** carry a gold gradient fill, a hover particle burst, and a Ko-fi mark
-  on the support step.
-
-## [1.5.0-rc.1] - 2026-09-07
-
-Release candidate, published gated for the widget-and-ring validation pass the roadmap
-calls for before this becomes 1.5.0 — not yet a tagged release.
+The widget-and-ring validation release. Both required pre-release passes named in the
+roadmap — validating the widget contract against real host pages and an explicit
+responsive sweep — are complete, closing the last gate on the public-release path.
+Published first as rc.1 and rc.2 while that validation was in progress; this entry
+squashes both into the real release.
 
 ### Added
 
@@ -64,18 +35,39 @@ calls for before this becomes 1.5.0 — not yet a tagged release.
   layout.
 - **Play and pause fade the audio in and out** instead of snapping straight to full or zero
   gain.
+- **The default first-visit arrangement scales with the actual viewport** instead of
+  assuming exactly the authored column count, so a wide first load gets a centered,
+  appropriately sized starting layout instead of one that reads as small and off-center.
+- **The rating stars** carry a gold gradient fill, a hover particle burst, and a Ko-fi mark
+  on the support step.
 
 ### Fixed
 
 - **`/embed-frame`'s CSP no longer blocks its own ring fetch** under the production
   configuration, where it was silently falling back to the same-origin ring mirror instead
   of the configured origin.
+- **The sandboxed iframe widget tier loads on member sites again.** `/embed-frame`'s
+  deliberately opaque-origin iframe fetches its own SvelteKit hydration chunks under
+  `/_app/immutable/*` in CORS mode, and that path never carried
+  `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
+  preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
+policy`, found live on real member sites.
 - **The node preview card on `/update`** renders once a node is verified, instead of
   collapsing to a 2×2px box.
 - **The sound dock stays centered** independent of its own fly transition.
 - **Claiming a different node from `/update` replaces a stale in-progress draft** instead of
   the old draft's fields winning because the id field was already non-empty.
 - **The PNG favicon fallback** is generated from the small mark rather than the full logo.
+- **An arrangement authored wider than the canvas's authored column count no longer
+  cascades on overflow.** Whether the field renders the authored layout or a derived one
+  now checks real fit, not just column count, and derived layouts are packed rather than
+  left to gridstack's own collision resolution, which previously clamped one overflowing
+  node and shoved its neighbours out from under it.
+- **Batch-restoring several nodes to their saved positions on load no longer risks a later
+  restoration colliding with an earlier one's just-corrected spot** (gridstack evaluates
+  collisions live even inside a batched update).
+- **A hover flicker on the rating stars**, caused by the lift transform moving each star's
+  own hit-box out from under a stationary pointer.
 
 ## [1.4.0] - 2026-09-03
 
