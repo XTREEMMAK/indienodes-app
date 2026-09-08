@@ -214,3 +214,176 @@ for (const mixedSizes of [false, true]) {
 		}
 	});
 }
+
+/**
+ * An arrangement authored on a wide display needs more than the authored 24
+ * columns, and losing a single one (a scrollbar appearing, browser chrome,
+ * zoom) is enough to overflow it. gridstack's own answer to that was to clamp
+ * the overflowing node leftward onto its neighbour and then resolve the
+ * overlap the only way its engine can — pushing the neighbour down, which
+ * pushed the next one down after it. One node over by a single column left a
+ * hole where its neighbour had been and shoved a third clean off the bottom:
+ * stored 25,0 / 19,0 / 19,6 rendered as 24,0 / 19,6 / 19,12.
+ *
+ * The layout is derived by `computeCenteredLayout` in that case now, the same
+ * packer that already owns every below-authored-count layout. These pin both
+ * halves of that: a derived layout is coherent, and it is only ever a
+ * rendering — the authored arrangement is untouched and comes back intact.
+ */
+const OVERFLOWING = [
+	{ id: 'n-audio-1', type: 'audio', tags: [], x: 0, y: 0, w: 8, h: 8 },
+	{ id: 'n-comic-1', type: 'comic', tags: [], x: 8, y: 0, w: 6, h: 9 },
+	{ id: 'n-game-1', type: 'game', tags: [], x: 19, y: 0, w: 6, h: 6 },
+	{ id: 'n-text-1', type: 'text', tags: [], x: 19, y: 6, w: 6, h: 4 },
+	// Needs columns 25..31, so it fits at 36 columns and overflows at 30.
+	{ id: 'n-audio-2', type: 'audio', tags: [], x: 25, y: 0, w: 6, h: 6 }
+];
+
+const seedOverflowing = (page) =>
+	page.addInitScript(
+		([key, layout]) => {
+			localStorage.clear();
+			localStorage.setItem(key, JSON.stringify(layout));
+		},
+		['indienode:layout:v1', OVERFLOWING]
+	);
+
+const engineGeometry = (page) =>
+	page.evaluate(() =>
+		Object.fromEntries(
+			[...document.querySelectorAll('.grid-stack-item[gs-id]')].map((el) => {
+				const node = el.gridstackNode;
+				return [el.getAttribute('gs-id'), { x: node?.x, y: node?.y, w: node?.w, h: node?.h }];
+			})
+		)
+	);
+
+test('an arrangement too wide for the columns available packs instead of cascading', async ({
+	page
+}) => {
+	await seedOverflowing(page);
+	await page.setViewportSize({ width: 2000, height: 1100 });
+	await page.goto('/');
+	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+
+	const columns = await page.locator('.grid-stack').evaluate((el) => el.gridstack.getColumn());
+	// The width this is pinned at has to be one the arrangement overflows,
+	// or the test proves nothing.
+	expect(columns).toBeLessThan(31);
+
+	await expect
+		.poll(async () => {
+			const items = Object.entries(await engineGeometry(page)).map(([id, g]) => ({ id, ...g }));
+			const faults = [];
+			for (const item of items) {
+				if (item.x + item.w > columns) faults.push(`${item.id} overflows`);
+			}
+			for (let i = 0; i < items.length; i++) {
+				for (let j = i + 1; j < items.length; j++) {
+					const a = items[i];
+					const b = items[j];
+					if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
+						faults.push(`${a.id} overlaps ${b.id}`);
+					}
+				}
+			}
+			return faults;
+		})
+		.toEqual([]);
+});
+
+test('a derived layout never rewrites the arrangement it was derived from', async ({ page }) => {
+	await seedOverflowing(page);
+	await page.setViewportSize({ width: 2000, height: 1100 });
+	await page.goto('/');
+	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+	await page.waitForTimeout(600);
+
+	const saved = await page.evaluate(() =>
+		JSON.parse(localStorage.getItem('indienode:layout:v1') ?? '[]')
+	);
+	for (const authored of OVERFLOWING) {
+		expect(
+			saved.find((node) => node.id === authored.id),
+			authored.id
+		).toMatchObject({
+			x: authored.x,
+			y: authored.y,
+			w: authored.w,
+			h: authored.h
+		});
+	}
+});
+
+test('the authored arrangement renders as authored once it fits again', async ({ page }) => {
+	await seedOverflowing(page);
+	// 36 columns, which the arrangement's 31-column extent fits inside.
+	await page.setViewportSize({ width: 2400, height: 1100 });
+	await page.goto('/');
+	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+
+	await expect
+		.poll(() => engineGeometry(page))
+		.toEqual(
+			Object.fromEntries(
+				OVERFLOWING.map((node) => [node.id, { x: node.x, y: node.y, w: node.w, h: node.h }])
+			)
+		);
+});
+
+/**
+ * A second, independent bug from the one above, found live on a real
+ * deployment: an arrangement that fits its column count with room to spare
+ * could still come back wrong on load, with one node's x, w, and h all
+ * correct and only its y off. Restoring N nodes straight to their authored
+ * positions, one at a time, risks a later restoration colliding with an
+ * earlier one's just-corrected position and shoving it away again —
+ * gridstack evaluates collision live on every `grid.update()` call even
+ * inside a batch, the same fact `replayGroupScale` already had to work
+ * around once for a live gesture, just hit here for a settle-on-load pass
+ * instead. Confirmed by reverting the fix (a two-phase move: park every
+ * pending node somewhere nothing else can ever be, then place real
+ * positions) against this exact layout and watching it reproduce.
+ *
+ * Every shape below is deliberately legal for its type (`coerceNode`
+ * silently re-snaps an illegal one regardless of columns, which reads as
+ * this bug but is not) and no two boxes overlap (gridstack's own collision
+ * handling will relocate one deliberately, which also reads as this bug but
+ * is not) — both mistakes were made and caught while first writing this.
+ */
+const RESTORE_ORDER_SENSITIVE = [
+	{ id: 'n-audio-1', type: 'audio', tags: [], x: 0, y: 0, w: 5, h: 5 },
+	{ id: 'n-comic-1', type: 'comic', tags: [], x: 5, y: 0, w: 4, h: 6 },
+	{ id: 'n-audio-2', type: 'audio', tags: [], x: 9, y: 0, w: 5, h: 5 },
+	{ id: 'n-art-1', type: 'art', tags: [], x: 14, y: 0, w: 5, h: 5 },
+	{ id: 'n-comic-2', type: 'comic', tags: [], x: 0, y: 5, w: 5, h: 8 },
+	{ id: 'n-text-1', type: 'text', tags: [], x: 16, y: 7, w: 4, h: 7 },
+	{ id: 'n-text-2', type: 'text', tags: [], x: 10, y: 5, w: 4, h: 6 },
+	{ id: 'n-game-1', type: 'game', tags: [], x: 19, y: 0, w: 5, h: 5 },
+	{ id: 'n-audio-3', type: 'audio', tags: [], x: 25, y: 0, w: 5, h: 5 },
+	{ id: 'n-text-3', type: 'text', tags: [], x: 20, y: 5, w: 4, h: 4 }
+];
+
+test('a wide, non-overflowing arrangement restores every node exactly, repeatedly', async ({
+	page
+}) => {
+	await page.addInitScript(
+		([key, layout]) => {
+			localStorage.clear();
+			localStorage.setItem(key, JSON.stringify(layout));
+		},
+		['indienode:layout:v1', RESTORE_ORDER_SENSITIVE]
+	);
+	// The exact width and resulting column count from the live report (33
+	// columns; the arrangement only needs 30).
+	await page.setViewportSize({ width: 2195, height: 1300 });
+
+	const want = Object.fromEntries(
+		RESTORE_ORDER_SENSITIVE.map((node) => [node.id, { x: node.x, y: node.y, w: node.w, h: node.h }])
+	);
+	for (let pass = 0; pass < 3; pass++) {
+		await page.goto('/');
+		await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+		await expect.poll(() => engineGeometry(page)).toEqual(want);
+	}
+});

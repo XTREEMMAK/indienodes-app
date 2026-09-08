@@ -1,6 +1,13 @@
 import { browser } from '$app/environment';
 import { STORAGE_KEYS, safeReadJson, safeWriteJson } from './storageKeys.js';
-import { ALLOWED_RATIOS, MIN_W, defaultSizeFor, snapToAllowedShape } from './nodeShape.js';
+import {
+	ALLOWED_RATIOS,
+	GRID_COLUMNS,
+	MIN_W,
+	defaultSizeFor,
+	snapToAllowedShape
+} from './nodeShape.js';
+import { columnsForWidth } from './fieldLayout.js';
 import { normalizeTags, pruneTagsForType } from './nodeChannel.js';
 
 /**
@@ -52,40 +59,67 @@ export { GRID_COLUMNS } from './nodeShape.js';
  * the same reason the other four have one.
  *
  * Still centered, not full-width: the whole two-column block sits in the
- * middle of the 24-column canvas with margin on both sides, continuing the
- * "a composed column, not a viewport-filling spread" rule from before this.
+ * middle of the canvas with margin on both sides, continuing the "a
+ * composed column, not a viewport-filling spread" rule from before this.
  * This is still only the *first* visit's arrangement; anything the visitor
  * does after is what persists (`load()` below only reaches this when
  * nothing is already saved).
+ *
+ * Scales with `columns` rather than assuming exactly `GRID_COLUMNS`: a
+ * hardcoded `x` centered the block only at exactly 24 columns, and most
+ * ordinary screens hold more than that (a plain 1920px window is already 30
+ * -- `columnsForWidth`), which put the block visibly left-of-center in the
+ * extra room and left it the same small size regardless of how much space
+ * there actually was. `Math.max(1, ...)` means a *narrower* first visit is
+ * unaffected -- unchanged from before this, and still handled below
+ * `GRID_COLUMNS` by `computeCenteredLayout`'s own reflow once the field
+ * mounts. `snapToAllowedShape` both derives the scaled size and re-applies
+ * each type's own bound (`MAX_W`/`MAX_H`), so this never has to cap the
+ * scale factor itself -- an absurdly wide viewport just runs into the same
+ * ceiling an oversized manual resize would.
+ * @param {number} [columns] the field's column count at first render;
+ *   defaults to the authored width for SSR/prerendering, where there is no
+ *   viewport to measure and the previous fixed arrangement is exactly right.
  * @returns {FieldNodeConfig[]}
  */
-function defaultLayout() {
-	// [2, 3] (portrait) at MIN_W is an exact ratio match (w=4 -> h=6), same
-	// as [1, 1] (square) at MIN_W (w=4 -> h=4): both columns below are
-	// built from already-legal shapes, not values that need snapping.
-	const tallW = MIN_W;
-	const tallH = (MIN_W * 3) / 2;
-	const squareW = MIN_W;
+export function defaultLayout(columns = GRID_COLUMNS) {
+	const scale = Math.max(1, columns / GRID_COLUMNS);
+	const unit = Math.round(MIN_W * scale);
 
-	const columnA = 8; // left column's x; centers the 2*MIN_W-wide pair in 24 columns
-	const columnB = columnA + tallW;
+	// [2, 3] (portrait) and [1, 1] (square) are exact ratio matches for the
+	// desired w/h below at every scale, so snapping only ever clamps at the
+	// type's own MAX_W/MAX_H bound -- it never picks a different ratio.
+	const tall = snapToAllowedShape('comic', unit, Math.round((unit * 3) / 2));
+	const square = snapToAllowedShape('audio', unit, unit);
+
+	const blockW = tall.w + square.w;
+	const columnA = Math.max(0, Math.floor((columns - blockW) / 2));
+	const columnB = columnA + tall.w;
 
 	// Every shipped node starts untagged. A first visit should show what the
 	// ring actually holds, and a default tag selection would be this app
 	// deciding a visitor's taste for them before they have seen anything.
 	return [
-		{ id: 'n-comic-1', type: 'comic', tags: [], x: columnA, y: 0, w: tallW, h: tallH },
-		{ id: 'n-text-1', type: 'text', tags: [], x: columnA, y: tallH, w: tallW, h: tallH },
-		{ id: 'n-audio-1', type: 'audio', tags: [], x: columnB, y: 0, w: squareW, h: squareW },
-		{ id: 'n-game-1', type: 'game', tags: [], x: columnB, y: squareW, w: squareW, h: squareW },
+		{ id: 'n-comic-1', type: 'comic', tags: [], x: columnA, y: 0, w: tall.w, h: tall.h },
+		{ id: 'n-text-1', type: 'text', tags: [], x: columnA, y: tall.h, w: tall.w, h: tall.h },
+		{ id: 'n-audio-1', type: 'audio', tags: [], x: columnB, y: 0, w: square.w, h: square.h },
+		{
+			id: 'n-game-1',
+			type: 'game',
+			tags: [],
+			x: columnB,
+			y: square.h,
+			w: square.w,
+			h: square.h
+		},
 		// Art sits at the foot of the right column rather than being left out:
 		// every other type has a slot here, and a type that never appears on a
 		// first visit is one no visitor discovers without going to Arrange
-		// first. It takes the same 2:3 portrait as comic and text (an exact
-		// ratio match at MIN_W, so nothing snaps) because it belongs to the
-		// same wide-and-tall family, and putting it here is also what keeps
-		// the two columns uneven — see the note above on why that matters.
-		{ id: 'n-art-1', type: 'art', tags: [], x: columnB, y: squareW * 2, w: tallW, h: tallH }
+		// first. It takes the same 2:3 portrait as comic and text because it
+		// belongs to the same wide-and-tall family, and putting it here is
+		// also what keeps the two columns uneven — see the note above on why
+		// that matters.
+		{ id: 'n-art-1', type: 'art', tags: [], x: columnB, y: square.h * 2, w: tall.w, h: tall.h }
 	];
 }
 
@@ -124,11 +158,26 @@ function coerceNode(raw) {
 	return { id, type, tags: normalizeTags(node.tags), x, y, w: snapped.w, h: snapped.h };
 }
 
+/**
+ * The field's column count at this exact moment, for sizing a freshly
+ * generated default layout. `window.innerWidth` rather than the grid's own
+ * measured container width, which nothing outside `FieldGrid.svelte` has —
+ * this runs before any grid element exists, at store creation or on an
+ * explicit reset. Close enough for a one-time starter arrangement: it is
+ * only ever a column or so wider than the real container (page margins, the
+ * scrollbar gutter), and the field's own responsive reflow corrects anything
+ * that matters once it actually mounts.
+ * @returns {number}
+ */
+function viewportColumns() {
+	return browser ? columnsForWidth(window.innerWidth) : GRID_COLUMNS;
+}
+
 /** @returns {FieldNodeConfig[]} */
 function load() {
 	if (!browser) return defaultLayout();
 	const parsed = safeReadJson(STORAGE_KEY, /** @type {unknown} */ (null));
-	if (!Array.isArray(parsed)) return defaultLayout();
+	if (!Array.isArray(parsed)) return defaultLayout(viewportColumns());
 	// An empty stored array is a real state (the visitor removed every node)
 	// and is preserved. Only an unreadable one falls back.
 	return parsed.map(coerceNode).filter((n) => n !== null);
@@ -362,7 +411,7 @@ function createLayoutStore() {
 		/** Restores the shipped arrangement, for an "undo my mess" affordance. */
 		reset() {
 			record();
-			nodes = defaultLayout();
+			nodes = defaultLayout(viewportColumns());
 			persist();
 		}
 	};

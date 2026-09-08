@@ -101,11 +101,12 @@
 	let sweepJustEnded = false;
 
 	$effect(() => {
-		// Selection is meaningless once arranging stops, and on the mobile
-		// stack a drag already means reorder rather than a group move (see
-		// the `change` handler's own column-count branch), so a selection
-		// made at full width has nothing to apply to there either.
-		if (!editMode || columnCount < GRID_COLUMNS) selectedIds.clear();
+		// Selection is meaningless once arranging stops, and wherever the
+		// canvas is showing a derived layout a drag already means reorder
+		// rather than a group move (see the `change` handler's own
+		// `showsAuthored` branch), so a selection made at full width has
+		// nothing to apply to there either.
+		if (!editMode || !showsAuthored) selectedIds.clear();
 	});
 
 	$effect(() => {
@@ -587,6 +588,37 @@
 			: columnsForWidth(viewportSize.w)
 	);
 
+	/**
+	 * Whether the canvas is currently rendering the arrangement as authored,
+	 * or a layout derived from it.
+	 *
+	 * Two things have to be true. There have to be at least the authored
+	 * number of columns — below that a node wider than the grid is clamped
+	 * and its coordinates stop describing anything. And the arrangement has
+	 * to actually *fit* in the columns there are, which is not implied by the
+	 * first: a node arranged against the right edge of a wide window needs
+	 * more columns than the authored 24, and one lost column (a scrollbar
+	 * appearing, browser chrome, zoom) is enough to overflow it.
+	 *
+	 * That second case used to fall through to the authored path anyway, and
+	 * the damage was not the clamp itself but what followed it. gridstack
+	 * clamps the overflowing node leftward onto its neighbour, then resolves
+	 * that overlap the only way its engine can — pushing the neighbour *down*
+	 * — and that push overlaps the next node, and so on. One node overflowing
+	 * by a single column left a hole where the neighbour had been and shoved
+	 * a third node clean off the bottom of the arrangement. Verified: stored
+	 * 25,0 / 19,0 / 19,6 rendered as 24,0 / 19,6 / 19,12.
+	 *
+	 * The store is never wrong through any of this — only the render is —
+	 * which is why nudging the displaced node in arrange mode appears to
+	 * "fix" it: the authored answer was still there to reconcile against.
+	 * Deriving the layout instead of letting the engine improvise one keeps
+	 * that recovery from being something the visitor has to perform.
+	 */
+	const showsAuthored = $derived(
+		columnCount >= GRID_COLUMNS && nodes.every((node) => node.x + node.w <= columnCount)
+	);
+
 	// The dot grid is a viewport-filling layer, so it needs to be told where the
 	// grid actually is to keep its lattice on real cell boundaries. Written
 	// straight to the element rather than held in state: it updates on scroll,
@@ -868,15 +900,20 @@
 				if (restoring) return;
 				if (!items?.length) return;
 
-				if (instance.getColumn() < GRID_COLUMNS) {
-					// The mobile stack, and only ever the mobile stack: above that
-					// breakpoint the canvas holds all 24 authored columns and takes
-					// the branch below. Here a node authored 16 cells wide does not
-					// fit in 4 columns at all, so x/y describes nothing worth saving
-					// and a drag means "put it here in the reading order" instead.
-					// The stacking effect regenerates clean coordinates from that
-					// order on the next tick. This is also what makes touch dragging
-					// work as reordering on a phone.
+				if (!showsAuthored) {
+					// Any derived layout, not just the mobile stack: either there
+					// are fewer than the authored 24 columns, or the arrangement
+					// does not fit the columns there are (see `showsAuthored`).
+					// Either way what is on screen came from
+					// `computeCenteredLayout`, so x/y describes the packer's
+					// output rather than anything the visitor authored, and
+					// writing it back would overwrite the real arrangement with a
+					// rendering of it — the exact failure the authored-count rule
+					// below already exists to prevent. A drag means "put it here
+					// in the reading order" instead; the packing effect
+					// regenerates clean coordinates from that order on the next
+					// tick. This is also what makes touch dragging work as
+					// reordering on a phone.
 					const order = deriveOrderFromDom();
 					// Only when the sequence actually differs. A drag that ends where
 					// it started still reports a change (gridstack shuffled the
@@ -1074,18 +1111,19 @@
 	// already agrees with the engine) is a no-op rather than a feedback loop.
 	$effect(() => {
 		const snapshot = nodes.map((n) => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h }));
-		// Depends on the column count as well as the store. A trip down to a
-		// reduced count leaves gridstack's engine holding a reflowed layout:
-		// wide nodes clamped, and everything repacked into the narrower grid.
-		// The store never changed, so without the column dependency this had
-		// no reason to re-run and the field stayed visibly wrong for the rest
-		// of the session even though a reload was correct.
-		const columns = columnCount;
+		// Depends on the column count as well as the store, through
+		// `showsAuthored`. A trip down to a reduced count leaves gridstack's
+		// engine holding a reflowed layout: wide nodes clamped, and
+		// everything repacked into the narrower grid. The store never
+		// changed, so without that dependency this had no reason to re-run
+		// and the field stayed visibly wrong for the rest of the session even
+		// though a reload was correct.
+		const authored = showsAuthored;
 		// Read before the guard, and bail while a gesture is in flight: see
 		// `interacting`'s own note. Reading it here is also what re-runs this
 		// effect when the gesture ends, so a drop still settles.
 		const busy = interacting;
-		if (!grid || !ready || busy || columns < GRID_COLUMNS) return;
+		if (!grid || !ready || busy || !authored) return;
 
 		untrack(() => {
 			if (!grid || !gridEl) return;
@@ -1116,12 +1154,24 @@
 			}
 			if (!pending.length) return;
 
-			// Batched and flagged: applied one at a time each update would
-			// reflow against the others and land somewhere else again, and
-			// every one of those intermediate states would be persisted as if
-			// the visitor had made it.
+			// Batched and flagged, and staged before being placed. Batching
+			// alone is not enough: gridstack evaluates collision live on every
+			// `grid.update()` call even inside one, which `replayGroupScale`
+			// already had to work around once (see its own history) — restoring
+			// several nodes straight to their real positions one at a time
+			// risks a later item's placement colliding with an earlier item's
+			// just-restored, correct spot and shoving it away again. Confirmed
+			// live: a ten-node arrangement that fit its column count came back
+			// with one node's x, w, and h all correct and only y wrong, by
+			// however far a later restoration's collision push moved it.
+			// Parking every pending node somewhere nothing real can ever be
+			// first removes the chance of that: by the time real positions go
+			// in, nothing pending is still sitting where it could collide with
+			// another pending item's destination.
 			restoring = true;
 			grid.batchUpdate();
+			const parkingGrid = grid;
+			pending.forEach(({ el }, i) => parkingGrid.update(el, { x: 0, y: 100000 + i * 50 }));
 			for (const { el, wanted } of pending) {
 				grid.update(el, { x: wanted.x, y: wanted.y, w: wanted.w, h: wanted.h });
 			}
@@ -1146,7 +1196,7 @@
 		// The effect this guard matters most for: it reads the cell pitch, which
 		// is exactly what gridstack churns while dragging. See `interacting`.
 		const busy = interacting;
-		if (!grid || !ready || busy || columns === 0 || columns >= GRID_COLUMNS) return;
+		if (!grid || !ready || busy || columns === 0 || showsAuthored) return;
 
 		const wantedLayout = computeCenteredLayout(nodeList, columns);
 
@@ -1176,13 +1226,18 @@
 			}
 			if (!pending.length) return;
 
-			// Batched and flagged for the same reason as the effect above: an
-			// unbatched pass would have each update reflow against the
-			// others, and the `change` guard elsewhere already refuses to
-			// persist a reduced-column state, but restoring still keeps the
-			// intermediate positions out of onGeometryChange entirely.
+			// Staged before being placed, for the same reason as the effect
+			// above: `computeCenteredLayout`'s own output is internally
+			// non-overlapping, but a pending item's *current* position (left
+			// over from whatever gridstack's native reflow did) can still
+			// overlap another pending item's target, and gridstack evaluates
+			// collision live per `grid.update()` call even inside a batch.
+			// Parking everything out of the way first means every real
+			// placement lands against only already-settled positions.
 			restoring = true;
 			grid.batchUpdate();
+			const parkingGrid = grid;
+			pending.forEach(({ el }, i) => parkingGrid.update(el, { x: 0, y: 100000 + i * 50 }));
 			for (const { el, wanted } of pending) {
 				grid.update(el, { x: wanted.x, y: wanted.y, w: wanted.w, h: wanted.h });
 			}
@@ -1264,12 +1319,15 @@
 	// reorder (see the `change` handler), which is what makes touch dragging
 	// work as reordering on a phone instead of needing a separate mechanism.
 	//
-	// Resize is off on the mobile stack alone, and the same window measurement
-	// gates it that gridstack uses to choose the stack in the first place — so
-	// resizing is available exactly when the canvas is at its authored column
-	// count, and never at a count where a node's width has been clamped to fit.
+	// Resize is off wherever the canvas is showing a derived layout rather
+	// than the authored one — so it is available exactly when a size written
+	// back describes the arrangement itself, and never while widths are
+	// clamped to fit (the mobile stack, or an arrangement overflowing the
+	// columns available). The `change` handler refuses to persist geometry in
+	// that same state; leaving the handles live there would offer a gesture
+	// whose result is discarded.
 	//
-	// `editMode` and `columnCount` are read here, before the guard, on
+	// `editMode` and `showsAuthored` are read here, before the guard, on
 	// purpose: an effect's dependencies for its *next* run come from what it
 	// read on its *last* run, and `grid`/`ready` start false, so the guard
 	// used to return before either was ever read. The very first run past
@@ -1279,9 +1337,9 @@
 	// Reading them unconditionally, matching every other effect below,
 	// keeps them tracked regardless of which run first clears the guard.
 	$effect(() => {
-		const columns = columnCount;
+		const authored = showsAuthored;
 		const wantMove = editMode;
-		const wantResize = editMode && columns >= GRID_COLUMNS;
+		const wantResize = editMode && authored;
 		if (!grid || !ready) return;
 		grid.enableMove(wantMove);
 		grid.enableResize(wantResize);
@@ -1404,7 +1462,7 @@
 	 * @param {string} nodeId
 	 */
 	function handleNodeClick(event, nodeId) {
-		if (!editMode || columnCount < GRID_COLUMNS) return;
+		if (!editMode || !showsAuthored) return;
 		// The same selector gridstack's own `draggable.cancel` option uses to
 		// keep a press on a real control from starting a drag — matched here
 		// so a click on the type dropdown, a tag chip, or Visit toggles that
@@ -1460,7 +1518,7 @@
 	 * @param {PointerEvent} event
 	 */
 	function handleGridPointerDown(event) {
-		if (!editMode || columnCount < GRID_COLUMNS) return;
+		if (!editMode || !showsAuthored) return;
 		if (!event.shiftKey || event.button !== 0) return;
 		if (event.target !== event.currentTarget) return;
 		// Otherwise the browser starts a text selection across the whole page
@@ -1635,9 +1693,10 @@
 		event.preventDefault();
 
 		if (event.shiftKey) {
-			// Matches the pointer gate above: sizing is meaningless on the mobile
-			// stack, where every node is one full-width column regardless.
-			if (columnCount < GRID_COLUMNS) return;
+			// Matches the pointer gate above: sizing is meaningless wherever the
+			// canvas is showing a derived layout, since the `change` handler
+			// refuses to persist geometry there.
+			if (!showsAuthored) return;
 			// Step by a whole cell then snap, so each press lands on the next
 			// permitted size rather than nudging toward one that never arrives.
 			const step = 2;
@@ -1772,7 +1831,7 @@
 				role={editMode ? 'application' : undefined}
 				tabindex={editMode ? 0 : undefined}
 				aria-label={editMode
-					? columnCount >= GRID_COLUMNS
+					? showsAuthored
 						? `${node.type} node, ${node.w} by ${node.h}. Arrow keys to move, shift and arrow keys to resize. Shift-click to select multiple nodes and move them together.`
 						: `${node.type} node, ${node.w} by ${node.h}. Arrow keys to move.`
 					: undefined}

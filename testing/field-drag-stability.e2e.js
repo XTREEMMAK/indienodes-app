@@ -73,9 +73,17 @@ const columnsNow = (page) =>
  * bottom, both of which match gridstack's `cancel` selector. On the open
  * canvas a card can be as little as 128px tall, so an offset that clears them
  * comfortably at desktop sizes lands squarely on one of them further down.
+ *
+ * Scrolled into view first: a node far enough down the field (the default
+ * arrangement's own nodes now scale up with a wide first-load viewport, see
+ * layoutStore's defaultLayout) can render below the fold in a short test
+ * viewport, and `page.mouse.move` targets absolute viewport coordinates with
+ * no auto-scroll of its own the way a locator action gets for free.
  */
 async function pressOn(page, id) {
-	const box = await page.locator(`.grid-stack-item[gs-id="${id}"]`).boundingBox();
+	const locator = page.locator(`.grid-stack-item[gs-id="${id}"]`);
+	await locator.scrollIntoViewIfNeeded();
+	const box = await locator.boundingBox();
 	if (!box) throw new Error(`${id} has no bounding box`);
 	const from = { x: box.x + box.width / 2, y: box.y + box.height * 0.45 };
 	await page.mouse.move(from.x, from.y);
@@ -139,6 +147,12 @@ test('cards hold their size and the canvas gains columns instead', async ({ page
 	await page.goto('/');
 	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
 	await page.waitForTimeout(400);
+	// Read once the field settles, rather than hardcoding a literal size: the
+	// default arrangement's own starting size now scales with the viewport it
+	// first loads at (see layoutStore's defaultLayout), so what this test
+	// guards is that resizing afterward never changes it, not any specific
+	// number of pixels.
+	const expectedWidth = (await card()).width;
 	for (const width of [2560, 1920, 1608, 1400, 1200, 900, 600]) {
 		await page.setViewportSize({ width, height: 1000 });
 		// Polled rather than read once: a resize re-derives the column count and
@@ -149,8 +163,13 @@ test('cards hold their size and the canvas gains columns instead', async ({ page
 				async () => {
 					const c = await card();
 					// The same card at every width, give or take the slack a whole
-					// number of columns leaves in a row — not one tracking the window.
-					return c.width > 200 && c.width < 340;
+					// number of columns leaves in a row — not one tracking the
+					// window. Percentage rather than a flat pixel budget: near the
+					// narrow end a column's own width stops being exactly
+					// CANVAS_CELL_PX and flexes to fill the container evenly
+					// instead (see columnsForWidth), which is a bigger absolute
+					// swing for a wider card than a slim one.
+					return Math.abs(c.width - expectedWidth) < expectedWidth * 0.1;
 				},
 				{ message: `card width at ${width}px` }
 			)
@@ -834,6 +853,11 @@ test.describe('proportional group resize', () => {
 		const handle = page.locator(
 			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
 		);
+		// The node this belongs to may be far enough down the field (the
+		// default arrangement's own nodes now scale up with a wide first-load
+		// viewport) to sit below the fold, especially after moveClearBy's own
+		// scroll to reach a different node earlier in the same test.
+		await handle.scrollIntoViewIfNeeded();
 		const handleBox = await handle.boundingBox();
 		if (!handleBox) throw new Error('n-text-1 has no se handle');
 		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -872,6 +896,11 @@ test.describe('proportional group resize', () => {
 		const handle = page.locator(
 			'.grid-stack-item[gs-id="n-comic-1"] .ui-resizable-handle.ui-resizable-e'
 		);
+		// The node this belongs to may be far enough down the field (the
+		// default arrangement's own nodes now scale up with a wide first-load
+		// viewport) to sit below the fold, especially after moveClearBy's own
+		// scroll to reach a different node earlier in the same test.
+		await handle.scrollIntoViewIfNeeded();
 		const handleBox = await handle.boundingBox();
 		if (!handleBox) throw new Error('n-comic-1 has no e handle');
 		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -1086,6 +1115,11 @@ test.describe('live group-resize preview', () => {
 		const handle = page.locator(
 			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
 		);
+		// The node this belongs to may be far enough down the field (the
+		// default arrangement's own nodes now scale up with a wide first-load
+		// viewport) to sit below the fold, especially after moveClearBy's own
+		// scroll to reach a different node earlier in the same test.
+		await handle.scrollIntoViewIfNeeded();
 		const handleBox = await handle.boundingBox();
 		if (!handleBox) throw new Error('n-text-1 has no se handle');
 		await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -1141,6 +1175,11 @@ test.describe('live group-resize preview', () => {
 		const handle = page.locator(
 			'.grid-stack-item[gs-id="n-text-1"] .ui-resizable-handle.ui-resizable-se'
 		);
+		// The node this belongs to may be far enough down the field (the
+		// default arrangement's own nodes now scale up with a wide first-load
+		// viewport) to sit below the fold, especially after moveClearBy's own
+		// scroll to reach a different node earlier in the same test.
+		await handle.scrollIntoViewIfNeeded();
 		const handleBox = await handle.boundingBox();
 		if (!handleBox) throw new Error('n-text-1 has no se handle');
 		const start = {
