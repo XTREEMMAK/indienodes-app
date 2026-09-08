@@ -189,6 +189,20 @@ The container's health probe targets `/ring.json` precisely because it is open i
 modes — `docker inspect --format '{{.State.Health.Status}}'` should reach `healthy` either
 way. Never add credentials to the healthcheck.
 
+**If a header/CORS/CSP fix checks out against `curl -sI` on the real production URL but a
+real browser still reproduces the original symptom after a hard refresh, a cache-cleared
+reload, and incognito** — all of which rule out the browser's own cache — suspect
+Cloudflare's edge cache next, not the Caddyfile again. `/_app/immutable/*` (and anything
+else served `Cache-Control: ... immutable`) gets cached at the CDN layer for up to a year
+and won't revalidate with origin in that window; a POP that cached the broken response
+before the fix shipped keeps serving it regardless of what origin now returns.
+`cf-cache-status: MISS` on your own `curl` only proves the one POP that request happened to
+land on, not the one an actual visitor resolves to. The fix is a Cloudflare cache purge
+(dashboard → Caching → Configuration → Purge Everything), not another look at the origin
+config. Full incident writeup: `decisions.md`, "Found live: `/_app/immutable/*` never
+carried the CORS header the sandboxed iframe needs, and Cloudflare's own cache outlived the
+fix".
+
 ## Operating it
 
 - **Failed attempts are logged.** Caddy writes JSON access logs to stderr, so `docker logs`
