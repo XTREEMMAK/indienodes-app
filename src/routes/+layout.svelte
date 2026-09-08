@@ -148,7 +148,31 @@
 	// full quota). onMount runs once and reads nothing reactive.
 	onMount(() => feedbackStore.countVisit());
 
+	// `?debug=rating-test` opens the prompt immediately, skipping the real
+	// ten-visit wait — same `import.meta.env.DEV` + URL-param gate
+	// AudioDebugPanel already uses, and the same reasoning: dev-only so
+	// nothing reachable by a real visitor forces this. Bypasses `eligible`
+	// entirely, including `answered`, so the same browser can retrigger it
+	// on every reload without clearing storage in between.
+	//
+	// `?debug=rating-test-support` opens straight to the Ko-fi step instead
+	// — the step a real visitor only reaches by rating first, and only when
+	// VITE_KOFI_URL is actually set (see FeedbackPrompt's `send()`), which a
+	// dev environment often has no reason to configure. `initialStep` is
+	// FeedbackPrompt's own escape hatch for exactly this: previewing that
+	// step's copy and layout without needing Ko-fi configured or a rating
+	// actually sent.
+	/** @type {Record<string, 'rating' | 'support'>} */
+	const DEBUG_RATING_STEPS = { 'rating-test': 'rating', 'rating-test-support': 'support' };
+	const debugRatingStep = $derived(
+		import.meta.env.DEV ? DEBUG_RATING_STEPS[page.url.searchParams.get('debug') ?? ''] : undefined
+	);
+
 	$effect(() => {
+		if (debugRatingStep) {
+			feedbackOpen = true;
+			return;
+		}
 		// Deferred past the ambient dialog and past first paint: arriving on top
 		// of the page someone just opened is the difference between an ask and
 		// an interruption.
@@ -412,7 +436,11 @@
 			</div>
 		</Modal>
 
-		<FeedbackPrompt open={feedbackOpen} onClose={() => (feedbackOpen = false)} />
+		<FeedbackPrompt
+			open={feedbackOpen}
+			onClose={() => (feedbackOpen = false)}
+			initialStep={debugRatingStep === 'support' ? 'support' : undefined}
+		/>
 
 		<AmbientView open={ambientOpen} onClose={() => (ambientOpen = false)} />
 
