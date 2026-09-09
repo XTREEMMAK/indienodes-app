@@ -260,7 +260,7 @@ RATING_WEBHOOK_PATH = "indienodes-rating"
 # dwell time, Turnstile, rate limits and token verification are what actually
 # guard this endpoint; widening this list does not weaken any of them.
 INTAKE_ALLOWED_ORIGINS = (
-    "https://indienodes.us,https://test.indienodes.us,http://localhost:5173"
+    "https://app.indienodes.us,https://test.indienodes.us,http://localhost:5173"
 )
 _extra_origins = os.environ.get("N8N_EXTRA_ORIGINS", "").strip().strip(",")
 if _extra_origins:
@@ -2268,7 +2268,7 @@ const reviewContent = isRemoval
 
 const body = `
 <main class="shell">
-  <a class="brand" href="https://indienodes.us/" target="_blank" rel="noopener">
+  <a class="brand" href="https://app.indienodes.us/" target="_blank" rel="noopener">
     <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <span class="brand-copy"><strong>IndieNodes</strong><small>Private review</small></span>
   </a>
@@ -2529,7 +2529,7 @@ return [{ json: { ok: (status >= 200 && status < 300 && url) ? 'yes' : 'no', pr_
 """
 
     review_brand = (
-        '<a class="brand" href="https://indienodes.us/" target="_blank" rel="noopener">'
+        '<a class="brand" href="https://app.indienodes.us/" target="_blank" rel="noopener">'
         '<span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>'
         '<span class="brand-copy"><strong>IndieNodes</strong>'
         '<small>Private review</small></span></a>'
