@@ -1,14 +1,14 @@
 # IndieNodes Terms of Use and Privacy Notice
 
-Effective September 2, 2026 · Version 1.2
+Effective September 9, 2026 · Version 1.3
 
-|                            |                                                                 |
-| -------------------------- | --------------------------------------------------------------- |
-| **Service**                | IndieNodes, including indienodes.us and its official web embeds |
-| **Operator**               | Jamaal Ephriam, operating IndieNodes                            |
-| **Contact**                | contact@keyjayonline.com                                        |
-| **Terms effective date**   | September 2, 2026                                               |
-| **Privacy effective date** | September 2, 2026                                               |
+|                            |                                                                     |
+| -------------------------- | ------------------------------------------------------------------- |
+| **Service**                | IndieNodes, including app.indienodes.us and its official web embeds |
+| **Operator**               | Jamaal Ephriam, operating IndieNodes                                |
+| **Contact**                | contact@keyjayonline.com                                            |
+| **Terms effective date**   | September 9, 2026                                                   |
+| **Privacy effective date** | September 9, 2026                                                   |
 
 IndieNodes is a creator-first webring for discovering independent audio, art, comics,
 writing, and games. It is not a social network or media-hosting platform. There are no
