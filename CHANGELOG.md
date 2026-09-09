@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-09
+
+A fix-only release for multi-select in Arrange mode. The feature shipped in 1.5.0 moved and
+scaled a group correctly, but almost everything _around_ the gesture was wrong — what the
+drag previewed, whether the drop committed at all, and whether the selection survived it.
+
 ### Fixed
 
 - **A multi-select drag in Arrange mode now previews and commits the whole group.** Three
