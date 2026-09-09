@@ -48,7 +48,7 @@ export default defineConfig({
 			//
 			// VITE_SITE_ORIGIN=http://localhost:4173 makes this build a genuinely
 			// standalone deployment rather than one that happens to serve from
-			// this port while still identifying itself as https://indienodes.us
+			// this port while still identifying itself as https://app.indienodes.us
 			// (`SITE_ORIGIN`'s own default). Without it, anything that builds an
 			// absolute URL from `SITE_ORIGIN` -- the widget's own `RING_JSON_URL`
 			// fallback, most notably -- reaches across the real internet for

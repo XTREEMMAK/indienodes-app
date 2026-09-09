@@ -1540,7 +1540,7 @@ Variables), not from anything on the infra side:
 
 | Variable                      | Unset behaviour                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VITE_SITE_ORIGIN`            | Dockerfile default `https://indienodes.us`                                                                                                                   |
+| `VITE_SITE_ORIGIN`            | Dockerfile default `https://app.indienodes.us`                                                                                                               |
 | `VITE_SUBMISSION_WEBHOOK_URL` | `/join` and `/update` report submissions closed                                                                                                              |
 | `VITE_CONTACT_WEBHOOK_URL`    | `/contact` reports itself closed                                                                                                                             |
 | `VITE_TURNSTILE_SITE_KEY`     | No widget rendered — was the live state through 2026-08-30; Turnstile is on as of 2026-08-31, so this row is now the fallback rather than the deployed state |

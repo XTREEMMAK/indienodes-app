@@ -229,7 +229,7 @@ An unparseable JSON body is rejected by n8n's webhook layer with a 422 before th
 runs. That is fine — the body is JSON, so `webhookClient.js` produces a non-retryable
 `http_422` rather than hanging.
 
-**CORS** is set on the Webhook node's `allowedOrigins`, scoped to `https://indienodes.us`
+**CORS** is set on the Webhook node's `allowedOrigins`, scoped to `https://app.indienodes.us`
 (matching `SITE_ORIGIN` in `src/lib/config.js`) plus `http://localhost:5173`. The node defaults
 to `*`; the production origin is known, so it is named. The browser deliberately sends
 preflighted JSON, so OPTIONS must be answered — verified from both an allowed and a disallowed
