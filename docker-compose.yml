@@ -22,7 +22,7 @@ services:
     build:
       context: .
       args:
-        VITE_SITE_ORIGIN: ${VITE_SITE_ORIGIN:-https://indienodes.us}
+        VITE_SITE_ORIGIN: ${VITE_SITE_ORIGIN:-https://app.indienodes.us}
         VITE_SUBMISSION_WEBHOOK_URL: ${VITE_SUBMISSION_WEBHOOK_URL:-}
         VITE_CONTACT_WEBHOOK_URL: ${VITE_CONTACT_WEBHOOK_URL:-}
         VITE_RATING_WEBHOOK_URL: ${VITE_RATING_WEBHOOK_URL:-}

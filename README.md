@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://indienodes.us">Visit IndieNodes</a> ·
+  <a href="https://app.indienodes.us">Visit IndieNodes</a> ·
   <a href="#run-it-locally">Run locally</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="#embed-the-ring">Embed the ring</a>
@@ -201,7 +201,7 @@ or DOM, regardless of what runs inside it. Add it to any page with:
 
 ```html
 <iframe
-	src="https://indienodes.us/embed-frame?site-id=your-ring-entry-id"
+	src="https://app.indienodes.us/embed-frame?site-id=your-ring-entry-id"
 	title="IndieNodes webring"
 	width="260"
 	height="150"
@@ -217,7 +217,7 @@ with an isolated shadow root instead — simpler DOM, but the script itself runs
 page's own JavaScript privileges, unlike the sandboxed iframe above:
 
 ```html
-<script type="module" src="https://indienodes.us/embed.v1.js"></script>
+<script type="module" src="https://app.indienodes.us/embed.v1.js"></script>
 <indienode-widget site-id="your-ring-entry-id"></indienode-widget>
 ```
 
@@ -242,7 +242,7 @@ iframe doesn't inherit CSS custom properties from the page embedding it:
 
 ```html
 <iframe
-	src="https://indienodes.us/embed-frame?site-id=your-ring-entry-id&accent=%232563eb"
+	src="https://app.indienodes.us/embed-frame?site-id=your-ring-entry-id&accent=%232563eb"
 ></iframe>
 ```
 
