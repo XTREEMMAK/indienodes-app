@@ -8,6 +8,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **A multi-select drag in Arrange mode now previews and commits the whole group.** Three
+  things were wrong at once while a selection was in flight, all of them in what the
+  gesture showed rather than in the selection itself. The drop target under the group was
+  gridstack's own placeholder for the single grabbed node, so a group move previewed one
+  card and left the rest unaccounted for; every selected node now gets a ghost, drawn from
+  the same clamped pointer delta the drop itself uses. A selected node that the engine's
+  live collision handling shoved aside mid-drag carried that shove into its preview and
+  visibly popped out of the group; each follower is now drawn from where it stood when the
+  drag began, so the selection holds its shape whatever the engine does underneath. And
+  the group appeared to snap back to its old position and slide into the new one on
+  release, because gridstack's position transition ran over the settling frame; that
+  transition is now held off for exactly as long as the drop takes to settle.
+- **A drop is no longer silently discarded when the engine refuses the move.** gridstack
+  emits no `change` event at all when its own idea of the dragged node's position is
+  unchanged, and it refuses to move a node onto occupied cells — so an ordinary drop onto
+  a neighbour produced no event, the drag was never resolved, and the whole group sprang
+  back to where it started. (Nudging past the target and back appeared to fix it only
+  because any engine movement at all produces the event.) The drop is now settled from the
+  release itself when no event arrives, from the same snapshot and pointer position it
+  always used, so what the drop commits no longer depends on the engine having an opinion
+  about it.
+- **A selection survives the gesture that moved it, as long as shift is still held.** A
+  drag or resize begins on a card and ends somewhere else, so the browser picks the two
+  targets' common ancestor as the trailing click's target — the grid itself, which the
+  background handler reads as "clear the selection". Every group move therefore threw away
+  the group it had just moved. Holding shift through the release now keeps it, so the same
+  group can be moved again without being rebuilt; releasing without shift still clears, as
+  the way to let a selection go.
+- **A follower no longer pops out of the group for a frame during a slow drag.** gridstack
+  listens for `mousemove` on the document; this component listens for `pointermove` on the
+  grid, and the browser fires the pointer event first — so a preview computed only when a
+  pointer event arrived was always exactly one event behind the engine, painting every
+  shove before undoing it. A pointer that then stopped moving left that broken frame on
+  screen until the next move came. The preview is now redrawn before every paint for the
+  length of the gesture, which also covers the movement no pointer event announces at all:
+  gridstack's throttled cell-height re-measure, its auto-scroll at the edge of the window,
+  and the page shifting under a grid that grows as a node is carried down it.
+- **A dropped group lands where it was let go.** Positions were written one at a time into
+  an engine that evaluates collision live on every write, so members of a group — which
+  overlap each other's start and target cells by construction — pushed each other on the
+  way in: two stacked nodes dropped two rows down committed a twelve-row move. Every node
+  is staged clear of the arrangement first, the same way the layout-restoring paths
+  already do it, so the only collision left to resolve is a member landing on a neighbour
+  that stayed put.
+
 ## [1.5.0] - 2026-09-08
 
 The widget-and-ring validation release. Both required pre-release passes named in the

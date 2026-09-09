@@ -99,6 +99,16 @@
 	// that ends a sweep would immediately undo the sweep's own result. Set
 	// when a real sweep completes, read and cleared by that click.
 	let sweepJustEnded = false;
+	// The same problem for a drag or a resize, arrived at by a different
+	// route. The press begins on a card and the release lands somewhere else,
+	// so the browser walks up to the two targets' common ancestor to pick a
+	// click target — and that is the grid itself (verified empirically: the
+	// trailing click after a group drag reports `.grid-stack` as its target,
+	// not the card that was grabbed, which is also why `handleNodeClick`
+	// never sees it). A click on the grid is exactly what the background
+	// handler treats as "clear the selection", so every gesture ended by
+	// throwing away the selection it had just finished moving.
+	let gestureJustEnded = false;
 
 	$effect(() => {
 		// Selection is meaningless once arranging stops, and wherever the
@@ -160,6 +170,62 @@
 	// corner-resize gesture rather than a move.
 	/** @type {string[]} */
 	let dragFollowerIds = [];
+	// Where each follower's own box actually sat, in grid pixels, at the
+	// moment the drag began — the fixed point its live preview is drawn from.
+	//
+	// Load-bearing, not a convenience: gridstack's collision handling keeps
+	// running for the one node it is tracking, and a follower it decides to
+	// shove out of that node's way has its real `left`/`top` rewritten
+	// mid-drag. A preview expressed as a plain translate from wherever the
+	// element currently is inherits that shove on top of the pointer's own
+	// travel, which is exactly what made a member of the group appear to pop
+	// out of it while everything was moving. Measuring the drift from this
+	// anchor on every move and subtracting it back out pins the preview to
+	// the shape the selection had when it was grabbed, whatever the engine
+	// does to the element underneath — and the engine's churn is discarded
+	// at drop time anyway (see `replayDrop`), so nothing is lost by ignoring
+	// it here.
+	//
+	// A plain array for the same reason `dragFollowerIds` above is one:
+	// nothing renders from it, and a selection is small enough that a scan
+	// costs less than the reactivity a keyed collection would drag in.
+	/** @type {{ id: string, left: number, top: number }[]} */
+	let dragFollowerAnchors = [];
+	// Where the grid itself was on screen when the drag began. A follower's
+	// anchor above is measured inside the grid, but the travel added to it is
+	// the pointer's, which is measured against the viewport — and the two
+	// spaces do not stay aligned: the grid grows and shrinks as a node is
+	// carried around it, which moves the whole container up or down the page
+	// under everything anchored to it. Holding the container's own start
+	// position lets both halves of the sum be stated in viewport
+	// coordinates, which is the space the grabbed node is being dragged in.
+	/** @type {{ left: number, top: number } | null} */
+	let dragGridOrigin = null;
+	// Where every member of a group drag would land if it were dropped now,
+	// in cells. gridstack draws a placeholder for the one node it is
+	// dragging and knows nothing about the rest of a selection, so a group
+	// move had a ghost under one card and nothing under the others; these
+	// are the missing ones, and the grabbed node's own is included so the
+	// whole group previews from one consistent source (its native
+	// placeholder is hidden for the duration — see `group-dragging`).
+	//
+	// $state, unlike the follower bookkeeping above, because this one really
+	// does render.
+	/** @type {{ id: string, x: number, y: number, w: number, h: number }[]} */
+	let dropGhosts = $state([]);
+	// The delta `dropGhosts` above was last built from, so a frame that
+	// resolves to the same cells does not rebuild them; see
+	// `paintGroupDragPreview`.
+	let ghostDelta = { dx: 0, dy: 0 };
+	// Where the pointer is now, as opposed to where it started
+	// (`dragPointerStart`) or was let go (`dragPointerEnd`). The preview is
+	// redrawn every frame from this rather than only when a pointer event
+	// arrives, which is what keeps it from painting a frame behind the
+	// engine — see `paintGroupDragPreview`.
+	/** @type {{ x: number, y: number } | null} */
+	let dragPointerNow = null;
+	/** Handle for that per-frame pass, 0 when no group drag is running. */
+	let dragPreviewFrame = 0;
 	// The resize equivalent of dragStart/draggedId above: the field as it
 	// stood when the current resize began, plus which node is being resized.
 	// Used by `replayGroupScale` to scale the rest of a multi-select together
@@ -231,6 +297,139 @@
 		);
 	}
 
+	/**
+	 * Holds gridstack's own position transition off one set of nodes for
+	 * exactly as long as it takes a finished gesture to settle.
+	 *
+	 * A gesture's real geometry is written by `replayDrop` a moment after the
+	 * pointer is released, and by then the elements have already been dragged
+	 * or pushed elsewhere on screen — so the transition animates from a
+	 * position that was never anything but scaffolding. For a single node
+	 * that is invisible (gridstack's placeholder was already sitting on the
+	 * answer), but for a group it is the difference between the selection
+	 * appearing to accept the drop and appearing to snap back and re-run it.
+	 *
+	 * Two frames, not one: the first callback runs before the paint that
+	 * shows the settled positions, so removing the class there would let the
+	 * transition start after all; the second runs after it.
+	 * @param {(string | null)[]} ids
+	 */
+	function settleWithoutAnimation(ids) {
+		// Anything still carrying the class from a previous gesture, which is
+		// possible because the two frames below are `requestAnimationFrame`
+		// and a backgrounded tab does not paint: a drop made on the way to
+		// another tab leaves its own cleanup queued behind the return. Cleared
+		// here rather than tracked, since a new gesture ending is the moment
+		// it stops mattering either way.
+		for (const stale of gridEl?.querySelectorAll('.group-gesture-settling') ?? []) {
+			stale.classList.remove('group-gesture-settling');
+		}
+		const elements = ids.flatMap((id) => {
+			const el = id ? elementFor(id) : null;
+			return el ? [el] : [];
+		});
+		if (!elements.length) return;
+		for (const el of elements) el.classList.add('group-gesture-settling');
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				for (const el of elements) el.classList.remove('group-gesture-settling');
+			})
+		);
+	}
+
+	/**
+	 * Draws the live group-move preview: every follower translated to where
+	 * the pointer has carried the group, and a drop ghost under each member
+	 * of it.
+	 *
+	 * Called both from the pointer handler and, every frame, from
+	 * `runGroupDragPreview` below — and the frame pass is the one that has to
+	 * exist. gridstack listens for `mousemove` on `document` in the capture
+	 * phase; this component listens for `pointermove` on the grid element.
+	 * The browser fires `pointermove` first and its compatibility `mousemove`
+	 * second, so a preview computed only from the pointer handler is always
+	 * exactly one input event behind the engine: a follower shoved aside on
+	 * event N had that shove subtracted back out on event N + 1, and the
+	 * frame in between painted it displaced. That is the brief pop a slow
+	 * drag showed — and a pointer that stops moving right after crossing a
+	 * collision boundary leaves it on screen indefinitely, since the
+	 * correcting event never comes. A frame pass runs after every event of
+	 * the frame, whichever order they arrived in, so it can never be stale.
+	 *
+	 * It also covers the movement no pointer event announces at all: the
+	 * throttled cell-height re-measure gridstack runs on a timer, its
+	 * auto-scroll loop when a card is dragged past the edge of the window,
+	 * and the page shifting under a grid that grows as a node is carried
+	 * down it.
+	 */
+	function paintGroupDragPreview() {
+		if (!draggedId || !dragFollowerIds.length || !dragPointerStart || !dragPointerNow) return;
+		if (!dragStart) return;
+		const dx = dragPointerNow.x - dragPointerStart.x;
+		const dy = dragPointerNow.y - dragPointerStart.y;
+
+		// Every follower's current layout position is read first and the
+		// transforms written afterward, rather than one element at a time:
+		// reading `offsetLeft` after a write forces the browser to flush
+		// layout, and interleaving the two would do that once per follower.
+		const followers = dragFollowerIds.flatMap((id) => {
+			const el = elementFor(id);
+			return el ? [{ id, el, left: el.offsetLeft, top: el.offsetTop }] : [];
+		});
+		const gridNow = gridEl?.getBoundingClientRect();
+		// How far the grid has slid on screen since the drag began — see
+		// `dragGridOrigin`. Zero for most of most drags, and never zero for
+		// long once a node is carried past the bottom of the field.
+		const gridDriftX = gridNow && dragGridOrigin ? dragGridOrigin.left - gridNow.left : 0;
+		const gridDriftY = gridNow && dragGridOrigin ? dragGridOrigin.top - gridNow.top : 0;
+		for (const { id, el, left, top } of followers) {
+			// Whatever gridstack has done to this element's own position since
+			// the drag began, subtracted back out; see `dragFollowerAnchors`.
+			const anchor = dragFollowerAnchors.find((candidate) => candidate.id === id);
+			const driftX = (anchor ? anchor.left - left : 0) + gridDriftX;
+			const driftY = (anchor ? anchor.top - top : 0) + gridDriftY;
+			el.classList.add('group-gesture-follower');
+			el.style.transform = `translate(${dx + driftX}px, ${dy + driftY}px)`;
+		}
+
+		// The cards follow the pointer by raw pixels, the same way the grabbed
+		// node does under gridstack's own hand; the ghosts show the cells that
+		// travel actually resolves to. Same rounding and the same clamp
+		// `replayDrop` will apply to the real drop, so what the ghosts show is
+		// what the drop commits — including the group stopping as one when its
+		// leading member reaches a wall.
+		if (cellSize.w <= 0 || cellSize.h <= 0) return;
+		const moving = dragStart.filter((node) => selectedIds.has(node.id));
+		const delta = clampGroupDelta(moving, Math.round(dx / cellSize.w), Math.round(dy / cellSize.h));
+		// Only when the landing cells actually change. This runs every frame,
+		// and a fresh array is a fresh identity even when every number in it is
+		// the same — enough on its own to re-render the ghosts continuously
+		// for the whole drag.
+		if (delta.dx === ghostDelta.dx && delta.dy === ghostDelta.dy && dropGhosts.length) return;
+		ghostDelta = delta;
+		dropGhosts = moving.map((node) => ({
+			id: node.id,
+			x: node.x + delta.dx,
+			y: node.y + delta.dy,
+			w: node.w,
+			h: node.h
+		}));
+	}
+
+	/**
+	 * Runs `paintGroupDragPreview` before every paint for as long as a group
+	 * drag lasts. Started at `dragstart`, stopped at `dragstop`; see that
+	 * function for why a frame pass rather than the pointer handler alone.
+	 */
+	function runGroupDragPreview() {
+		cancelAnimationFrame(dragPreviewFrame);
+		const tick = () => {
+			paintGroupDragPreview();
+			dragPreviewFrame = requestAnimationFrame(tick);
+		};
+		dragPreviewFrame = requestAnimationFrame(tick);
+	}
+
 	/** Every node's current cell, read from the engine. */
 	function snapshotGeometry() {
 		if (!gridEl) return [];
@@ -240,6 +439,76 @@
 			if (typeof id !== 'string' || !node) return [];
 			return [{ id, x: node.x ?? 0, y: node.y ?? 0, w: node.w ?? 1, h: node.h ?? 1 }];
 		});
+	}
+
+	/**
+	 * Settles a finished drag, if one is still waiting to be settled.
+	 *
+	 * Called from two places, and the second one is not belt-and-braces. The
+	 * ordinary path is the `change` gridstack emits as a drag ends — but it
+	 * emits none at all when its own idea of the dragged node's position is
+	 * the same as when the drag began, and that is not the rare case it
+	 * sounds like: gridstack refuses a move whose landing cells are occupied
+	 * (`moveNodeCheck`), so the node it is tracking simply stays put and the
+	 * drop is over with nothing announced. The whole gesture was then
+	 * discarded and the group sprang back to where it started, on drops that
+	 * were perfectly ordinary — and nudging past the target and back "fixed"
+	 * it only because any engine movement at all produces the event.
+	 *
+	 * Which is precisely a case this file already knows how to answer: the
+	 * engine's opinion of where a drag ended is not the one that counts, the
+	 * pointer's is, and `replayDrop` resolves the whole arrangement from the
+	 * snapshot regardless of what the engine did or refused to do on the way.
+	 * So `dragstop` calls this too, in the microtask it already schedules,
+	 * and the snapshot being non-null there is exactly the signal that no
+	 * `change` came to consume it.
+	 *
+	 * @returns {boolean} true when a drag snapshot was resolved, which is
+	 *   what tells the `change` handler not to fall through to its
+	 *   incremental path as well.
+	 */
+	function resolveDrop() {
+		if (!dragStart || !draggedId) return false;
+		const base = dragStart;
+		const movedId = draggedId;
+		// Consumed rather than left for a second `change`, which `replayDrop`'s
+		// own updates would otherwise trigger.
+		dragStart = null;
+		const settled = replayDrop(base, movedId);
+		if (!settled) return false;
+		// A drop that put everything back exactly where it began is not an edit
+		// and is not worth writing.
+		const sameAsBefore = settled.every((node) => {
+			const was = base.find((candidate) => candidate.id === node.id);
+			return was && was.x === node.x && was.y === node.y && was.w === node.w;
+		});
+		if (!sameAsBefore) onGeometryChange?.(settled);
+		return true;
+	}
+
+	/**
+	 * The cell delta a group move actually gets, clamped once against the
+	 * whole group rather than per member: taking the most restrictive bound
+	 * any member imposes is what keeps the selection a rigid shape, where
+	 * independent clamping would let a member nearer an edge stop early
+	 * while the rest kept going.
+	 *
+	 * Shared by `replayDrop`, which applies it for real at drop time, and by
+	 * the live drop ghost in `handleGridPointerMove`, for the same reason
+	 * `computeGroupScale` is shared by the resize pair: a preview that
+	 * restated this clamp separately could show the group landing somewhere
+	 * the drop would not actually put it.
+	 *
+	 * @param {{ id: string, x: number, y: number, w: number, h: number }[]} moving
+	 * @param {number} dx Unclamped horizontal travel, in cells.
+	 * @param {number} dy Unclamped vertical travel, in cells.
+	 */
+	function clampGroupDelta(moving, dx, dy) {
+		for (const node of moving) {
+			dx = Math.max(-node.x, Math.min(dx, columnCount - node.w - node.x));
+			dy = Math.max(-node.y, dy);
+		}
+		return { dx, dy };
 	}
 
 	/**
@@ -293,32 +562,45 @@
 			selectedIds.has(movedId) && selectedIds.size > 1 ? selectedIds : new SvelteSet([movedId]);
 		const moving = base.filter((node) => movingIds.has(node.id));
 
-		let dx = 0;
-		let dy = 0;
+		let rawX = 0;
+		let rawY = 0;
 		if (dragPointerStart && dragPointerEnd && cellSize.w > 0 && cellSize.h > 0) {
-			dx = Math.round((dragPointerEnd.x - dragPointerStart.x) / cellSize.w);
-			dy = Math.round((dragPointerEnd.y - dragPointerStart.y) / cellSize.h);
+			rawX = Math.round((dragPointerEnd.x - dragPointerStart.x) / cellSize.w);
+			rawY = Math.round((dragPointerEnd.y - dragPointerStart.y) / cellSize.h);
 		}
-		// Clamp once against the whole group, taking the most restrictive
-		// bound any member imposes, rather than clamping each member on its
-		// own — independent clamping would let a member nearer an edge stop
-		// early while the rest kept going, breaking the shape a multi-select
-		// drag is supposed to preserve.
-		for (const node of moving) {
-			dx = Math.max(-node.x, Math.min(dx, columnCount - node.w - node.x));
-			dy = Math.max(-node.y, dy);
-		}
+		const { dx, dy } = clampGroupDelta(moving, rawX, rawY);
 
 		restoring = true;
 		grid.batchUpdate();
-		for (const node of base) {
+		// Parked out of the way before anything is placed, the same staging the
+		// two store-to-engine effects below already need for the same reason:
+		// gridstack evaluates collision live on every `grid.update()` call even
+		// inside a batch, so a node still sitting where the drag left it can
+		// shove one that has already been put where it belongs.
+		//
+		// For a group move that is not an edge case but the normal shape of the
+		// problem — the members overlap each other's start and target cells by
+		// construction, so the pushes cascade. Measured: two stacked nodes
+		// dropped two rows down committed a *twelve* row move, the group's own
+		// shape intact and the whole thing far below where it was let go.
+		const parking = grid;
+		base.forEach((node, index) => {
 			const el = elementFor(node.id);
-			if (!el) continue;
-			if (movingIds.has(node.id)) {
-				grid.update(el, { x: node.x + dx, y: node.y + dy, w: node.w, h: node.h });
-			} else {
-				grid.update(el, { x: node.x, y: node.y, w: node.w, h: node.h });
-			}
+			if (el) parking.update(el, { x: 0, y: 100000 + index * 50 });
+		});
+		// Everything that stayed put first, then the movers on top of it, so
+		// the only collision the engine is left to resolve is the one a drop
+		// actually implies: a moving member landing on a neighbour that did
+		// not move. In the other order the movers are placed against parked
+		// coordinates and get shoved by nodes that were only passing through.
+		for (const node of base) {
+			if (movingIds.has(node.id)) continue;
+			const el = elementFor(node.id);
+			if (el) grid.update(el, { x: node.x, y: node.y, w: node.w, h: node.h });
+		}
+		for (const node of moving) {
+			const el = elementFor(node.id);
+			if (el) grid.update(el, { x: node.x + dx, y: node.y + dy, w: node.w, h: node.h });
 		}
 		grid.batchUpdate(false);
 		restoring = false;
@@ -794,6 +1076,17 @@
 					draggedId && selectedIds.has(draggedId) && selectedIds.size > 1
 						? [...selectedIds].filter((id) => id !== draggedId)
 						: [];
+				// Frozen here, before gridstack has had a chance to shove any of
+				// them; see `dragFollowerAnchors`.
+				dragFollowerAnchors = dragFollowerIds.flatMap((id) => {
+					const el = elementFor(id);
+					return el ? [{ id, left: el.offsetLeft, top: el.offsetTop }] : [];
+				});
+				const origin = gridEl?.getBoundingClientRect();
+				dragGridOrigin = origin ? { left: origin.left, top: origin.top } : null;
+				dragPointerNow = dragPointerStart;
+				ghostDelta = { dx: 0, dy: 0 };
+				if (dragFollowerIds.length) runGroupDragPreview();
 			});
 
 			instance.on('dragstop', (event) => {
@@ -801,6 +1094,12 @@
 				interacting = false;
 				const released = /** @type {MouseEvent} */ (event);
 				dragPointerEnd = { x: released?.clientX ?? 0, y: released?.clientY ?? 0 };
+				gestureJustEnded = true;
+				// Stopped before anything below clears the preview it maintains,
+				// or the next frame would put every follower's transform back.
+				cancelAnimationFrame(dragPreviewFrame);
+				dragPreviewFrame = 0;
+				dragPointerNow = null;
 				// Cleared synchronously, not in the microtask below with the rest
 				// of this gesture's bookkeeping: this is the live preview's own
 				// CSS, and it has to be gone the instant the gesture ends,
@@ -812,13 +1111,34 @@
 					el.style.transform = '';
 					el.classList.remove('group-gesture-follower');
 				}
+				// The group's real positions are written moments later by
+				// `replayDrop`, from the same clamped delta the ghosts were
+				// drawn from — so by the time anything paints again the cards
+				// are already where the ghosts were, and there is nothing left
+				// for an animation to show. Without this, gridstack's own
+				// left/top transition ran anyway, from wherever the engine had
+				// pushed each follower during the drag: the group visibly
+				// snapped back to its pre-drop shape and then slid into place,
+				// which read as the drop being undone and redone.
+				settleWithoutAnimation([draggedId, ...dragFollowerIds]);
 				dragFollowerIds = [];
+				dragFollowerAnchors = [];
+				dragGridOrigin = null;
+				dropGhosts = [];
 				// gridstack emits its final `change` synchronously after this, so
 				// the drag's own bookkeeping has to outlive the handler by exactly
 				// that long. A drop that changed nothing produces no `change` to
 				// consume it, hence the microtask rather than clearing on the next
 				// drag.
 				queueMicrotask(() => {
+					// Still holding a snapshot here means no `change` arrived to
+					// settle it, which is a drop to resolve rather than one to
+					// throw away; see `resolveDrop`. A microtask is still within
+					// the task the release happened in, so this lands before
+					// anything is painted and the drop looks immediate either way.
+					// Derived layouts are left alone: a drag there means reorder,
+					// and no engine movement means no reordering to record.
+					if (showsAuthored && !restoring) resolveDrop();
 					draggedId = null;
 					dragStart = null;
 					dragPointerStart = null;
@@ -866,6 +1186,10 @@
 				interacting = false;
 				const released = /** @type {MouseEvent} */ (event);
 				resizePointerEnd = { x: released?.clientX ?? 0, y: released?.clientY ?? 0 };
+				// A resize's release produces the same stray background click a
+				// drag's does, and costs the same selection; see
+				// `gestureJustEnded`.
+				gestureJustEnded = true;
 				// Synchronous, not deferred to the microtask below, for the same
 				// reason dragstop's own cleanup of dragFollowerIds is: this is
 				// live-preview CSS, and it has to be gone the instant the gesture
@@ -928,24 +1252,7 @@
 				// rather than from whatever the pointer pushed through on the way;
 				// see `replayDrop`. Only a drag has a snapshot, so a resize falls
 				// through to the incremental path below.
-				if (dragStart && draggedId) {
-					const base = dragStart;
-					const movedId = draggedId;
-					// Consumed rather than left for a second `change`, which
-					// `replayDrop`'s own updates would otherwise trigger.
-					dragStart = null;
-					const settled = replayDrop(base, movedId);
-					if (settled) {
-						// A drop that put everything back exactly where it began is
-						// not an edit and is not worth writing.
-						const sameAsBefore = settled.every((node) => {
-							const was = base.find((candidate) => candidate.id === node.id);
-							return was && was.x === node.x && was.y === node.y && was.w === node.w;
-						});
-						if (!sameAsBefore) onGeometryChange?.(settled);
-						return;
-					}
-				}
+				if (resolveDrop()) return;
 
 				// A corner-handle resize of a node that is part of a multi-select
 				// scales the whole group together; see `replayGroupScale`. An edge
@@ -1055,6 +1362,11 @@
 		return () => {
 			disposed = true;
 			cancelAnimationFrame(revealFrame);
+			// A group drag can still be in flight if the canvas is torn down
+			// mid-gesture (leaving arrange mode, or a column change): its frame
+			// pass would otherwise keep running against elements that are gone.
+			cancelAnimationFrame(dragPreviewFrame);
+			dragPreviewFrame = 0;
 			observer?.disconnect();
 			gridEl?.removeEventListener('pointerdown', handlePointerDownCapture, true);
 			grid?.destroy(false);
@@ -1498,6 +1810,15 @@
 			sweepJustEnded = false;
 			return;
 		}
+		// Shift still down at the release is what says "keep this group": the
+		// same key that builds a selection holds on to it. Let go of shift and
+		// the trailing click clears as it always did, which is what keeps a
+		// plain drag-and-drop from leaving a selection behind that has to be
+		// dismissed on purpose.
+		if (gestureJustEnded) {
+			gestureJustEnded = false;
+			if (event.shiftKey) return;
+		}
 		if (event.target === event.currentTarget) selectedIds.clear();
 	}
 
@@ -1518,6 +1839,11 @@
 	 * @param {PointerEvent} event
 	 */
 	function handleGridPointerDown(event) {
+		// Before any of the guards below, and on every press rather than only
+		// the ones this handler acts on: a gesture whose release produced no
+		// click at all (one that ends outside the window) would otherwise
+		// leave the flag standing for a later, deliberate click to swallow.
+		gestureJustEnded = false;
 		if (!editMode || !showsAuthored) return;
 		if (!event.shiftKey || event.button !== 0) return;
 		if (event.target !== event.currentTarget) return;
@@ -1579,6 +1905,11 @@
 	 * move that produced over forty native `pointermove` events on this same
 	 * element), so the raw pointer position already being tracked here for
 	 * the marquee sweep is the thing to drive both from instead.
+	 *
+	 * The move case only records that position and hands off to
+	 * `paintGroupDragPreview`, which also runs once a frame for the reason
+	 * its own comment gives; the resize case, whose gesture nothing else
+	 * moves the elements during, still draws inline below.
 	 * @param {PointerEvent} event
 	 */
 	function handleGridPointerMove(event) {
@@ -1587,15 +1918,13 @@
 			return;
 		}
 
-		if (draggedId && dragFollowerIds.length && dragPointerStart) {
-			const dx = event.clientX - dragPointerStart.x;
-			const dy = event.clientY - dragPointerStart.y;
-			for (const id of dragFollowerIds) {
-				const el = elementFor(id);
-				if (!el) continue;
-				el.classList.add('group-gesture-follower');
-				el.style.transform = `translate(${dx}px, ${dy}px)`;
-			}
+		if (draggedId && dragFollowerIds.length) {
+			dragPointerNow = { x: event.clientX, y: event.clientY };
+			// Applied straight away as well as from the frame loop, so the
+			// group answers the pointer with no latency of its own. Whatever
+			// this writes is recomputed before the frame is painted anyway;
+			// see `paintGroupDragPreview`.
+			paintGroupDragPreview();
 			return;
 		}
 
@@ -1799,6 +2128,7 @@
 		class:gs-ready={ready}
 		class:gs-visible={revealed}
 		class:edit-mode={editMode}
+		class:group-dragging={dropGhosts.length > 0}
 		bind:this={gridEl}
 		role="presentation"
 		onclick={handleGridBackgroundClick}
@@ -1807,6 +2137,31 @@
 		onpointerup={handleGridPointerUp}
 		onpointercancel={handleGridPointerUp}
 	>
+		<!--
+			Where the whole selection lands, drawn only while a group drag is
+			live (`dropGhosts` is empty at every other moment, including a
+			single-node drag, which keeps gridstack's own placeholder).
+
+			Sized in the grid's own CSS variables, exactly as gridstack sizes a
+			real item and its placeholder, so a ghost lines up with the cells
+			it names without this file having to know anything about margins
+			or the pixel pitch. Plain children of `.grid-stack` rather than an
+			overlay of their own: that is the coordinate space these numbers
+			are already in, and gridstack only ever walks its children by
+			`.grid-stack-item`, so nothing here is visible to the engine.
+		-->
+		{#each dropGhosts as ghost (ghost.id)}
+			<div
+				class="group-drop-ghost"
+				aria-hidden="true"
+				style:left={`calc(${ghost.x} * var(--gs-column-width))`}
+				style:top={`calc(${ghost.y} * var(--gs-cell-height))`}
+				style:width={`calc(${ghost.w} * var(--gs-column-width))`}
+				style:height={`calc(${ghost.h} * var(--gs-cell-height))`}
+			>
+				<div class="ghost-content"></div>
+			</div>
+		{/each}
 		{#each nodes as node, nodeIndex (node.id)}
 			<!--
 			The gs-* attributes are gridstack's own DOM contract, which it reads
@@ -2302,11 +2657,49 @@
 		transition: none;
 	}
 
+	/* Applied and removed the same imperative way, over a two-frame window
+	   after a gesture ends rather than for its duration; see
+	   `settleWithoutAnimation` for what it is holding off and why. Specific
+	   enough to beat gridstack's own `.grid-stack-animate .grid-stack-item`
+	   transition, which is what the class exists to suppress. */
+	.grid-stack.edit-mode :global(.grid-stack-item.group-gesture-settling) {
+		transition: none;
+	}
+
+	/* The group's own drop ghosts. Positioned by the same variables gridstack
+	   positions a real item with, and inset by the same item margins its
+	   placeholder uses, so a ghost is exactly the rectangle the card will
+	   occupy. Behind every card (z-index 0, where gridstack's own placeholder
+	   also sits) and inert: this is a preview of geometry, nothing to hit. */
+	.grid-stack .group-drop-ghost {
+		position: absolute;
+		z-index: 0;
+		pointer-events: none;
+	}
+
+	.grid-stack .group-drop-ghost > .ghost-content {
+		position: absolute;
+		top: var(--gs-item-margin-top);
+		right: var(--gs-item-margin-right);
+		bottom: var(--gs-item-margin-bottom);
+		left: var(--gs-item-margin-left);
+	}
+
+	/* While the group's ghosts are up they cover the grabbed node too, so
+	   gridstack's placeholder for that one node would be a second, disagreeing
+	   target on screen — it tracks the engine's live collision result, while
+	   the ghosts show the pointer-derived cells the drop will actually commit
+	   (see `replayDrop`). One answer, not two. */
+	.grid-stack.group-dragging :global(.field-drop-target) {
+		display: none;
+	}
+
 	/* Where the node will land. gridstack's default is a faint fill that
 	   effectively vanishes on a dark background, so this is an explicit
 	   accent-tinted, dashed target that reads in both themes. */
 	.grid-stack :global(.field-drop-target > .placeholder-content),
-	.grid-stack :global(.field-drop-target) {
+	.grid-stack :global(.field-drop-target),
+	.grid-stack .group-drop-ghost > .ghost-content {
 		background: color-mix(in oklch, var(--accent) 22%, transparent);
 		border: 2px dashed var(--accent);
 		border-radius: var(--radius-lg);

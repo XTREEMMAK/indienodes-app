@@ -40,6 +40,22 @@ const geometryWithSize = (page) =>
 		)
 	);
 
+/**
+ * Where each card is actually painted, in viewport pixels. Unlike `geometry`
+ * this is deliberately *not* the engine's answer: the live group-move preview
+ * is a CSS transform the engine knows nothing about, so mid-gesture the two
+ * disagree on purpose.
+ */
+const paintedAt = (page) =>
+	page.evaluate(() =>
+		Object.fromEntries(
+			[...document.querySelectorAll('.grid-stack-item[gs-id]')].map((el) => {
+				const box = el.getBoundingClientRect();
+				return [el.getAttribute('gs-id'), { x: box.x, y: box.y }];
+			})
+		)
+	);
+
 /** The saved layout, or null when nothing has been persisted this session. */
 const stored = (page) =>
 	page.evaluate(() => {
@@ -83,10 +99,36 @@ const columnsNow = (page) =>
 async function pressOn(page, id) {
 	const locator = page.locator(`.grid-stack-item[gs-id="${id}"]`);
 	await locator.scrollIntoViewIfNeeded();
-	const box = await locator.boundingBox();
-	if (!box) throw new Error(`${id} has no bounding box`);
-	const from = { x: box.x + box.width / 2, y: box.y + box.height * 0.45 };
-	await page.mouse.move(from.x, from.y);
+
+	// Measured, aimed at, and then *checked*, up to a few times.
+	//
+	// A drop makes the field taller or shorter and gridstack auto-scrolls
+	// while a card is carried past the edge of the window, so the page can
+	// still be settling when the next gesture is measured — and a box read a
+	// moment before the press can be stale by the time the press lands, which
+	// puts the pointer on whatever card has scrolled into that spot instead.
+	// Caught in the act: a drag meant for one node reported another as the one
+	// it moved, and the test read that as the drop having been ignored. The
+	// check is what makes a press mean the card it names.
+	let from = { x: 0, y: 0 };
+	for (let attempt = 0; attempt < 4; attempt += 1) {
+		const box = await locator.boundingBox();
+		if (!box) throw new Error(`${id} has no bounding box`);
+		from = { x: box.x + box.width / 2, y: box.y + box.height * 0.45 };
+		await page.mouse.move(from.x, from.y);
+		const under = await page.evaluate(
+			([x, y]) =>
+				document.elementFromPoint(x, y)?.closest('.grid-stack-item')?.getAttribute('gs-id') ?? null,
+			[from.x, from.y]
+		);
+		if (under === id) break;
+		if (attempt === 3) throw new Error(`press for ${id} kept landing on ${under}`);
+		// Let whatever is still moving finish before measuring again.
+		await page.evaluate(
+			() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+		);
+	}
+
 	await page.mouse.down();
 	await page.mouse.move(from.x + 3, from.y + 3);
 	return from;
@@ -777,6 +819,332 @@ test.describe('multi-select drag', () => {
 		expect(after['n-text-1']).toBe(before['n-text-1']);
 	});
 
+	test('every selected node gets a drop ghost, in the shape the group holds', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const before = await paintedAt(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 4 * cell, from.y + 2 * cell, { steps: 20 });
+
+		// One per selected node, the grabbed one included -- gridstack draws a
+		// placeholder for that one node and nothing for the rest, which left a
+		// group move previewing a single card.
+		const ghosts = await page.evaluate(() => {
+			const grid = document.querySelector('.grid-stack').getBoundingClientRect();
+			return [...document.querySelectorAll('.group-drop-ghost > .ghost-content')]
+				.map((el) => {
+					const box = el.getBoundingClientRect();
+					return { x: box.x - grid.x, y: box.y - grid.y, width: box.width, height: box.height };
+				})
+				.sort((a, b) => a.y - b.y || a.x - b.x);
+		});
+		expect(ghosts).toHaveLength(2);
+		// And they are the selection's own shape, not two arbitrary rectangles:
+		// the gap between the ghosts is the gap between the cards.
+		expect(
+			Math.abs(ghosts[1].y - ghosts[0].y - (before['n-text-1'].y - before['n-comic-1'].y))
+		).toBeLessThan(2);
+		expect(
+			Math.abs(ghosts[1].x - ghosts[0].x - (before['n-text-1'].x - before['n-comic-1'].x))
+		).toBeLessThan(2);
+		// The one node's own placeholder is hidden while they are up, so the
+		// group has a single answer on screen rather than two disagreeing ones.
+		await expect(page.locator('.grid-stack .field-drop-target')).toBeHidden();
+
+		await page.mouse.up();
+		await expect(page.locator('.group-drop-ghost')).toHaveCount(0);
+
+		// And a ghost was the landing rectangle, not merely a rectangle: each
+		// card's own painted body ends up exactly where its ghost stood.
+		// Measured from the grid's top-left rather than the viewport, because
+		// a drop that makes the field taller can shift the page under both.
+		const landed = await page.evaluate(() => {
+			const grid = document.querySelector('.grid-stack').getBoundingClientRect();
+			return ['n-comic-1', 'n-text-1']
+				.map((id) =>
+					document.querySelector(`.grid-stack-item[gs-id="${id}"] > .grid-stack-item-content`)
+				)
+				.map((el) => {
+					const box = el.getBoundingClientRect();
+					return { x: box.x - grid.x, y: box.y - grid.y, width: box.width, height: box.height };
+				})
+				.sort((a, b) => a.y - b.y || a.x - b.x);
+		});
+		expect(landed).toHaveLength(2);
+		for (const [index, card] of landed.entries()) {
+			const ghost = ghosts[index];
+			expect(Math.abs(card.x - ghost.x)).toBeLessThan(2);
+			expect(Math.abs(card.y - ghost.y)).toBeLessThan(2);
+			expect(Math.abs(card.width - ghost.width)).toBeLessThan(2);
+			expect(Math.abs(card.height - ghost.height)).toBeLessThan(2);
+		}
+	});
+
+	test('a follower holds the group shape even where the engine shoves it', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const before = await paintedAt(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-text-1');
+
+		// A path, not a single move, and a wandering one: n-comic-1 sits
+		// directly above n-text-1, and carrying the grabbed node up and across
+		// its own selected neighbour is what gets gridstack's live collision
+		// handling to shove that neighbour aside mid-drag (this exact route
+		// moved it nine rows down while the pointer was still travelling).
+		// Every waypoint is checked, because which ones provoke a shove is the
+		// engine's business and changes with the arrangement.
+		const strayed = [];
+		for (const [dx, dy] of [
+			[0, -1],
+			[0, -3],
+			[2, -4],
+			[4, -4],
+			[4, 0],
+			[4, 3]
+		]) {
+			await page.mouse.move(from.x + dx * cell, from.y + dy * cell, { steps: 10 });
+			const during = await paintedAt(page);
+			/** Painted travel since the press, per node. */
+			const travelled = (id) => ({
+				x: during[id].x - before[id].x,
+				y: during[id].y - before[id].y
+			});
+			const grabbed = travelled('n-text-1');
+			const follower = travelled('n-comic-1');
+			// The selection is one rigid shape while it moves: the follower has
+			// gone exactly as far as the node under the pointer. The slack is
+			// for the one frame a drag that scrolls the page takes to correct
+			// itself; a follower that inherits a shove is out by whole rows.
+			if (Math.abs(follower.x - grabbed.x) > 12 || Math.abs(follower.y - grabbed.y) > 12) {
+				strayed.push({ at: `${dx},${dy}`, grabbed, follower });
+			}
+		}
+		expect(strayed).toEqual([]);
+
+		await page.mouse.up();
+	});
+
+	test('a slow drag never leaves a follower parked outside the group', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+
+		/**
+		 * The offset between the grabbed node and its follower, read a whole
+		 * frame after the move that preceded it. That wait is the point: it is
+		 * what a slow drag does — one small move, then frames of nothing —
+		 * and it is where a preview that only corrects itself on the *next*
+		 * pointer event leaves the group visibly broken until one arrives.
+		 * Two nested frames, so the reading is taken after a pass that ran and
+		 * painted rather than one still in the middle of running.
+		 */
+		const offsetAfterAFrame = () =>
+			page.evaluate(
+				() =>
+					new Promise((resolve) =>
+						requestAnimationFrame(() =>
+							requestAnimationFrame(() => {
+								const cornerOf = (id) => {
+									const box = document
+										.querySelector(`.grid-stack-item[gs-id="${id}"]`)
+										.getBoundingClientRect();
+									return { x: box.x, y: box.y };
+								};
+								const grabbed = cornerOf('n-text-1');
+								const follower = cornerOf('n-comic-1');
+								resolve({ x: follower.x - grabbed.x, y: follower.y - grabbed.y });
+							})
+						)
+					)
+			);
+
+		const atRest = await offsetAfterAFrame();
+		const from = await pressOn(page, 'n-text-1');
+
+		// Over and around the node it is selected with, a third of a cell at a
+		// time: every crossing of a collision boundary is a chance for the
+		// engine to shove that follower, and the pause after each move is what
+		// makes a stale correction visible rather than instantly overwritten.
+		const broke = [];
+		for (const [dx, dy] of [
+			[0, -4],
+			[2, -4],
+			[4, -4],
+			[4, 0],
+			[2, 2]
+		]) {
+			const legs = 6;
+			for (let step = 1; step <= legs; step += 1) {
+				await page.mouse.move(
+					from.x + (dx * cell * step) / legs,
+					from.y + (dy * cell * step) / legs
+				);
+				const offset = await offsetAfterAFrame();
+				if (Math.abs(offset.x - atRest.x) > 2 || Math.abs(offset.y - atRest.y) > 2) {
+					broke.push({ at: `${dx},${dy} step ${step}`, offset });
+				}
+			}
+		}
+		await page.mouse.up();
+
+		// The selection holds the shape it had at rest through every one of
+		// them: a follower that inherited a shove sits whole rows away.
+		expect(broke).toEqual([]);
+	});
+
+	test('the group takes the drop rather than animating into it', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 4 * cell, from.y + 2 * cell, { steps: 20 });
+
+		// Sampled from inside the page, frame by frame, rather than by polling
+		// from here: gridstack's own position transition runs for 300ms, and a
+		// round trip from the test runner can easily miss all of it. Armed
+		// before the release so the first sample is the first frame after it.
+		await page.evaluate(() => {
+			window.__settleSamples = [];
+			window.addEventListener(
+				'pointerup',
+				() => {
+					const sample = () => {
+						const el = document.querySelector('.grid-stack-item[gs-id="n-comic-1"]');
+						const box = el.getBoundingClientRect();
+						window.__settleSamples.push({ x: box.x, y: box.y });
+						if (window.__settleSamples.length < 20) requestAnimationFrame(sample);
+					};
+					requestAnimationFrame(sample);
+				},
+				{ once: true, capture: true }
+			);
+		});
+		await page.mouse.up();
+
+		await expect.poll(() => page.evaluate(() => window.__settleSamples.length)).toBe(20);
+		// Every frame in the first third of a second after the drop is already
+		// at the settled position: the group is where it was dropped from the
+		// first one, instead of sliding there from wherever the drag had left
+		// it. A pixel of slack, because the grid's own row pitch is fractional
+		// and re-measuring it can shift a card's painted top by less than one
+		// -- an animation is a journey of whole cells, so nothing this test
+		// exists to catch hides inside that.
+		const samples = await page.evaluate(() => window.__settleSamples);
+		const settled = samples[samples.length - 1];
+		const strayed = samples.filter(
+			(sample) => Math.abs(sample.x - settled.x) > 2 || Math.abs(sample.y - settled.y) > 2
+		);
+		expect(strayed).toEqual([]);
+	});
+
+	test('a drop the engine refuses still lands where it was let go', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const before = await geometry(page);
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		// One cell to the right, which walks the group into the column its
+		// neighbours occupy. gridstack refuses to move the node it is tracking
+		// onto occupied cells, so it never moves at all and emits no `change`
+		// — and a drop settled only from that event is a drop thrown away.
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + cell, from.y, { steps: 20 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometry(page).then((now) => now['n-text-1']))
+			.not.toBe(before['n-text-1']);
+		const after = await geometry(page);
+		/** @param {string} id */
+		const delta = (id) => {
+			const [bx, by] = before[id].split(',').map(Number);
+			const [ax, ay] = after[id].split(',').map(Number);
+			return `${ax - bx},${ay - by}`;
+		};
+		// The cells the pointer asked for, both members, no snap back.
+		expect(delta('n-text-1')).toBe('1,0');
+		expect(delta('n-comic-1')).toBe('1,0');
+		// And the neighbour it landed on gave way, the same as it would for a
+		// single node dropped on top of it.
+		expect(after['n-audio-1']).not.toBe(before['n-audio-1']);
+	});
+
+	test('a group dragged with shift held stays selected on release', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		// Held for the whole gesture, release included: that is what says the
+		// group is still wanted afterwards.
+		await page.keyboard.down('Shift');
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 3 * cell, from.y + 2 * cell, { steps: 20 });
+		await page.mouse.up();
+		await page.keyboard.up('Shift');
+
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(2);
+		// And it is still a usable selection, not just a leftover ring: the
+		// same group moves together again without being rebuilt first.
+		const before = await geometry(page);
+		const next = await pressOn(page, 'n-text-1');
+		await page.mouse.move(next.x, next.y + 2 * cell, { steps: 20 });
+		await page.mouse.up();
+
+		await expect
+			.poll(() => geometry(page).then((now) => now['n-text-1']))
+			.not.toBe(before['n-text-1']);
+		const after = await geometry(page);
+		/** @param {string} id */
+		const delta = (id) => {
+			const [bx, by] = before[id].split(',').map(Number);
+			const [ax, ay] = after[id].split(',').map(Number);
+			return `${ax - bx},${ay - by}`;
+		};
+		expect(delta('n-comic-1')).toBe(delta('n-text-1'));
+	});
+
+	test('a group dragged without shift is let go of on release', async ({ page }) => {
+		await arrangeAt(page, 1700);
+		await clickOn(page, 'n-comic-1');
+		await clickOn(page, 'n-text-1', { shift: true });
+
+		const cell = await page.evaluate(() =>
+			document.querySelector('.grid-stack').gridstack.cellWidth()
+		);
+		const from = await pressOn(page, 'n-text-1');
+		await page.mouse.move(from.x + 3 * cell, from.y + 2 * cell, { steps: 20 });
+		await page.mouse.up();
+
+		// Dropping a group without holding shift is how a selection is
+		// dismissed, so this half of the rule is deliberate rather than the
+		// bug the shift case was.
+		await expect(page.locator('.grid-stack-item.selected')).toHaveCount(0);
+	});
+
 	test('Escape clears the selection', async ({ page }) => {
 		await arrangeAt(page, 1700);
 		await clickOn(page, 'n-comic-1');
@@ -995,8 +1363,13 @@ test.describe('shift-drag sweep selection', () => {
 		const cell = await page.evaluate(() =>
 			document.querySelector('.grid-stack').gridstack.cellWidth()
 		);
+		// Straight down its own column: the swept pair is the whole of that
+		// column, so this is a move with nothing in its way, which is what
+		// lets the untouched-neighbour assertion below mean anything. A move
+		// that lands *on* n-audio-1 pushes it, exactly as a single dragged
+		// node would.
 		const from = await pressOn(page, 'n-text-1');
-		await page.mouse.move(from.x + 4 * cell, from.y + 1 * cell, { steps: 25 });
+		await page.mouse.move(from.x, from.y + 3 * cell, { steps: 25 });
 		await page.mouse.up();
 
 		await expect
@@ -1010,6 +1383,10 @@ test.describe('shift-drag sweep selection', () => {
 			return `${ax - bx},${ay - by}`;
 		};
 		expect(delta('n-comic-1')).toBe(delta('n-text-1'));
+		// And it is the move the pointer actually made, not merely a shared
+		// one: the group travels the cells it was dragged, rather than being
+		// carried further by the engine's own collision pushes on the way in.
+		expect(delta('n-text-1')).toBe('0,3');
 		expect(after['n-audio-1']).toBe(before['n-audio-1']);
 	});
 });
