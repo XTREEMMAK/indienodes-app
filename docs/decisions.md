@@ -2228,3 +2228,46 @@ privacy notice moved to 1.1 rather than being left alone. Every form before this
 something a person deliberately filled in and submitted; this is the app asking. The notice
 now describes what is sent, states that no identifier travels with it, and says the rating
 is not stored, profiled, or fed back into anything.
+
+## LOCKED: the native hosts carry their own version, starting at 0.0.1
+
+The Capacitor (Android) and Wails (desktop) hosts version themselves. They no longer
+track the web app's `package.json` version, and they sit at `0.0.1` until native
+development actually begins. `scripts/platforms/verify-versions.mjs` now asserts only that
+the three strings agree with each other — the Capacitor host package, Android's
+`versionName`, and Wails' `productVersion` — with no opinion about what that version is.
+Shipped in 1.5.1.
+
+**This entry exists because the rule it replaces was never decided.** The hosts were
+scaffolded in `ade3d19` at 1.1.0, which was simply the web app's version that day. The
+verifier was then written to assert they matched it — a reasonable-looking consistency
+check — and from that point every release had to be carried into three more files or CI
+went red, which `b768d73` is a commit spent doing. Nothing anywhere recorded why, because
+there was no why: a starting value became a rule by being checked, and four releases
+enforced it.
+
+**The cost was a claim nobody meant to make.** Two untouched scaffolds arrived at 1.5.x,
+and Android's `versionCode` climbed 1 → 7, which reads as six store submissions. A version
+is a claim about maturity. A pair of directories nobody has opened since the day they were
+generated, announcing themselves as 1.5.1, is a false one — and false in the direction
+that costs something, since anyone finding `platforms/` would reasonably conclude there is
+a shipping Android app to go and look for.
+
+**`versionCode` goes back to 1, and it is the one part of this with a door that closes.**
+Google Play refuses an upload whose `versionCode` is not higher than the last one it
+accepted for that package. Nothing has ever been uploaded, so nothing depends on the
+counter today and resetting it is free; the moment a real build is submitted it stops
+being free, permanently. So it is done now or not at all.
+
+**A weaker check, not a deleted one.** The three hosts describe one product from a user's
+point of view, and the failure mode worth catching is a desktop build claiming a different
+version from the Android build of the same release — the kind of mismatch nobody notices
+until a bug report cites a version that never existed. Mutual agreement still catches
+that. Confirmed to still fail rather than merely to still run: drift exits 1, and a
+version field deleted outright reports as `null` rather than vanishing from the message,
+which a bare `JSON.stringify` of an object with an `undefined` value would have let it do.
+
+**What this deliberately does not settle is where native work starts when it starts.**
+0.1.0 and 1.0.0 are both defensible and the choice belongs to whoever begins it. The only
+thing locked here is that the number is theirs to pick, rather than an echo of whatever
+the web app happened to reach while they were not looking.
