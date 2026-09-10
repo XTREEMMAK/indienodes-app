@@ -14,6 +14,19 @@ A fix-only release for multi-select in Arrange mode. The feature shipped in 1.5.
 scaled a group correctly, but almost everything _around_ the gesture was wrong — what the
 drag previewed, whether the drop committed at all, and whether the selection survived it.
 
+### Changed
+
+- **The Capacitor and Wails hosts are pinned at 0.0.1, and no longer track the web app's
+  version.** Nothing was ever decided here: the hosts were scaffolded at 1.1.0 because that
+  was the web app's version that day, `scripts/platforms/verify-versions.mjs` then required
+  them to match it, and every release since dragged two untouched scaffolds along behind it
+  — as far as 1.5.x, with Android's `versionCode` up at 7, implying six store submissions
+  that never happened. A version is a claim about maturity and theirs was overstating it by
+  four minor releases. `versionCode` goes back to 1 for the same reason, which costs nothing
+  because nothing has ever been uploaded. The check now requires only that the three native
+  version strings agree with each other, so they move on their own schedule once native
+  development actually begins.
+
 ### Fixed
 
 - **A multi-select drag in Arrange mode now previews and commits the whole group.** Three

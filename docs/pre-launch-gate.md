@@ -144,11 +144,19 @@ the obvious way to move the branch's work somewhere Semaphore can see it, but `m
 default branch: a push there always resolves the gate to `false` regardless of repo
 config (see above), and its build is also tagged `:latest` — the tag reserved for the real,
 ungated go-live. A merge here does not refresh the gated staging image at all; it publishes
-an entirely different, ungated one under a different tag. This repository also has "automatically
-delete head branches" enabled, so merging `preview-gated` into `main` deletes it in the same
-action — a second reason a routine preview refresh should never go through a merge. `main`
-stays untouched until [removing the gate at launch](#removing-it-at-launch) is the actual
-intent of the push.
+an entirely different, ungated one under a different tag.
+
+**Releasing is the exception, and the only one.** Cutting a release _is_ an intent to move
+the work to `main`, and 1.5.1 went that way: merged locally rather than through a pull
+request, because this repository has "automatically delete head branches" enabled and a PR
+merge would take `preview-gated` with it. The two consequences above still apply and are
+accepted rather than avoided — the resulting `:latest` is ungated, and a gated staging image
+still has to come from its own dispatch afterwards. What the warning rules out is reaching
+for a merge when all you wanted was a fresher preview; it does not rule out shipping.
+
+(Until `bc8aa11` this section closed by saying `main` stays untouched until removing the
+gate at launch is the intent of the push. The gate is now kept permanently as a staging
+tool, so that is no longer the one thing `main` is waiting for.)
 
 ## Verifying it before you deploy
 
