@@ -139,7 +139,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            VITE_SITE_ORIGIN=${{ vars.VITE_SITE_ORIGIN || 'https://indienodes.us' }}
+            VITE_SITE_ORIGIN=${{ vars.VITE_SITE_ORIGIN || 'https://app.indienodes.us' }}
             VITE_SUBMISSION_WEBHOOK_URL=${{ vars.VITE_SUBMISSION_WEBHOOK_URL }}
             VITE_CONTACT_WEBHOOK_URL=${{ vars.VITE_CONTACT_WEBHOOK_URL }}
             VITE_RATING_WEBHOOK_URL=${{ vars.VITE_RATING_WEBHOOK_URL }}

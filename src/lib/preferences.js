@@ -12,7 +12,8 @@ import { ENTRY_TYPES } from './submissionValidation.js';
  * @property {boolean} showExplicit Show entries their creator marked as
  *   explicit adult content. Off by default, so the filter is on by default.
  * @property {boolean} randomizeAudioTracks Shuffle each audio node's tracks
- *   when Play or Add puts that node into the playlist.
+ *   when Play or Add puts that node into the playlist. On by default; a
+ *   listener who wants the listed order has to opt out.
  * @property {Record<string, number>} rotationMs How long a node of each
  *   content type holds an entry before rotating, in milliseconds.
  * @property {Record<string, boolean>} ambientTypes Which content types are
@@ -69,8 +70,8 @@ const DEFAULT_PREFERENCES = {
 	// opened Settings should not be shown adult content by a surface whose
 	// whole premise is that things appear without being chosen.
 	showExplicit: false,
-	// Listed order remains the default; random order is an explicit listener choice.
-	randomizeAudioTracks: false,
+	// On by default; a listener who wants the listed order has to opt out.
+	randomizeAudioTracks: true,
 	rotationMs: { ...DEFAULT_ROTATION_MS },
 	ambientTypes: { ...DEFAULT_AMBIENT_TYPES }
 };
@@ -98,7 +99,7 @@ export function loadPreferences() {
 			// their nodes rotating on NaN. That is reachable in practice: an
 			// older export, a hand-edited file, or a future build that adds a
 			// fifth type all produce exactly that shape.
-			randomizeAudioTracks: parsed?.randomizeAudioTracks === true,
+			randomizeAudioTracks: parsed?.randomizeAudioTracks !== false,
 			rotationMs: sanitizeRotation(parsed?.rotationMs),
 			ambientTypes: sanitizeAmbientTypes(parsed?.ambientTypes),
 			version: VERSION

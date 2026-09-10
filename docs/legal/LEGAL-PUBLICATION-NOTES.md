@@ -36,6 +36,12 @@ Internal follow-up notes for the effective Terms of Use, Privacy Notice, and Cre
       because the storage question was settled immediately after; the 1.1 wording said
       ratings were not kept in a database, which would have been false the moment the table
       existed.
+- [x] Public document 1.3 (September 9, 2026): the Service row named `indienodes.us`, which
+      no longer matches where the app is deployed -- the app moved to `app.indienodes.us`,
+      with the bare domain reserved for a separate homepage repo (see `decisions.md`'s "The
+      root route stays the app" entry). Effective date moved to the same day for the same
+      reason 1.1/1.2 did: a notice describing the deployed service as it was last week is
+      worse than one that changes to stay accurate.
 - [x] Added the combined Terms of Use and Privacy Notice link beside EULA acceptance in the creator submission flow.
 - [ ] Consider adding a persistent legal link in site navigation or footer beyond the required acceptance context.
 - [ ] Re-review before any native/app-store release, analytics integration, account

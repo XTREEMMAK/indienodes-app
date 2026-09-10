@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://indienodes.us">Visit IndieNodes</a> ·
+  <a href="https://app.indienodes.us">Visit IndieNodes</a> ·
   <a href="#run-it-locally">Run locally</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="#embed-the-ring">Embed the ring</a>
@@ -145,10 +145,10 @@ production build; unset `VITE_RING_URL` means the app reads its own committed mi
 instead of the canonical endpoint. The complete configuration contract is documented in
 [`.env.example`](./.env.example).
 
-A deployment that needs to be live before the application is meant to be public — to test
-the embeddable widget against real host pages — can be built behind a temporary credential
-gate. It is compiled in at image build time and absent from any image built without it; see
-[`docs/pre-launch-gate.md`](./docs/pre-launch-gate.md).
+A deployment that needs to be live before it is meant to be public — to test the embeddable
+widget against real host pages, or any other staging round — can be built behind a
+credential gate. It is compiled in at image build time and absent from any image built
+without it; see [`docs/pre-launch-gate.md`](./docs/pre-launch-gate.md).
 
 Images are published to GHCR on pushes to `main` and on version tags, gated on
 [`ci.yml`](./.github/workflows/ci.yml) — which includes a structural check on the
@@ -201,7 +201,7 @@ or DOM, regardless of what runs inside it. Add it to any page with:
 
 ```html
 <iframe
-	src="https://indienodes.us/embed-frame?site-id=your-ring-entry-id"
+	src="https://app.indienodes.us/embed-frame?site-id=your-ring-entry-id"
 	title="IndieNodes webring"
 	width="260"
 	height="150"
@@ -217,7 +217,7 @@ with an isolated shadow root instead — simpler DOM, but the script itself runs
 page's own JavaScript privileges, unlike the sandboxed iframe above:
 
 ```html
-<script type="module" src="https://indienodes.us/embed.v1.js"></script>
+<script type="module" src="https://app.indienodes.us/embed.v1.js"></script>
 <indienode-widget site-id="your-ring-entry-id"></indienode-widget>
 ```
 
@@ -242,7 +242,7 @@ iframe doesn't inherit CSS custom properties from the page embedding it:
 
 ```html
 <iframe
-	src="https://indienodes.us/embed-frame?site-id=your-ring-entry-id&accent=%232563eb"
+	src="https://app.indienodes.us/embed-frame?site-id=your-ring-entry-id&accent=%232563eb"
 ></iframe>
 ```
 

@@ -4,9 +4,14 @@ A temporary HTTP credential gate on the production deployment, so the site can b
 the public widget testable from real third-party host pages before the app itself is meant
 to be public.
 
-**This whole feature is temporary and is deleted at launch.** It is documented here rather
-than folded into [`platform-builds.md`](./platform-builds.md) for that reason: when the
-gate goes, so does this file.
+**This started as a pre-launch-only feature and is now kept permanently.** It shipped
+expecting to be deleted once 1.5.0 went live, but the same need — a gated image for
+testing a preview build against real host pages, or for any other staging round where the
+app should not be publicly reachable yet — recurs on an ongoing basis, so the feature
+stays rather than being rebuilt from scratch next time. Nothing below changes: same
+Caddy-enforced mechanism, same build-arg-only activation, same manual `workflow_dispatch`
+step to actually get a gated image out of CI. This file just stops being scheduled for
+deletion.
 
 - **Why it is enforced in Caddy rather than as a PIN screen in the app** —
   [`decisions.md`](./decisions.md), "the pre-launch gate is enforced by Caddy".
@@ -139,11 +144,19 @@ the obvious way to move the branch's work somewhere Semaphore can see it, but `m
 default branch: a push there always resolves the gate to `false` regardless of repo
 config (see above), and its build is also tagged `:latest` — the tag reserved for the real,
 ungated go-live. A merge here does not refresh the gated staging image at all; it publishes
-an entirely different, ungated one under a different tag. This repository also has "automatically
-delete head branches" enabled, so merging `preview-gated` into `main` deletes it in the same
-action — a second reason a routine preview refresh should never go through a merge. `main`
-stays untouched until [removing the gate at launch](#removing-it-at-launch) is the actual
-intent of the push.
+an entirely different, ungated one under a different tag.
+
+**Releasing is the exception, and the only one.** Cutting a release _is_ an intent to move
+the work to `main`, and 1.5.1 went that way: merged locally rather than through a pull
+request, because this repository has "automatically delete head branches" enabled and a PR
+merge would take `preview-gated` with it. The two consequences above still apply and are
+accepted rather than avoided — the resulting `:latest` is ungated, and a gated staging image
+still has to come from its own dispatch afterwards. What the warning rules out is reaching
+for a merge when all you wanted was a fresher preview; it does not rule out shipping.
+
+(Until `bc8aa11` this section closed by saying `main` stays untouched until removing the
+gate at launch is the intent of the push. The gate is now kept permanently as a staging
+tool, so that is no longer the one thing `main` is waiting for.)
 
 ## Verifying it before you deploy
 
@@ -189,6 +202,20 @@ The container's health probe targets `/ring.json` precisely because it is open i
 modes — `docker inspect --format '{{.State.Health.Status}}'` should reach `healthy` either
 way. Never add credentials to the healthcheck.
 
+**If a header/CORS/CSP fix checks out against `curl -sI` on the real production URL but a
+real browser still reproduces the original symptom after a hard refresh, a cache-cleared
+reload, and incognito** — all of which rule out the browser's own cache — suspect
+Cloudflare's edge cache next, not the Caddyfile again. `/_app/immutable/*` (and anything
+else served `Cache-Control: ... immutable`) gets cached at the CDN layer for up to a year
+and won't revalidate with origin in that window; a POP that cached the broken response
+before the fix shipped keeps serving it regardless of what origin now returns.
+`cf-cache-status: MISS` on your own `curl` only proves the one POP that request happened to
+land on, not the one an actual visitor resolves to. The fix is a Cloudflare cache purge
+(dashboard → Caching → Configuration → Purge Everything), not another look at the origin
+config. Full incident writeup: `decisions.md`, "Found live: `/_app/immutable/*` never
+carried the CORS header the sandboxed iframe needs, and Cloudflare's own cache outlived the
+fix".
+
 ## Operating it
 
 - **Failed attempts are logged.** Caddy writes JSON access logs to stderr, so `docker logs`
@@ -226,10 +253,11 @@ Rebuild with the two arguments unset (or empty):
 docker build -t indienodes .
 ```
 
-## Removing it at launch
+## If this ever does need to be removed
 
-Delete [`gate/`](../gate/), the `import /etc/caddy/conf.d/*.caddy` line in
-[`Caddyfile`](../Caddyfile), the two `ARG`s and the install `RUN` in
-[`Dockerfile`](../Dockerfile), the two entries in `docker-compose.yml`, and this file. Leave
-the healthcheck pointed at `/ring.json`; it is correct either way and does not depend on the
-gate.
+Not planned as of 1.5.0 — the feature is being kept for future staging/dev use (see above).
+If a later decision does retire it for good: delete [`gate/`](../gate/), the
+`import /etc/caddy/conf.d/*.caddy` line in [`Caddyfile`](../Caddyfile), the two `ARG`s and
+the install `RUN` in [`Dockerfile`](../Dockerfile), the two entries in `docker-compose.yml`,
+and this file. Leave the healthcheck pointed at `/ring.json`; it is correct either way and
+does not depend on the gate.

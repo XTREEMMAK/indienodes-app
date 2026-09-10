@@ -8,42 +8,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [1.5.0-rc.2] - 2026-09-08
+## [1.5.1] - 2026-09-09
 
-Release candidate, published gated for the same widget-and-ring validation pass as rc.1 —
-specifically to confirm the CORS fix below reaches Staging.
-
-### Fixed
-
-- **The sandboxed iframe widget tier loads on member sites again.** `/embed-frame`'s
-  deliberately opaque-origin iframe fetches its own SvelteKit hydration chunks under
-  `/_app/immutable/*` in CORS mode, and that path never carried
-  `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
-  preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
-policy`, found live on real member sites.
-- **An arrangement authored wider than the canvas's authored column count no longer
-  cascades on overflow.** Whether the field renders the authored layout or a derived one
-  now checks real fit, not just column count, and derived layouts are packed rather than
-  left to gridstack's own collision resolution, which previously clamped one overflowing
-  node and shoved its neighbours out from under it.
-- **Batch-restoring several nodes to their saved positions on load no longer risks a later
-  restoration colliding with an earlier one's just-corrected spot** (gridstack evaluates
-  collisions live even inside a batched update).
-- **A hover flicker on the rating stars**, caused by the lift transform moving each star's
-  own hit-box out from under a stationary pointer.
+A fix-only release for multi-select in Arrange mode. The feature shipped in 1.5.0 moved and
+scaled a group correctly, but almost everything _around_ the gesture was wrong — what the
+drag previewed, whether the drop committed at all, and whether the selection survived it.
 
 ### Changed
 
-- **The default first-visit arrangement scales with the actual viewport** instead of
-  assuming exactly the authored column count, so a wide first load gets a centered,
-  appropriately sized starting layout instead of one that reads as small and off-center.
-- **The rating stars** carry a gold gradient fill, a hover particle burst, and a Ko-fi mark
-  on the support step.
+- **The Capacitor and Wails hosts are pinned at 0.0.1, and no longer track the web app's
+  version.** Nothing was ever decided here: the hosts were scaffolded at 1.1.0 because that
+  was the web app's version that day, `scripts/platforms/verify-versions.mjs` then required
+  them to match it, and every release since dragged two untouched scaffolds along behind it
+  — as far as 1.5.x, with Android's `versionCode` up at 7, implying six store submissions
+  that never happened. A version is a claim about maturity and theirs was overstating it by
+  four minor releases. `versionCode` goes back to 1 for the same reason, which costs nothing
+  because nothing has ever been uploaded. The check now requires only that the three native
+  version strings agree with each other, so they move on their own schedule once native
+  development actually begins.
 
-## [1.5.0-rc.1] - 2026-09-07
+### Fixed
 
-Release candidate, published gated for the widget-and-ring validation pass the roadmap
-calls for before this becomes 1.5.0 — not yet a tagged release.
+- **A multi-select drag in Arrange mode now previews and commits the whole group.** Three
+  things were wrong at once while a selection was in flight, all of them in what the
+  gesture showed rather than in the selection itself. The drop target under the group was
+  gridstack's own placeholder for the single grabbed node, so a group move previewed one
+  card and left the rest unaccounted for; every selected node now gets a ghost, drawn from
+  the same clamped pointer delta the drop itself uses. A selected node that the engine's
+  live collision handling shoved aside mid-drag carried that shove into its preview and
+  visibly popped out of the group; each follower is now drawn from where it stood when the
+  drag began, so the selection holds its shape whatever the engine does underneath. And
+  the group appeared to snap back to its old position and slide into the new one on
+  release, because gridstack's position transition ran over the settling frame; that
+  transition is now held off for exactly as long as the drop takes to settle.
+- **A drop is no longer silently discarded when the engine refuses the move.** gridstack
+  emits no `change` event at all when its own idea of the dragged node's position is
+  unchanged, and it refuses to move a node onto occupied cells — so an ordinary drop onto
+  a neighbour produced no event, the drag was never resolved, and the whole group sprang
+  back to where it started. (Nudging past the target and back appeared to fix it only
+  because any engine movement at all produces the event.) The drop is now settled from the
+  release itself when no event arrives, from the same snapshot and pointer position it
+  always used, so what the drop commits no longer depends on the engine having an opinion
+  about it.
+- **A selection survives the gesture that moved it, as long as shift is still held.** A
+  drag or resize begins on a card and ends somewhere else, so the browser picks the two
+  targets' common ancestor as the trailing click's target — the grid itself, which the
+  background handler reads as "clear the selection". Every group move therefore threw away
+  the group it had just moved. Holding shift through the release now keeps it, so the same
+  group can be moved again without being rebuilt; releasing without shift still clears, as
+  the way to let a selection go.
+- **A follower no longer pops out of the group for a frame during a slow drag.** gridstack
+  listens for `mousemove` on the document; this component listens for `pointermove` on the
+  grid, and the browser fires the pointer event first — so a preview computed only when a
+  pointer event arrived was always exactly one event behind the engine, painting every
+  shove before undoing it. A pointer that then stopped moving left that broken frame on
+  screen until the next move came. The preview is now redrawn before every paint for the
+  length of the gesture, which also covers the movement no pointer event announces at all:
+  gridstack's throttled cell-height re-measure, its auto-scroll at the edge of the window,
+  and the page shifting under a grid that grows as a node is carried down it.
+- **A dropped group lands where it was let go.** Positions were written one at a time into
+  an engine that evaluates collision live on every write, so members of a group — which
+  overlap each other's start and target cells by construction — pushed each other on the
+  way in: two stacked nodes dropped two rows down committed a twelve-row move. Every node
+  is staged clear of the arrangement first, the same way the layout-restoring paths
+  already do it, so the only collision left to resolve is a member landing on a neighbour
+  that stayed put.
+
+## [1.5.0] - 2026-09-08
+
+The widget-and-ring validation release. Both required pre-release passes named in the
+roadmap — validating the widget contract against real host pages and an explicit
+responsive sweep — are complete, closing the last gate on the public-release path.
+Published first as rc.1 and rc.2 while that validation was in progress; this entry
+squashes both into the real release.
 
 ### Added
 
@@ -64,18 +101,39 @@ calls for before this becomes 1.5.0 — not yet a tagged release.
   layout.
 - **Play and pause fade the audio in and out** instead of snapping straight to full or zero
   gain.
+- **The default first-visit arrangement scales with the actual viewport** instead of
+  assuming exactly the authored column count, so a wide first load gets a centered,
+  appropriately sized starting layout instead of one that reads as small and off-center.
+- **The rating stars** carry a gold gradient fill, a hover particle burst, and a Ko-fi mark
+  on the support step.
 
 ### Fixed
 
 - **`/embed-frame`'s CSP no longer blocks its own ring fetch** under the production
   configuration, where it was silently falling back to the same-origin ring mirror instead
   of the configured origin.
+- **The sandboxed iframe widget tier loads on member sites again.** `/embed-frame`'s
+  deliberately opaque-origin iframe fetches its own SvelteKit hydration chunks under
+  `/_app/immutable/*` in CORS mode, and that path never carried
+  `Access-Control-Allow-Origin` — every third-party embed (and this app's own `/widget`
+  preview) failed with `Access to script ... from origin 'null' has been blocked by CORS
+policy`, found live on real member sites.
 - **The node preview card on `/update`** renders once a node is verified, instead of
   collapsing to a 2×2px box.
 - **The sound dock stays centered** independent of its own fly transition.
 - **Claiming a different node from `/update` replaces a stale in-progress draft** instead of
   the old draft's fields winning because the id field was already non-empty.
 - **The PNG favicon fallback** is generated from the small mark rather than the full logo.
+- **An arrangement authored wider than the canvas's authored column count no longer
+  cascades on overflow.** Whether the field renders the authored layout or a derived one
+  now checks real fit, not just column count, and derived layouts are packed rather than
+  left to gridstack's own collision resolution, which previously clamped one overflowing
+  node and shoved its neighbours out from under it.
+- **Batch-restoring several nodes to their saved positions on load no longer risks a later
+  restoration colliding with an earlier one's just-corrected spot** (gridstack evaluates
+  collisions live even inside a batched update).
+- **A hover flicker on the rating stars**, caused by the lift transform moving each star's
+  own hit-box out from under a stationary pointer.
 
 ## [1.4.0] - 2026-09-03
 

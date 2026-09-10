@@ -18,7 +18,20 @@ test('the audio playlist setting randomizes tracks for a node Play action', asyn
 	await expect(page.getByRole('tab', { name: 'Audio playlist', exact: true })).toBeVisible();
 	await page.getByRole('tab', { name: 'Audio playlist', exact: true }).click();
 
+	// On by default; round-trip off and back on to prove the checkbox still
+	// drives a real change event and persists, rather than relying on
+	// Playwright's `.check()` no-op on an already-checked box to prove nothing.
 	const setting = page.getByRole('checkbox', { name: /Randomize tracks within each node/ });
+	await expect(setting).toBeChecked();
+	await setting.uncheck();
+	await expect(setting).not.toBeChecked();
+	expect(
+		await page.evaluate(
+			() =>
+				JSON.parse(localStorage.getItem('indienode:preferences:v1') ?? '{}').randomizeAudioTracks
+		)
+	).toBe(false);
+
 	await setting.check();
 	await expect(setting).toBeChecked();
 	expect(

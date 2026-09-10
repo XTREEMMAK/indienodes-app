@@ -1540,7 +1540,7 @@ Variables), not from anything on the infra side:
 
 | Variable                      | Unset behaviour                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VITE_SITE_ORIGIN`            | Dockerfile default `https://indienodes.us`                                                                                                                   |
+| `VITE_SITE_ORIGIN`            | Dockerfile default `https://app.indienodes.us`                                                                                                               |
 | `VITE_SUBMISSION_WEBHOOK_URL` | `/join` and `/update` report submissions closed                                                                                                              |
 | `VITE_CONTACT_WEBHOOK_URL`    | `/contact` reports itself closed                                                                                                                             |
 | `VITE_TURNSTILE_SITE_KEY`     | No widget rendered — was the live state through 2026-08-30; Turnstile is on as of 2026-08-31, so this row is now the fallback rather than the deployed state |
@@ -1959,6 +1959,18 @@ A security review (`indienodes-ring`'s `docs/webring-security-research-2026-08-3
 
 **A pre-existing e2e gap surfaced while testing this:** the widget's own ring fetch (`RING_JSON_URL`, built from `SITE_ORIGIN`) had never been exercised by an e2e test before `testing/embed-frame.e2e.js`, and it turned out `SITE_ORIGIN` defaulting to the real `https://indienodes.us` in an unconfigured build meant every e2e run's widget was silently trying to fetch the real production ring across a network the test runner cannot reach -- previously invisible because no test loaded the real widget, only its static preview stand-in. Fixed by setting `VITE_SITE_ORIGIN=http://localhost:4173` for the e2e "production" project's build in `playwright.config.js`, making that build a genuinely self-contained deployment instead of one that happens to serve from a different port while still identifying as the real site.
 
+## Found live: `/_app/immutable/*` never carried the CORS header the sandboxed iframe needs, and Cloudflare's own cache outlived the fix
+
+The iframe `widget` tier (previous entry) went dead on every member site that had it embedded, reported first from real third-party pages (`nekoweb.org`, a `pages.kjnet.us` member page) as `Access to script at '.../_app/immutable/...' from origin 'null' has been blocked by CORS policy`.
+
+**Root cause.** The sandboxed iframe's opaque origin (deliberate, previous entry) means every fetch it makes -- including the browser loading `/embed-frame`'s own SvelteKit hydration chunks under `/_app/immutable/*` -- runs in CORS mode: module scripts and dynamic `import()` always do, regardless of physical same-hostness. `Caddyfile`'s `@immutable` matcher set `Cache-Control` on that path but never `Access-Control-Allow-Origin`, unlike the carve-out `/embed.v1.js`/`ring.json` already had (see the widget-versioning entries above). This also broke this app's own `/widget` live preview, a same-origin `<iframe src="/embed-frame">` that hits the identical opaque-origin fetch path. Fixed by adding `Access-Control-Allow-Origin "*"` to the `@immutable` block, the same safety reasoning as the existing carve-out: public, content-hashed, credential-free build assets, no cookies or session anywhere in this app for `*` to be unsafe with.
+
+**Fixing the Caddyfile was necessary but not sufficient to make the symptom go away, and that gap is the part worth remembering.** After the fix was live at origin -- confirmed directly with `curl -sI` against the exact chunk URLs from the bug report, `access-control-allow-origin: *` present, `cf-cache-status: MISS`, `last-modified` matching the fresh deploy -- the same CORS error kept reproducing in a real browser, survived a hard refresh, survived cache-cleared reloads, and survived incognito. All three rule out the browser's own cache. What did not get ruled out, and turned out to be it: `/_app/immutable/*` is served `Cache-Control: public, max-age=31536000, immutable`, so any Cloudflare edge POP that had already cached the pre-fix (no-ACAO) response -- and by the time this was found, the widget had been live and embedded on real member sites for days, so most POPs worldwide had -- keeps serving that cached copy for up to a year regardless of what origin now returns, because `immutable` tells Cloudflare (like the browser) never to revalidate within max-age. The `curl` check above only proved the fix was correct at origin and at whichever one POP that particular request happened to land on; it proved nothing about any other POP, including whichever one a given visitor's request actually resolves to.
+
+**The fix for the fix: a Cloudflare cache purge for the zone** (dashboard → Caching → Configuration → Purge Everything; a scoped custom purge on `/_app/immutable/*` needs an Enterprise plan, so "Purge Everything" is the reliable option on lower tiers). Confirmed the purge, not the Caddyfile change alone, was what made the symptom actually disappear in a real browser.
+
+**The general troubleshooting lesson, for next time this shape of bug shows up:** if a header/CORS/CSP fix is verified correct at the origin (`curl` against production directly) but a real browser still reproduces the original symptom after every form of _browser_-side cache-busting has been exhausted (hard refresh, cache-cleared reload, incognito), suspect the CDN's edge cache next, especially for any path served with a long `max-age` and/or `immutable` -- and especially if that path had already been live and publicly hit before the fix shipped, since that is exactly what gives stale copies time to spread across edge POPs. A purge is the fix in that case, not another look at the origin config.
+
 ## LOCKED: a real Content-Security-Policy, with `'unsafe-inline'` on script-src and style-src
 
 The security review's other major recommendation (the `Caddyfile`'s own comment had already flagged this as pending "a separate nonce/hash migration"). What shipped is not the strict, nonce/hash-only script-src that phrase implies, and the reason is worth recording precisely so nobody re-attempts the stricter version without re-learning why it failed.
@@ -2076,6 +2088,14 @@ and restart-looped. It now probes `/ring.json`, which is on the public list in b
 so one probe is correct gated and ungated alike. And `caddy adapt` runs during the image
 build in _both_ branches, so a malformed gate fails the build rather than the container's
 first start.
+
+**Update, 1.5.0: kept permanently rather than deleted at launch.** The entry above and
+`pre-launch-gate.md` both originally scoped this as removed once the app went public. That
+changed because the need it solves — a gated image for testing a build against real host
+pages, or any other staging round where the app should not be reachable yet — is not a
+one-time pre-launch problem, it recurs. Nothing about the mechanism changes: still
+Caddy-enforced, still build-arg-only, still a manual `workflow_dispatch` to actually produce
+a gated image. Only the "delete this at launch" instruction is retracted.
 
 ## LOCKED: EULA 1.3 authorizes the rules /join was already stating
 

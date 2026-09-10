@@ -23,10 +23,14 @@ page background, a card surface, and a text color on all twenty-one rather than 
 
 The remaining public-release work has a narrower order than the full roadmap:
 
-1. **Validate the public widget contract** on real host pages, including the versioned
-   embed, navigation, participation detection, and generated-site embed.
-2. **Run an explicit responsive pass** across ordinary view and Ambient view on mobile,
-   tablet, and desktop dimensions.
+1. ~~**Validate the public widget contract** on real host pages, including the versioned
+   embed, navigation, participation detection, and generated-site embed.~~ **Done** —
+   traversal between two real member sites was verified live, on a production install
+   running the current preview image with the CORS fix. See "Widget validation" below for
+   what's left as follow-up rather than a blocker.
+2. ~~**Run an explicit responsive pass** across ordinary view and Ambient view on mobile,
+   tablet, and desktop dimensions.~~ **Largely done.** A handful of elements still need
+   tuning; not release-blocking, addressed through normal updates.
 3. ~~**Publish visitor Terms of Use and a Privacy Notice** and expose both from the app.~~
    **Built** — see the visitor-facing terms section below.
 
@@ -408,7 +412,12 @@ on size, not on a real listen test. See the revisit note on the LOCKED entry in
 
 ## Widget validation
 
-**Public-release status: required.**
+**Public-release status: core case done.** The thing this pass exists to prove —
+traversal actually moving a visitor from one real member site to another — was verified
+live: a production install running the current preview image (with the CSP and CORS
+fixes below) round-tripped between two real member sites via the sandboxed iframe tier.
+The remaining checklist items below are follow-up hardening and test-suite coverage, not
+open blockers.
 
 Run both widget tiers (the default sandboxed iframe, `/embed-frame`, and the advanced
 `embed.v1.js` script tag -- see `decisions.md`'s widget-iframe-isolation entry) against
@@ -444,17 +453,16 @@ they do — but whether they are rare enough to stay human-reviewed. A warning c
 people learn to ignore has stopped being a check.
 
 **Three findings from the 2026-09-04 ring audit land in this section** (see
-`ring-audit-2026-09-04.md` part 2). The first is a defect to fix rather than a case to
-test, and it sits on the tier this project recommends by default:
+`ring-audit-2026-09-04.md` part 2). The first two defects are fixed and shipped in 1.5.0;
+the third and the harness item below remain open as follow-up:
 
-- **`/embed-frame`'s CSP blocks its own ring fetch under the production configuration.**
-  The per-path override sets `connect-src 'self'` (`Caddyfile`), while production supplies
-  `VITE_RING_URL=https://ring.indienodes.us`. The site-wide policy lists that origin; this
-  one does not, and its own comment already concedes the case. `loadRing`'s fallback to the
-  same-origin mirror keeps the widget working, so the symptom is not a blank badge — it is
-  a CSP violation on every load plus the default tier quietly serving the five-minute-cached
-  mirror instead of the canonical endpoint. `testing/csp.e2e.js` cannot see it: the e2e
-  build configures no `VITE_RING_URL`, so the policy under test is not the policy shipped.
+- ~~**`/embed-frame`'s CSP blocks its own ring fetch under the production configuration.**~~
+  **Fixed in 1.5.0.** The per-path override set `connect-src 'self'` (`Caddyfile`), while
+  production supplies `VITE_RING_URL=https://ring.indienodes.us`; the site-wide policy
+  listed that origin but this override didn't. `loadRing`'s fallback to the same-origin
+  mirror had kept the widget visibly working, so the symptom was a CSP violation on every
+  load plus the default tier quietly serving the five-minute-cached mirror instead of the
+  canonical endpoint, not a blank badge — see the CHANGELOG's 1.5.0 entry.
 - **The cross-origin harness is nearer than "needs a second real origin" suggests.**
   `testing/scripts/serve.mjs` already serves `testing/sites/` on port 4174 with
   `Access-Control-Allow-Origin: *`, which is a second real origin. What is missing is embed
@@ -506,10 +514,10 @@ not attempted alongside shipping a working baseline policy.
 
 ## Responsive release pass
 
-**Public-release status: required.**
-
-Exercise the ordinary field and Ambient view at representative phone, tablet, laptop,
-and wide-desktop sizes, including portrait/landscape changes, reduced motion, touch and
-keyboard paths, safe-area insets, overlays, the mini player, and the full-screen fallback.
-This is a deliberate release pass in addition to component-level responsive behavior and
-the browser coverage already in CI.
+**Public-release status: largely done.** Exercised across the ordinary field and Ambient
+view at representative phone, tablet, laptop, and wide-desktop sizes, including
+portrait/landscape changes, reduced motion, touch and keyboard paths, safe-area insets,
+overlays, the mini player, and the full-screen fallback -- in addition to the
+component-level responsive behavior and browser coverage already in CI. A handful of
+elements still need tuning; tracked as normal follow-up work rather than a release
+blocker.

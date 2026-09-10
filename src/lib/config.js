@@ -70,7 +70,7 @@ export const RING_REPO_URL = import.meta.env.VITE_RING_REPO_URL || '';
  * fetch ring.json with a relative path (that would resolve against the host
  * page's origin, not this one).
  */
-export const SITE_ORIGIN = import.meta.env.VITE_SITE_ORIGIN || 'https://indienodes.us';
+export const SITE_ORIGIN = import.meta.env.VITE_SITE_ORIGIN || 'https://app.indienodes.us';
 export const RING_JSON_URL = `${SITE_ORIGIN}/ring.json`;
 
 /**
