@@ -214,40 +214,40 @@ describe('FieldNode primary action', () => {
 	});
 });
 
-describe('FieldNode form badge', () => {
-	it('shows a Music badge for a music-form audio entry', async () => {
+describe('FieldNode type badge (merged with form for audio)', () => {
+	it('shows "Audio · Music" for a music-form audio entry', async () => {
 		const screen = await render(FieldNode, {
 			entry: AUDIO_ENTRY,
 			ambient: true,
 			motionReducedOverride: true
 		});
-		expect(screen.container.querySelector('.form-badge')?.textContent).toBe('Music');
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio · Music');
 	});
 
-	it('shows a Spoken badge for a spoken-form audio entry', async () => {
+	it('shows "Audio · Spoken" for a spoken-form audio entry', async () => {
 		const screen = await render(FieldNode, {
 			entry: { ...AUDIO_ENTRY, form: 'spoken' },
 			ambient: true,
 			motionReducedOverride: true
 		});
-		expect(screen.container.querySelector('.form-badge')?.textContent).toBe('Spoken');
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio · Spoken');
 	});
 
-	it('renders no form badge for a pre-migration audio entry with no form yet', async () => {
+	it('falls back to plain "Audio" for a pre-migration entry with no form yet', async () => {
 		const screen = await render(FieldNode, {
 			entry: { ...AUDIO_ENTRY, form: undefined },
 			ambient: true,
 			motionReducedOverride: true
 		});
-		expect(screen.container.querySelector('.form-badge')).toBeNull();
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio');
 	});
 
-	it('renders no form badge for a non-audio type', async () => {
+	it('shows the bare type for a non-audio entry, with no form suffix', async () => {
 		const screen = await render(FieldNode, {
 			entry: TEXT_ENTRY,
 			ambient: true,
 			motionReducedOverride: true
 		});
-		expect(screen.container.querySelector('.form-badge')).toBeNull();
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Text');
 	});
 });

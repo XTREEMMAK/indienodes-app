@@ -476,12 +476,11 @@
 			     means opening a menu per node to read something a chip already
 			     says. -->
 			<div class="top-row">
-				<div class="badge-group">
-					<span class="type-badge">{TYPE_LABEL[entry.type]}</span>
-					{#if entry.type === 'audio' && entry.form}
-						<span class="form-badge">{FORM_LABEL[entry.form]}</span>
-					{/if}
-				</div>
+				<span class="type-badge"
+					>{TYPE_LABEL[entry.type]}{entry.type === 'audio' && entry.form
+						? ` · ${FORM_LABEL[entry.form]}`
+						: ''}</span
+				>
 				{#if showCurateControls && !editMode}
 					<div class="curate-controls" class:hover-reveal={ambient}>
 						<button
@@ -993,13 +992,6 @@
 		padding: 0.85rem;
 	}
 
-	.badge-group {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		flex-wrap: wrap;
-	}
-
 	.type-badge {
 		padding: 0.15rem 0.6rem;
 		border-radius: 999px;
@@ -1009,15 +1001,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-	}
-
-	.form-badge {
-		padding: 0.15rem 0.55rem;
-		border-radius: 999px;
-		background: var(--bg-elevated);
-		color: var(--text-muted);
-		font-size: 0.7rem;
-		font-weight: 500;
+		white-space: nowrap;
 	}
 
 	.curate-controls {
