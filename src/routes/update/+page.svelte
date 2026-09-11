@@ -1394,6 +1394,25 @@
 		color: var(--accent);
 	}
 
+	/* The two inline links in the step bodies -- "members list" on the lookup
+	   step and "the join form" in the removal explanation -- had no rule of
+	   their own and so rendered as plain body text: Tailwind's Preflight
+	   (`@import 'tailwindcss'` in app.css) resets every anchor to `color:
+	   inherit; text-decoration: inherit`, leaving no browser default to fall
+	   back on. Scoped to `p` so it reaches prose only and cannot touch the
+	   step's own buttons or the `.footnote` link above, which is deliberately
+	   quieter and sits outside `.step-body` anyway.
+
+	   Underlined, unlike `.footnote a`: these two sit mid-sentence, where
+	   color alone is the affordance WCAG 1.4.1 says not to rely on. The
+	   footnote's link is the whole line and reads as one regardless. */
+	.step-body p a {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-thickness: 0.1em;
+		text-underline-offset: 0.16em;
+	}
+
 	@media (max-width: 60rem) {
 		.join-page {
 			padding: 2rem 1.2rem 4rem;

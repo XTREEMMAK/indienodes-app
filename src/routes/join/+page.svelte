@@ -2099,6 +2099,19 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 		font-size: var(--text-xs);
 	}
 
+	/* Tailwind's Preflight resets every anchor in the app to `color: inherit;
+	   text-decoration: inherit`, so an inline link only looks like one where a
+	   rule says so -- see the note on `.consent-text a` below. This note's own
+	   link ("this ring's repository") is the route into the ring for any
+	   deployment running without a submission backend, so it is the last link
+	   in this file that can afford to read as plain text. */
+	.interim-note a {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-thickness: 0.1em;
+		text-underline-offset: 0.16em;
+	}
+
 	.note-panel {
 		max-width: 62ch;
 		margin-bottom: 1.6rem;
