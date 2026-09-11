@@ -1953,8 +1953,7 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 									basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
-									</button>
-									By submitting, you also agree to the
+									</button>. By submitting, you also agree to the
 									<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved app route with an appended section anchor -->
 									<a href={`${resolve('/terms')}#terms-of-use`} target="_blank" rel="noopener"
 										>Terms of Use</a
@@ -2910,17 +2909,45 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 		line-height: 1.55;
 	}
 
-	/* An inline text link that happens to be a <button> (it opens a modal,
-	   not a URL), styled to read as part of the surrounding sentence rather
-	   than as its own control. */
+	/* The three inline links in the consent sentence are two <a>s and one
+	   <button> -- the button opens the EULA modal, the anchors go to /terms --
+	   and only the button used to carry link styling, so the two that actually
+	   were links were the two that did not look like any. Which element each
+	   one is comes down to whether it opens a URL or a dialog, and that is not
+	   a distinction a reader is supposed to be able to see, so they are styled
+	   together here.
+
+	   An explicit rule is needed at all because Tailwind's Preflight (pulled in
+	   by `@import 'tailwindcss'` in app.css) resets every anchor in the app to
+	   `color: inherit; text-decoration: inherit`. There is no browser default
+	   left to fall back on, which is why this file already styles `.rules-list
+	   a` and `.note a` one scope at a time. The underline thickness and offset
+	   match `.rules-list a`, the most considered link in this file; its
+	   `font-weight: 700` deliberately does not come along, because three bold
+	   spans inside one dense consent sentence read as emphasis rather than as
+	   links. */
+	.consent-text a,
+	.link-button {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-thickness: 0.1em;
+		text-underline-offset: 0.16em;
+	}
+
+	.consent-text a:hover,
+	.link-button:hover {
+		color: var(--text);
+	}
+
+	/* The button half also has to shed its button-ness to sit inside the
+	   sentence: a <button> brings padding, a border, a background and a font
+	   of its own, none of which an inline link has. */
 	.link-button {
 		padding: 0;
 		border: none;
 		background: none;
 		font: inherit;
 		font-size: inherit;
-		color: var(--accent);
-		text-decoration: underline;
 		cursor: pointer;
 	}
 
