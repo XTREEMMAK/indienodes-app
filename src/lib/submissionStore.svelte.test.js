@@ -223,6 +223,21 @@ describe("isStepComplete('entry') cover ownership", () => {
 		});
 		expect(store.isStepComplete('entry')).toBe(true);
 	});
+
+	it('requires music/spoken on the Entry step for an audio submission', () => {
+		const store = freshStore({
+			creator: 'Driftwood Radio',
+			type: 'audio',
+			why: 'Warm tape loops for late evenings.',
+			has_own_site: 'yes',
+			source_url: 'https://example.com/driftwood',
+			tags: ['ambient']
+		});
+		expect(store.isStepComplete('entry')).toBe(false);
+
+		store.entry.form = 'music';
+		expect(store.isStepComplete('entry')).toBe(true);
+	});
 });
 
 describe("isStepComplete('media') for a no-site audio creator", () => {

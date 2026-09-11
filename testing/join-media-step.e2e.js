@@ -26,7 +26,6 @@ test('the own-site media step adds, fills and removes track rows', async ({ page
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
 	await page.locator('#f-creator').fill('Driftwood Radio');
 	await page.locator('#f-type').selectOption('audio');
-	await page.locator('#f-form').selectOption('music');
 	await page.locator('#f-why').fill('Warm tape loops for late evenings.');
 	await page.locator('#f-source').fill('https://example.com');
 	// At least one tag is required before the step will advance; the field
@@ -35,7 +34,14 @@ test('the own-site media step adds, fills and removes track rows', async ({ page
 	await page.locator('#f-tags').press('Enter');
 	await expect(page.locator('.tag-list button.chip.checked')).toHaveCount(1);
 
-	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
+	const entryContinue = page.getByRole('button', { name: 'Continue', exact: true }).last();
+	// Music/spoken is required for audio; everything else on this step is
+	// already filled in, so this isolates the form field as the reason.
+	await expect(entryContinue).toBeDisabled();
+	await page.locator('#f-form').selectOption('music');
+	await expect(entryContinue).toBeEnabled();
+
+	await entryContinue.click();
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();
 
 	const rows = page.locator('.repeat-row');

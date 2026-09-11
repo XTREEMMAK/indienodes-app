@@ -337,7 +337,7 @@ export function createSubmissionStore() {
 	 */
 	const stepFields = {
 		ownership: ['has_own_site'],
-		entry: ['creator', 'type', 'why', 'source_url', 'thumb_url', 'tags'],
+		entry: ['creator', 'type', 'form', 'why', 'source_url', 'thumb_url', 'tags'],
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
 		consent: ['email', 'pro_membership', 'pro_membership_name']
 	};
