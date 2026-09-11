@@ -19,7 +19,10 @@ test('ambient mobile surface exposes audio navigation and tap-paused visual acti
 	const discoveryCard = page.locator('.audio-discovery-card');
 	await expect(playlistButton).toBeVisible();
 	await expect(nextAudioButton).toBeVisible();
-	await expect(discoveryCard.getByText('Audio Next', { exact: true })).toBeVisible();
+	// Not exact: the chip appends the declared form label (see
+	// ambient-adjustments.e2e.js for that assertion) and this test is only
+	// about the surrounding mobile nav, not the chip's exact wording.
+	await expect(discoveryCard.getByText('Audio Next', { exact: false })).toBeVisible();
 	const progressFill = discoveryCard.locator('.audio-rotation-progress span');
 	await expect(progressFill).toBeVisible();
 	const progressBefore = await progressFill.boundingBox();

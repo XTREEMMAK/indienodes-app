@@ -81,6 +81,7 @@
 	import TextSpeechButton from './TextSpeechButton.svelte';
 
 	const TYPE_LABEL = { audio: 'Audio', comic: 'Comic', text: 'Text', game: 'Game', art: 'Art' };
+	const FORM_LABEL = { music: 'Music', spoken: 'Spoken' };
 	let trailerPlaying = $state(false);
 	let trailerPausedTrackKey = /** @type {string | null} */ (null);
 
@@ -475,7 +476,11 @@
 			     means opening a menu per node to read something a chip already
 			     says. -->
 			<div class="top-row">
-				<span class="type-badge">{TYPE_LABEL[entry.type]}</span>
+				<span class="type-badge"
+					>{TYPE_LABEL[entry.type]}{entry.type === 'audio' && entry.form
+						? ` · ${FORM_LABEL[entry.form]}`
+						: ''}</span
+				>
 				{#if showCurateControls && !editMode}
 					<div class="curate-controls" class:hover-reveal={ambient}>
 						<button
@@ -996,6 +1001,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
+		white-space: nowrap;
 	}
 
 	.curate-controls {

@@ -63,6 +63,19 @@ Still open, and separate from the tag work: **visible-node count at production s
 (see `open-questions.md`) is a question about the shipped default layout, not about
 channels.
 
+## Field presets (saved workspaces)
+
+Currently there is exactly one Field: `layoutStore` and `filtersStore` each hold a single, unnamed, local-only state. The idea is named presets — e.g. one workspace of only Audio nodes arranged one way, another of Comics with a single text node — switchable without rebuilding the arrangement by hand each time.
+
+**Direction agreed: a fixed set of five slots, not an unlimited named list**, kept local-only like everything else in `STORAGE_KEYS` — there is no account/cloud layer in this app to justify more. Each slot snapshots both halves of a Field together, `layoutStore`'s node configs and `filtersStore`'s global tag toggles, since a workspace described only by node layout, without which global tags were active, would not reproduce what the person actually saw.
+
+Not yet decided, and worth settling before building:
+
+- Whether loading a preset pushes onto `layoutStore`'s in-memory undo stack (making "load preset" itself undoable) or simply resets history.
+- Validating a stored preset against the live `nodeShape.js` type list on load, reusing the defensive pattern already in `nodeChannel.js` (`matchesType`, `pruneTagsForType`), rather than trusting an old snapshot outright.
+
+Fits the existing patterns cleanly when built: one new catalogued, exportable `STORAGE_KEYS` entry (e.g. `indienode:field-presets:v1`), and a Save/Load/Rename/Clear UI extending `ArrangeMenu.svelte`.
+
 ## Skins (the ornamental direction, packaged)
 
 **Decided:** two independent axes, not one. A **UI Skin** is the app's own chrome — panels, buttons, backgrounds. A **Node Skin** is how a ring-entry card looks, animates, and sounds. They are chosen separately, so "a Retro theme with the Drifty Stars background" is a real, expressible combination rather than a single bundled toggle.

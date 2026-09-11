@@ -70,6 +70,7 @@ async function violations(page) {
 const DRAFT = {
 	creator: 'CSP Test',
 	type: 'audio',
+	form: 'music',
 	why: 'A sufficiently detailed reason for joining this independent creator ring.',
 	has_own_site: 'no',
 	source_url: '',
@@ -164,6 +165,7 @@ test.describe('the main-app Content-Security-Policy', () => {
 
 		await page.locator('#f-creator').fill('CSP Webhook Test');
 		await page.locator('#f-type').selectOption('audio');
+		await page.locator('#f-form').selectOption('music');
 		await page.locator('#f-why').fill('Exercises the real submission webhook fetch under CSP.');
 		await page.locator('#f-source').fill('https://example.com');
 		await page.locator('#f-tags').fill('test');

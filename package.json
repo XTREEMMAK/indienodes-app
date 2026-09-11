@@ -3,7 +3,7 @@
 	"description": "A decentralized indie-creator discovery webring built around a public ring.json data source.",
 	"license": "GPL-3.0-or-later",
 	"private": true,
-	"version": "1.5.1",
+	"version": "1.6.0",
 	"type": "module",
 	"scripts": {
 		"dev": "npm run build:widget && vite dev",

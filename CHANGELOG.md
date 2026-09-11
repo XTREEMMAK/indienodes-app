@@ -8,6 +8,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-11
+
+The release that opens the site to the public. The app has been reachable only behind the
+pre-launch gate; this removes that gate from production and, in the same change, makes the
+site say plainly what state it is actually in — the application is finished enough to use,
+the ring is not yet dense enough to browse, and those are two different things. A visitor
+who finds a near-empty field should be told it is being built, not left to conclude it is
+abandoned.
+
+### Added
+
+- **An Early Access phase, behind `VITE_EARLY_ACCESS`.** One build-time flag governs every
+  surface that mentions it: a status chip beside the wordmark, the founding-creator framing
+  on `/join` and `/members`, a paragraph in the About modal's overview, the empty-ring
+  branch on the field, and the site description used for share previews and search results.
+  Unset means off, matching every other value in `src/lib/config.js`, so leaving the phase
+  is a config change and a rebuild rather than a code change — and everything comes down
+  together rather than one forgotten banner at a time. Compared against the exact string
+  `true`, because every `VITE_` value arrives as a string and a truthy check would read
+  `false` as on.
+- **The empty-node message names joining as the fix while the ring is small.** A node whose
+  type has nothing in the ring yet already explained itself; during Early Access it also
+  says the ring is still being built and links to `/join`. This follows what that component
+  already does for its other causes — every message is supposed to name what would change
+  it — and it closes the case where a sparse field was several dead ends at once with no
+  route out of them, since `/join` otherwise sits behind the menu.
+
+### Changed
+
+- **The pre-launch gate is no longer on production.** It stays in the repository and is
+  unchanged: it remains the tool for staging rounds and widget testing against real host
+  pages (`docs/pre-launch-gate.md`). What changes is that the deployed production image is
+  built without it. The site is consequently indexable for the first time — the `noindex`
+  came only from the gate, and `static/robots.txt` was already deliberately allow-all.
+- **One tagline, not two.** The three places the ring is described had drifted into "and
+  games" and "and eventually games". Game is a first-class entry type with its own preview
+  and trailer paths, so "eventually" was the stale half.
+
+### Fixed
+
+- **`VITE_SITE_ORIGIN`'s Dockerfile default pointed at the wrong host.** It read
+  `indienodes.us`, the apex, rather than `app.indienodes.us` where the app is actually
+  served — so a bare `docker build .` with no build args baked in an origin that does not
+  answer. This is the one value a wrong setting breaks silently and across origins: the
+  widget is embedded on third-party sites and cannot use a relative path, so it fetches
+  whatever this says. The workflow already passed the correct value, which is why no
+  published image carried the fault.
+
 ## [1.5.1] - 2026-09-09
 
 A fix-only release for multi-select in Arrange mode. The feature shipped in 1.5.0 moved and

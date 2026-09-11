@@ -96,6 +96,9 @@ function emptyEntry() {
 	return {
 		creator: '',
 		type: '',
+		// Audio only, required: 'music' or 'spoken'. Left blank rather than
+		// defaulted, since a silent default would mislabel spoken entries.
+		form: '',
 		why: '',
 		// '' (undecided) / 'yes' / 'no'. Gates whether `source_url` below is
 		// asked for now (owns a site already) or produced later by the
@@ -334,7 +337,7 @@ export function createSubmissionStore() {
 	 */
 	const stepFields = {
 		ownership: ['has_own_site'],
-		entry: ['creator', 'type', 'why', 'source_url', 'thumb_url', 'tags'],
+		entry: ['creator', 'type', 'form', 'why', 'source_url', 'thumb_url', 'tags'],
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
 		consent: ['email', 'pro_membership', 'pro_membership_name']
 	};
@@ -422,6 +425,18 @@ export function createSubmissionStore() {
 			if (stepId === 'verify') return verified;
 			if (stepId === 'prep') return true;
 			if (stepId === 'submit') return Boolean(reference);
+
+			// The consent step's own Continue button is the last chance to
+			// stop someone from advancing without having actually agreed to
+			// anything -- the review step past it validates nothing about
+			// consent itself (it only disables Submit), so a submitter who
+			// clicked through here would otherwise land there with no
+			// explanation why Submit won't respond. `consentGiven` already
+			// encodes which checkboxes matter for this review (EULA always,
+			// Rights only when a PRO relationship makes it apply).
+			if (stepId === 'consent') {
+				return Object.keys(stepErrors(stepId)).length === 0 && consentGiven(review);
+			}
 
 			if (stepId === 'media') {
 				// Every one of `media`'s own fields is conditional on

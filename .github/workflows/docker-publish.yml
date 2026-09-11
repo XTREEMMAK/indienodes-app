@@ -4,7 +4,7 @@
 # that was really about adapter-node: no .env.docker-build placeholder file,
 # no PM2, no production-only npm install, no database migrations to copy in.
 # This image has nothing to configure at deploy time beyond the build args
-# below: eight VITE_ values baked into the client bundle, plus the two
+# below: nine VITE_ values baked into the client bundle, plus the two
 # GATE_ values that install the pre-launch access gate
 # (docs/pre-launch-gate.md) -- neither of those reaches the bundle, and
 # only the password hash is an actual credential.
@@ -147,19 +147,30 @@ jobs:
             VITE_KOFI_URL=${{ vars.VITE_KOFI_URL }}
             VITE_RING_REPO_URL=${{ vars.VITE_RING_REPO_URL }}
             VITE_RING_URL=${{ vars.VITE_RING_URL }}
+            VITE_EARLY_ACCESS=${{ vars.VITE_EARLY_ACCESS }}
             GATE_USER=${{ steps.gate.outputs.enabled == 'true' && vars.GATE_USER || '' }}
             GATE_PASSWORD_HASH=${{ steps.gate.outputs.enabled == 'true' && secrets.GATE_PASSWORD_HASH || '' }}
-          # Unset is a supported state for seven of the eight VITE_ values: no
+          # Unset is a supported state for eight of the nine VITE_ values: no
           # submission webhook means a build reports submissions closed
           # rather than dropping them, no contact webhook does the same for
           # /contact, no rating webhook means the app never asks for a
           # rating at all (quieter than the forms' closed state, and
           # correct, since nobody is waiting on an answer), no Turnstile key
           # means the widget does not render, no Ko-fi URL drops the About
-          # modal's Support tab and the rating prompt's support step, and no
-          # ring URL falls back to the app's own committed ring mirror.
+          # modal's Support tab and the rating prompt's support step, no
+          # ring URL falls back to the app's own committed ring mirror, and
+          # no VITE_EARLY_ACCESS means the site does not present itself as
+          # being in its founding-ring phase.
           # Unset silently is the problem, which is why they are listed here
           # even when empty.
+          #
+          # VITE_EARLY_ACCESS is the only boolean here, and the only one whose
+          # *intended* end state is unset: it is set to the string `true` for
+          # the Early Access window and then removed to leave that phase, so
+          # the status chip and the founding-ring copy come down together
+          # without a code change or a release. Any other value, `false`
+          # included, reads as off (src/lib/config.js compares against 'true'
+          # exactly, since every VITE_ value arrives here as a string).
           #
           # These come from repository VARIABLES, and this workflow is the only
           # place they can enter: adapter-static compiles them into the bundle
@@ -174,7 +185,7 @@ jobs:
           # up to then had exactly that defect. If a published image's forms
           # say they are closed, check the variables before the code.
           #
-          # All eight VITE_ values are compiled into the public client bundle,
+          # All nine VITE_ values are compiled into the public client bundle,
           # not read at container runtime (see Dockerfile, src/lib/config.js)
           # — every one of them belongs in a repository VARIABLE, never a
           # secret. Filing one as a secret would suggest its exposure

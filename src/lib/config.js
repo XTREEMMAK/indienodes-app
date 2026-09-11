@@ -164,3 +164,31 @@ export const RATING_WEBHOOK_URL = import.meta.env.VITE_RATING_WEBHOOK_URL || '';
  * has.
  */
 export const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
+
+/**
+ * Whether this deployment presents itself as being in its Early Access /
+ * founding-ring phase.
+ *
+ * The ring opens to the public long before it is dense enough for random
+ * traversal to be worth much, and those are two different problems: the app
+ * is finished enough to use, the *network* is not finished enough to browse.
+ * This flag is what lets the site say so plainly instead of presenting a
+ * two-entry field as if it were the finished product — see `+page.svelte`'s
+ * sparse-field branch, the About modal's overview tab, and the founding-creator
+ * framing on `/join` and `/members`.
+ *
+ * **A boolean, and the only `VITE_` value here that is.** The others carry a
+ * URL or a key whose presence is itself the signal; there is nothing to carry
+ * here, so the string has to be compared. `=== 'true'` rather than a truthy
+ * check on purpose: every `VITE_` value arrives as a string, so a bare
+ * `Boolean(...)` would read the literal `'false'` as on, which is the one
+ * mistake that would leave Early Access copy up after launch with no obvious
+ * cause.
+ *
+ * Unset means off, matching every other value in this file — a deployment that
+ * has never heard of this flag is simply not in Early Access, and leaving the
+ * phase is a config change rather than a code change. Do not add a fallback
+ * that turns it on by default; the only way out of Early Access is for this to
+ * be absent, so absent must mean out.
+ */
+export const EARLY_ACCESS = import.meta.env.VITE_EARLY_ACCESS === 'true';

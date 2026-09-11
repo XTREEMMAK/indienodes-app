@@ -23,7 +23,13 @@
 	import { generatorDraftStore } from '$lib/generator/generatorDraftStore.svelte.js';
 	import { ACCEPTED_IMAGE_TYPES, rejectionReason } from '$lib/generator/assets.js';
 	import { focusHeading } from '$lib/formRowFocus.svelte.js';
-	import { ENTRY_TYPES, ENTRY_TYPE_LABELS, WHY_MAX_LENGTH } from '$lib/submissionValidation.js';
+	import {
+		ENTRY_TYPES,
+		ENTRY_TYPE_LABELS,
+		FORM_OPTIONS,
+		FORM_LABELS,
+		WHY_MAX_LENGTH
+	} from '$lib/submissionValidation.js';
 	import { ALLOWED_RATIOS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
 
 	const entry = $derived(form.entry);
@@ -72,10 +78,16 @@
 			Math.round((previewWidth * ratio[1]) / ratio[0])
 		);
 	});
+	const previewForm = $derived(
+		/** @type {'music' | 'spoken' | undefined} */ (
+			entry.form === 'music' || entry.form === 'spoken' ? entry.form : undefined
+		)
+	);
 	const previewEntry = $derived({
 		id: 'join-preview',
 		creator: entry.creator?.trim() || 'Your name',
 		type: previewType,
+		form: previewType === 'audio' ? previewForm : undefined,
 		why: entry.why?.trim() || 'Your one-line introduction will appear here.',
 		thumb_url: entry.has_own_site === 'no' ? localCoverUrl : entry.thumb_url?.trim() || '',
 		thumb_position: entry.thumb_position ?? { x: 50, y: 50 },
@@ -197,6 +209,32 @@
 				</select>
 			{/snippet}
 		</FormField>
+
+		{#if entry.type === 'audio'}
+			<FormField
+				id="f-form"
+				label="Music or spoken?"
+				hint="Queues never mix the two, so this has to be declared rather than left to tags."
+				required
+				error={form.entryErrors.form}
+			>
+				{#snippet children(describedBy)}
+					<select
+						id="f-form"
+						class="control"
+						bind:value={entry.form}
+						onchange={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors.form)}
+					>
+						<option value="" disabled>Choose one</option>
+						{#each FORM_OPTIONS as opt (opt)}
+							<option value={opt}>{FORM_LABELS[opt]}</option>
+						{/each}
+					</select>
+				{/snippet}
+			</FormField>
+		{/if}
 
 		<FormField
 			id="f-why"

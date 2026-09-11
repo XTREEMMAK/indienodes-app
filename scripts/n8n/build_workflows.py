@@ -1490,7 +1490,19 @@ const review = {
   pro_membership: hasEntryBlock ? (rv.pro_membership || null) : null,
   pro_membership_name: hasEntryBlock ? (rv.pro_membership_name || null) : null
 };
-if (hasEntryBlock && (review.rights_confirmation !== true || review.eula_agreement !== true)) {
+// Rights only has to be confirmed alongside a stated PRO relationship --
+// "Not a member" (or unanswered) leaves nothing there to disclose, and the
+// general EULA already collects a blanket rights affirmation from everyone.
+// Mirrors `rightsSectionApplies`/`consentGiven` in
+// src/lib/submissionValidation.js, which is what actually gates the /join
+// form's own Continue and Submit buttons -- this is the same rule enforced
+// again server-side, not a second, independent one.
+const rightsSectionApplies =
+  hasEntryBlock && Boolean(review.pro_membership) && review.pro_membership !== 'Not a member';
+if (
+  hasEntryBlock &&
+  (review.eula_agreement !== true || (rightsSectionApplies && review.rights_confirmation !== true))
+) {
   return bad('invalid_request');
 }
 
@@ -2155,6 +2167,8 @@ const isUpdate = Boolean(row.node_id) && !isRemoval;
 const safeTypes = ['audio', 'game', 'comic', 'text', 'art'];
 const submittedType = entry.type || row.type;
 const type = safeTypes.indexOf(submittedType) === -1 ? 'unknown' : submittedType;
+const safeForms = ['music', 'spoken'];
+const audioForm = safeForms.indexOf(entry.form) === -1 ? '' : entry.form;
 const tags = (Array.isArray(entry.tags) ? entry.tags : []).map(esc);
 
 let mediaHtml = '';
@@ -2249,6 +2263,7 @@ const reviewContent = isRemoval
       <p class="section-label">Review criteria (EULA &sect;8)</p>
       <ul class="criteria">
         <li>Declared type matches what is actually at the source URL.</li>
+        ${type === 'audio' ? `<li>Declared form (${esc(audioForm || 'not set')}) matches what is actually at the source URL -- music vs. spoken-word.</li>` : ''}
         <li>Work is publicly reachable and released, not announced &mdash; ongoing is fine, a concept alone is not.</li>
         <li>The Node is authentically this creator's, not scraped, republished, or bulk-produced.</li>
         <li>Rough production, small scope, niche style, a plain site, or a small audience are never grounds to decline.</li>
@@ -2277,6 +2292,7 @@ const body = `
       <div class="review-kind">
         <p class="eyebrow">${isRemoval ? 'Voluntary removal request' : (isUpdate ? 'Existing node update' : 'New ring request')}</p>
         <span class="type-pill ${type}">${esc(type)}</span>
+        ${type === 'audio' && audioForm ? `<span class="type-pill">${esc(audioForm)}</span>` : ''}
       </div>
       <h1>${isRemoval ? 'Review removal of <code>' + esc(row.node_id) + '</code>' : (isUpdate ? 'Review update to <code>' + esc(row.node_id) + '</code>' : 'Review submission')}</h1>
       <p class="meta">Submission <code>${esc(row.submission_id)}</code></p>
@@ -2406,7 +2422,7 @@ const gen = $json;
 // Explicit allowlist, matching toRingEntry in src/lib/submissionValidation.js
 // field for field. Never a denylist: a field added to the form later must be
 // deliberately published, not published by default.
-const allowed = ['creator', 'type', 'why', 'tags', 'tracks', 'pages', 'artworks',
+const allowed = ['creator', 'type', 'form', 'why', 'tags', 'tracks', 'pages', 'artworks',
                  'excerpts', 'thumb_url', 'thumb_position', 'preview_url', 'trailer_url', 'explicit'];
 const out = { id: gen.id };
 for (const k of allowed) if (entry[k] !== undefined) out[k] = entry[k];

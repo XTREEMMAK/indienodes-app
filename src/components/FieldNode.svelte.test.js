@@ -39,6 +39,7 @@ const AUDIO_ENTRY = {
 	...BASE,
 	id: 'interaction-audio',
 	type: 'audio',
+	form: 'music',
 	tracks: [{ label: 'Test track', media_url: 'https://example.com/test.mp3' }]
 };
 
@@ -210,5 +211,43 @@ describe('FieldNode primary action', () => {
 		expect(node).toBeInstanceOf(HTMLElement);
 		expect(getComputedStyle(/** @type {HTMLElement} */ (node)).cursor).toBe('pointer');
 		expect(node?.classList.contains('has-primary-action')).toBe(true);
+	});
+});
+
+describe('FieldNode type badge (merged with form for audio)', () => {
+	it('shows "Audio · Music" for a music-form audio entry', async () => {
+		const screen = await render(FieldNode, {
+			entry: AUDIO_ENTRY,
+			ambient: true,
+			motionReducedOverride: true
+		});
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio · Music');
+	});
+
+	it('shows "Audio · Spoken" for a spoken-form audio entry', async () => {
+		const screen = await render(FieldNode, {
+			entry: { ...AUDIO_ENTRY, form: 'spoken' },
+			ambient: true,
+			motionReducedOverride: true
+		});
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio · Spoken');
+	});
+
+	it('falls back to plain "Audio" for a pre-migration entry with no form yet', async () => {
+		const screen = await render(FieldNode, {
+			entry: { ...AUDIO_ENTRY, form: undefined },
+			ambient: true,
+			motionReducedOverride: true
+		});
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Audio');
+	});
+
+	it('shows the bare type for a non-audio entry, with no form suffix', async () => {
+		const screen = await render(FieldNode, {
+			entry: TEXT_ENTRY,
+			ambient: true,
+			motionReducedOverride: true
+		});
+		expect(screen.container.querySelector('.type-badge')?.textContent).toBe('Text');
 	});
 });

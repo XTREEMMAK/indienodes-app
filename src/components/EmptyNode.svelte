@@ -12,6 +12,7 @@
 	// production build while passing every other check.
 
 	import { resolve } from '$app/paths';
+	import { EARLY_ACCESS } from '$lib/config.js';
 
 	/**
 	 * `cause` (brief section 7c) distinguishes why this slot has nothing. See
@@ -63,6 +64,21 @@
 			Nothing to show here yet. Pick another type, or leave it: it fills in as the ring grows.
 		{:else if cause === 'ring-empty'}
 			The ring doesn't have any {LABEL[node.type]} entries yet.
+			<!-- Named fix, same as `global-tags-empty` and `hidden-exhausted`
+			     below: this message's job is to say what would change it, and
+			     while the ring is still being built the honest answer is that
+			     somebody has to join. Without this the sparse field is several
+			     dead ends at once and no route out of them -- /join is behind
+			     the menu, so nothing on screen offers it.
+
+			     A plain inline link rather than a button, and only on this
+			     cause. Several of these are on screen at the same time by the
+			     nature of a ring this small, and three buttons competing for
+			     the same click would read as a campaign; three sentences that
+			     happen to name the same fix read as the truth. -->
+			{#if EARLY_ACCESS}
+				It's still being built — <a href={resolve('/join')}>add yours</a>.
+			{/if}
 		{:else if cause === 'node-tags-empty'}
 			No {LABEL[node.type]} tagged <strong>{tagList}</strong> in the ring yet. Change this node's tags
 			from its own menu.

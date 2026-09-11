@@ -232,6 +232,9 @@ while (kept.length + generated.length < TARGET_TOTAL) {
 	if (cover) entry.thumb_url = cover;
 
 	if (type === 'audio') {
+		// Required since the audio-form addendum; every generated audio entry
+		// here reads as music (its tags are all music genres), never spoken.
+		entry.form = 'music';
 		// Every third audio entry is link-only, which is now a supported shape
 		// (see docs/decisions.md) and needs to appear in a realistic fixture.
 		if (n % 3 !== 0) {

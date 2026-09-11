@@ -424,6 +424,48 @@ check(
 );
 check('turnstile off by default', v.needsTurnstile, 'no');
 
+// --- Finalize Submission: consent gate --------------------------------------
+// Mirrors rightsSectionApplies/consentGiven in src/lib/submissionValidation.js,
+// which is what actually gates the /join form's own Continue and Submit
+// buttons: Rights only has to be confirmed alongside a stated PRO
+// relationship, so this server-side check must accept the same shapes the
+// form can produce or a real "Not a member" submitter (the common case) gets
+// silently rejected here even though the form told them they were done.
+check(
+	'consent: eula_agreement missing is always rejected, PRO or not',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, eula_agreement: false } })[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'consent: rights_confirmation is not required for "Not a member"',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'Not a member', rights_confirmation: false }
+	})[0].json.ok,
+	'yes'
+);
+check(
+	'consent: rights_confirmation is not required with no PRO answer at all',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, rights_confirmation: false } })[0].json.ok,
+	'yes'
+);
+check(
+	'consent: rights_confirmation is required once a real PRO is named',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: false }
+	})[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'consent: a real PRO plus rights_confirmation passes',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: true }
+	})[0].json.ok,
+	'yes'
+);
+
 // --- Finalize Submission: skip a redundant re-verify fetch ------------------
 // The second fetch to the creator's source_url is redundant when `verify`
 // just succeeded moments ago -- see REVERIFY_SKIP_TTL_SECONDS in
@@ -818,6 +860,7 @@ const memberFormatCases = [
 	{
 		creator: 'Key Jay',
 		type: 'audio',
+		form: 'music',
 		why: 'A submission with enough short tags to reproduce PR #9.',
 		tags: ['vgm', 'orchestra', 'hip-hop', 'r&b', 'edm', 'house'],
 		tracks: [
@@ -877,6 +920,11 @@ check(
 	false
 );
 check(
+	'generated audio member keeps its declared form -- the allowlist must not silently drop it',
+	generatedMember(memberFormatCases[0]).includes('"form": "music"'),
+	true
+);
+check(
 	'generated short tags use the compact form that PR #9 requires',
 	generatedMember(memberFormatCases[0]).includes(
 		'"tags": ["vgm", "orchestra", "hip-hop", "r&b", "edm", "house"]'
@@ -909,6 +957,7 @@ const evil = {
 	source_url: 'https://example.com/',
 	entry: JSON.stringify({
 		type: 'audio',
+		form: '<script>alert(4)</script>',
 		creator: '<script>alert(1)</script>',
 		why: 'w',
 		tags: ['"><img src=x onerror=alert(2)>'],
@@ -933,6 +982,16 @@ check(
 	'XSS: raw payload from thumb_url does not appear',
 	html.includes('"><script>alert(3)</script>'),
 	false
+);
+check(
+	'XSS: an out-of-enum form value is dropped entirely, not just escaped',
+	html.includes('alert(4)'),
+	false
+);
+check(
+	'A form outside the enum reads as "not set" in the checklist',
+	html.includes('not set'),
+	true
 );
 
 const artHtml = prun({

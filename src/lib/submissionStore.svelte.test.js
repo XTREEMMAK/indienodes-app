@@ -223,6 +223,21 @@ describe("isStepComplete('entry') cover ownership", () => {
 		});
 		expect(store.isStepComplete('entry')).toBe(true);
 	});
+
+	it('requires music/spoken on the Entry step for an audio submission', () => {
+		const store = freshStore({
+			creator: 'Driftwood Radio',
+			type: 'audio',
+			why: 'Warm tape loops for late evenings.',
+			has_own_site: 'yes',
+			source_url: 'https://example.com/driftwood',
+			tags: ['ambient']
+		});
+		expect(store.isStepComplete('entry')).toBe(false);
+
+		store.entry.form = 'music';
+		expect(store.isStepComplete('entry')).toBe(true);
+	});
 });
 
 describe("isStepComplete('media') for a no-site audio creator", () => {
@@ -277,5 +292,47 @@ describe("isStepComplete('media') for a no-site audio creator", () => {
 		store.entry.tracks = [{ uid: 'a', label: '', media_url: '   ' }];
 		generatorDraftStore.save({ generator: { audioHosting: 'external' } });
 		expect(store.isStepComplete('media')).toBe(false);
+	});
+});
+
+describe("isStepComplete('consent')", () => {
+	/** @param {ReturnType<typeof freshStore>} store */
+	function fillContactFields(store) {
+		store.review.email = 'creator@example.com';
+		store.review.pro_membership = 'Not a member';
+	}
+
+	it('is not complete until the general EULA box is checked', () => {
+		const store = freshStore();
+		fillContactFields(store);
+		expect(store.isStepComplete('consent')).toBe(false);
+
+		store.review.eula_agreement = true;
+		expect(store.isStepComplete('consent')).toBe(true);
+	});
+
+	it('does not require rights_confirmation when pro_membership is "Not a member"', () => {
+		const store = freshStore();
+		fillContactFields(store);
+		store.review.eula_agreement = true;
+		store.review.rights_confirmation = false;
+		expect(store.isStepComplete('consent')).toBe(true);
+	});
+
+	it('also requires rights_confirmation once a real PRO relationship is stated', () => {
+		const store = freshStore();
+		fillContactFields(store);
+		store.review.pro_membership = 'BMI';
+		store.review.eula_agreement = true;
+		expect(store.isStepComplete('consent')).toBe(false);
+
+		store.review.rights_confirmation = true;
+		expect(store.isStepComplete('consent')).toBe(true);
+	});
+
+	it('still requires the contact fields themselves (email, pro_membership)', () => {
+		const store = freshStore();
+		store.review.eula_agreement = true;
+		expect(store.isStepComplete('consent')).toBe(false);
 	});
 });

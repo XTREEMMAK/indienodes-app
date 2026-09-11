@@ -1945,6 +1945,16 @@ Reader-first, not data-first, and the ordering was load-bearing rather than cosm
 
 **Update, 6c21307 ("cut this repo over to consuming the ring instead of owning it"):** that endpoint now exists. `ringStore` and the widget read `VITE_RING_URL` (`ring.indienodes.us` in production) as the primary source, with this repo's own `/ring.json` as an automatic fallback rather than the thing read by default. `members/`, both schemas as source, and the build/validate/health scripts were removed from this repo outright -- `indienodes-app` now keeps a byte-for-byte mirror (`scripts/sync-ring-mirror.mjs`, refreshed by `.github/workflows/sync-ring.yml` on `repository_dispatch` from the ring repo's publish, with a twice-daily schedule as the fallback for a missed dispatch -- as of 2026-08-31 only the schedule has ever fired; the dispatch path needs `APP_DISPATCH_PAT` provisioned before it does anything), not a second copy of the source of truth. The n8n re-scoping this entry called "unstarted on purpose" is also done: `1851111` ("feat(n8n): redirect approval writes to indienodes-ring") repointed `GITHUB_REPO` and paused/verified/reactivated the live workflows rather than trusting the push. Two unit tests (`publishedRing.test.js`, `memberHealth.test.js`) were dropped with the files they tested; `indienodes-ring` does not yet have equivalent coverage, most notably for `memberHealth.test.js`'s SSRF-safety assertions -- a real, tracked gap, not an oversight.
 
+## LOCKED: the ring stays single-source — no federation with other rings
+
+Considered opening the ring to other rings, either as a curated alt-list (IndieNodes vets and approves specific external `ring.json` files) or a conversion tool mapping an arbitrary foreign ring's schema into this one.
+
+**Decided against, on ongoing administrative cost, not technical feasibility.** `loadRing` (`src/lib/ring.js`) is genuinely single-source today: one primary URL, one same-origin fallback, no merge path. `schema/ring.schema.json` is a closed, opinionated taxonomy — a fixed five-type enum, `additionalProperties: false`, per-type required media, and a provenance pair (`verification_token`, `joined_at`) tied to this project's own submission workflow. An external ring fails that shape by construction, so either path means continuously vetting and enforcing another party's data against IndieNodes' own schema, or hand-building a per-field conversion mapping with no reliable source for the provenance fields at all — a standing liability, not a one-time cost.
+
+That cost is larger than the benefit it buys: someone running another ring who wants their content discoverable through IndieNodes can already do that by submitting individually through the existing reviewed intake path (`src/lib/submissionValidation.js`), the same as any other member. Federation would be solving a problem joining already solves, while taking on another party's data quality and moderation as an ongoing IndieNodes liability.
+
+Revisit only if evidence emerges that the individual submission path is the actual blocker (e.g. a ring operator wants to bring many members at once at a cost the manual flow can't absorb), not on the appeal of aggregation by itself.
+
 ## LOCKED: the widget's default embed is a sandboxed iframe, on this app's own origin
 
 A security review (`indienodes-ring`'s `docs/webring-security-research-2026-08-31.md`, finding F-01/F-02) found the recommended "full widget" integration -- `<script type="module" src=".../embed.v1.js">` plus `<indienode-widget>` -- runs with the full authority of whatever page it's pasted into: it can read that page's cookies, DOM, storage, and same-origin APIs. Shadow DOM isolates _styling_, not _authority_. The current widget source does none of that today, deliberately (no `postMessage`, no host-DOM access, no `eval`), but that is a property of this build, not a guarantee the architecture enforces -- a future compromise of this app's origin, build pipeline, or dependency graph would propagate to every member site carrying the script, with nothing in the browser stopping it.
@@ -2228,3 +2238,46 @@ privacy notice moved to 1.1 rather than being left alone. Every form before this
 something a person deliberately filled in and submitted; this is the app asking. The notice
 now describes what is sent, states that no identifier travels with it, and says the rating
 is not stored, profiled, or fed back into anything.
+
+## LOCKED: the native hosts carry their own version, starting at 0.0.1
+
+The Capacitor (Android) and Wails (desktop) hosts version themselves. They no longer
+track the web app's `package.json` version, and they sit at `0.0.1` until native
+development actually begins. `scripts/platforms/verify-versions.mjs` now asserts only that
+the three strings agree with each other — the Capacitor host package, Android's
+`versionName`, and Wails' `productVersion` — with no opinion about what that version is.
+Shipped in 1.5.1.
+
+**This entry exists because the rule it replaces was never decided.** The hosts were
+scaffolded in `ade3d19` at 1.1.0, which was simply the web app's version that day. The
+verifier was then written to assert they matched it — a reasonable-looking consistency
+check — and from that point every release had to be carried into three more files or CI
+went red, which `b768d73` is a commit spent doing. Nothing anywhere recorded why, because
+there was no why: a starting value became a rule by being checked, and four releases
+enforced it.
+
+**The cost was a claim nobody meant to make.** Two untouched scaffolds arrived at 1.5.x,
+and Android's `versionCode` climbed 1 → 7, which reads as six store submissions. A version
+is a claim about maturity. A pair of directories nobody has opened since the day they were
+generated, announcing themselves as 1.5.1, is a false one — and false in the direction
+that costs something, since anyone finding `platforms/` would reasonably conclude there is
+a shipping Android app to go and look for.
+
+**`versionCode` goes back to 1, and it is the one part of this with a door that closes.**
+Google Play refuses an upload whose `versionCode` is not higher than the last one it
+accepted for that package. Nothing has ever been uploaded, so nothing depends on the
+counter today and resetting it is free; the moment a real build is submitted it stops
+being free, permanently. So it is done now or not at all.
+
+**A weaker check, not a deleted one.** The three hosts describe one product from a user's
+point of view, and the failure mode worth catching is a desktop build claiming a different
+version from the Android build of the same release — the kind of mismatch nobody notices
+until a bug report cites a version that never existed. Mutual agreement still catches
+that. Confirmed to still fail rather than merely to still run: drift exits 1, and a
+version field deleted outright reports as `null` rather than vanishing from the message,
+which a bare `JSON.stringify` of an object with an `undefined` value would have let it do.
+
+**What this deliberately does not settle is where native work starts when it starts.**
+0.1.0 and 1.0.0 are both defensible and the choice belongs to whoever begins it. The only
+thing locked here is that the number is theirs to pick, rather than an echo of whatever
+the web app happened to reach while they were not looking.

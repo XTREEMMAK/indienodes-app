@@ -28,7 +28,12 @@ export default defineConfig({
 			// any individual developer's .env happens to contain.
 			name: 'join-mock-dev',
 			use: { baseURL: 'http://localhost:4177' },
-			testMatch: ['**/join-verify.e2e.js', '**/join-success.e2e.js', '**/update-verify.e2e.js']
+			testMatch: [
+				'**/join-verify.e2e.js',
+				'**/join-success.e2e.js',
+				'**/update-verify.e2e.js',
+				'**/join-consent-gate.e2e.js'
+			]
 		}
 	],
 	webServer: [

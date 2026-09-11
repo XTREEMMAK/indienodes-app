@@ -6,6 +6,7 @@ import DOMPurify from 'isomorphic-dompurify';
  * @property {string} creator
  * @property {string} [creator_id]
  * @property {'audio' | 'comic' | 'text' | 'game' | 'art'} type
+ * @property {'music' | 'spoken'} [form] Audio only, required there; absent for every other type. May also be absent on a pre-migration audio entry that predates this field.
  * @property {string} why
  * @property {string} source_url
  * @property {string[]} tags

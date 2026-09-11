@@ -28,10 +28,25 @@
 	import { layoutStore } from '$lib/layoutStore.svelte.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
-	import { SITE_ORIGIN } from '$lib/config.js';
+	import { SITE_ORIGIN, EARLY_ACCESS } from '$lib/config.js';
 
-	const SITE_DESCRIPTION =
-		'A webring for indie creators: audio, comics and visual art, writing, and games.';
+	/* Drives <meta name="description">, og: and twitter: -- so this is the
+	   line that shows up in every share preview and search result, and during
+	   Early Access it has a second job beyond describing the ring. A sparse
+	   ring described purely as a place to "discover" creators sets up the one
+	   expectation it cannot meet yet; described as one being built, the same
+	   two entries read as an invitation rather than a shortfall. Reverts to
+	   the discovery wording when EARLY_ACCESS is unset, along with everything
+	   else the flag governs.
+
+	   Both halves say "and games" rather than "and eventually games". The
+	   three places this tagline appears had drifted into two versions of it;
+	   Game is a first-class entry type with its own preview and trailer paths
+	   (see roadmap.md's creator-first media pass), so "eventually" was the
+	   stale half. +page.svelte and AboutModal now match this. */
+	const SITE_DESCRIPTION = EARLY_ACCESS
+		? 'A webring for indie creators: audio, comics and visual art, writing, and games. Currently in Early Access, building its founding ring.'
+		: 'A webring for indie creators: audio, comics and visual art, writing, and games.';
 
 	// The real logo, same asset AboutModal and RingLoading already use, and
 	// by the same served-path reference (files under static/ are not part
@@ -347,6 +362,17 @@
 		<a href={resolve('/')} class="brand-float glass-panel">
 			<img src={LOGO_SRC} alt="" width="26" height="26" />
 			<span class="brand-text">IndieNodes</span>
+			<!-- Inside the existing pill rather than as a banner of its own, for
+		     the same reason the pill is fixed in the first place (see
+		     `.brand-float` below): a status strip is still a strip, and it
+		     would take back the viewport height this whole arrangement
+		     exists to give the field. Not a button and not dismissible --
+		     it states what phase the ring is in, which stays true after
+		     someone has read it once. The recruiting pitch it is the label
+		     for lives on the sparse field, /join and /members. -->
+			{#if EARLY_ACCESS}
+				<span class="phase-chip">Early Access</span>
+			{/if}
 		</a>
 
 		<button
@@ -728,6 +754,38 @@
 		font-family: var(--font-display);
 		font-weight: 600;
 		font-size: var(--text-base);
+	}
+
+	/* Stays visible at every width, unlike `.brand-text` below it, and that is
+	   deliberate: the wordmark is redundant next to the logo it sits beside,
+	   so dropping it on mobile costs nothing, while the phase label is the one
+	   thing in this pill a visitor cannot infer from the mark. Hiding it on
+	   mobile would quietly make the honest-status half of a soft launch a
+	   desktop-only feature. The ~5rem it takes is affordable: `.mobile-tools`
+	   is pinned to the opposite corner. */
+	.phase-chip {
+		/* Dimensions follow `.type-badge` in FieldNode -- same padding, pill
+		   radius, weight, casing and tracking -- so the app has one badge
+		   idiom rather than two that almost match. The 0.75rem size is
+		   likewise borrowed rather than taken from the type scale: the scale
+		   bottoms out at --text-xs (1.35rem), which is body-adjacent here and
+		   would put this within a hair of the wordmark beside it. A badge is
+		   the one thing in this app that is legitimately smaller than the
+		   smallest token, which is exactly why `.type-badge` already does
+		   this.
+
+		   What differs from `.type-badge` is the color: that one is tinted by
+		   entry type, and this is not about an entry. It reads from --accent,
+		   which every theme defines, rather than naming a color of its own. */
+		padding: 0.15rem 0.6rem;
+		border-radius: 999px;
+		background: color-mix(in oklch, var(--accent) 15%, var(--bg-elevated));
+		color: var(--accent);
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		white-space: nowrap;
 	}
 
 	.menu-trigger {

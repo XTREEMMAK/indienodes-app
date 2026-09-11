@@ -35,9 +35,10 @@
 	import { SITE_ORIGIN } from '$lib/config.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { hasBackend, useMock } from '$lib/submissionApi.js';
-	import { RING_REPO_URL } from '$lib/config.js';
+	import { RING_REPO_URL, EARLY_ACCESS } from '$lib/config.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { submissionStore as form, STEPS } from '$lib/submissionStore.svelte.js';
+	import { rightsSectionApplies } from '$lib/submissionValidation.js';
 	import { PRO_OPTIONS } from '$lib/submissionValidation.js';
 	import { uniqueEntryId } from '$lib/slug.js';
 	import {
@@ -1065,6 +1066,26 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					>
 						{#if form.step === 'prep'}
 							<h2 tabindex="-1" use:focusHeading>Before you start</h2>
+							<!-- Ahead of the practical "here is what this costs you"
+							     paragraph, because someone who arrived from an
+							     Early Access chip is deciding whether to join at all
+							     before they care how long the form takes.
+
+							     It states the two things the framing raises and
+							     otherwise leaves ambiguous: that "founding" costs
+							     nothing (the word is strongly associated with paid
+							     membership tiers, and an unanswered "founding
+							     member" reads as a pitch about to arrive), and that
+							     a person reviews submissions -- which is already
+							     true of the queue behind this form, and is the part
+							     that makes a small curated ring worth being in. -->
+							{#if EARLY_ACCESS}
+								<p class="interim-note">
+									<strong>IndieNodes is in Early Access.</strong> The ring is still being built, so you'd
+									be joining as a founding creator. It's free, there's no membership tier, and a person
+									reviews every submission before it joins the ring — which also means it isn't instant.
+								</p>
+							{/if}
 							<p>
 								This takes about five minutes. Nothing is saved on a server until you press submit
 								at the end, and your progress is kept in this browser if you need to step away.
@@ -1884,27 +1905,34 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					     next to a link to terms is not consent to the terms, a
 					     checkbox under the text of them is closer. Worded for any
 					     type of work, not just audio's "recording and composition";
-					     the PRO sentence stays audio-specific since PRO membership
-					     itself only means something for music. This box does not
-					     gate Continue or Submit — see .eula-section below for the
-					     one that does. -->
-							<h3>Rights</h3>
-							<label class="option consent">
-								<input
-									type="checkbox"
-									bind:checked={review.rights_confirmation}
-									onchange={() => form.touch()}
-								/>
-								<span class="option-description consent-text">
-									I confirm that I hold full rights to what I am submitting, including that no third
-									party such as a co-writer, sample owner, publisher, collaborator, or label holds a
-									claim that would require separate compensation for its use on IndieNodes.
-									{#if entry.type === 'audio'}
-										I understand that PRO membership does not prevent me from submitting, but I am
-										disclosing it accurately above.
-									{/if}
-								</span>
-							</label>
+					     the PRO sentence is scoped to music (not spoken audio) since
+					     PRO membership itself only means something for music.
+					     Shown only when a stated PRO relationship makes it apply
+					     (see `rightsSectionApplies` in submissionValidation.js) --
+					     "Not a member" has nothing here to disclose, and the general
+					     EULA below already collects a blanket rights affirmation from
+					     everyone. When shown, this box does gate Continue and
+					     Submit, same as .eula-section below -- see `consentGiven`. -->
+							{#if rightsSectionApplies(review)}
+								<h3>Rights</h3>
+								<label class="option consent">
+									<input
+										type="checkbox"
+										bind:checked={review.rights_confirmation}
+										onchange={() => form.touch()}
+									/>
+									<span class="option-description consent-text">
+										I confirm that I hold full rights to what I am submitting, including that no
+										third party such as a co-writer, sample owner, publisher, collaborator, or label
+										holds a claim that would require separate compensation for its use on
+										IndieNodes.
+										{#if entry.type === 'audio' && entry.form === 'music'}
+											I understand that PRO membership does not prevent me from submitting, but I am
+											disclosing it accurately above.
+										{/if}
+									</span>
+								</label>
+							{/if}
 
 							<!-- The one consent that actually gates submission (see
 					     `consentGiven` in submissionValidation.js), so it stays short
@@ -1925,11 +1953,16 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 									basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
-									</button>
-									By submitting, you also agree to the
-									<a href={resolve('/terms')} target="_blank" rel="noopener">Terms of Use</a>
+									</button>. By submitting, you also agree to the
+									<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved app route with an appended section anchor -->
+									<a href={`${resolve('/terms')}#terms-of-use`} target="_blank" rel="noopener"
+										>Terms of Use</a
+									>
 									and acknowledge the
-									<a href={resolve('/terms')} target="_blank" rel="noopener">Privacy Notice</a>.
+									<a href={`${resolve('/terms')}#privacy-notice`} target="_blank" rel="noopener"
+										>Privacy Notice</a
+									><!-- eslint-enable svelte/no-navigation-without-resolve
+									-->.
 								</span>
 							</label>
 
@@ -2064,6 +2097,19 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 	.interim-note p {
 		margin: 0;
 		font-size: var(--text-xs);
+	}
+
+	/* Tailwind's Preflight resets every anchor in the app to `color: inherit;
+	   text-decoration: inherit`, so an inline link only looks like one where a
+	   rule says so -- see the note on `.consent-text a` below. This note's own
+	   link ("this ring's repository") is the route into the ring for any
+	   deployment running without a submission backend, so it is the last link
+	   in this file that can afford to read as plain text. */
+	.interim-note a {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-thickness: 0.1em;
+		text-underline-offset: 0.16em;
 	}
 
 	.note-panel {
@@ -2876,17 +2922,45 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 		line-height: 1.55;
 	}
 
-	/* An inline text link that happens to be a <button> (it opens a modal,
-	   not a URL), styled to read as part of the surrounding sentence rather
-	   than as its own control. */
+	/* The three inline links in the consent sentence are two <a>s and one
+	   <button> -- the button opens the EULA modal, the anchors go to /terms --
+	   and only the button used to carry link styling, so the two that actually
+	   were links were the two that did not look like any. Which element each
+	   one is comes down to whether it opens a URL or a dialog, and that is not
+	   a distinction a reader is supposed to be able to see, so they are styled
+	   together here.
+
+	   An explicit rule is needed at all because Tailwind's Preflight (pulled in
+	   by `@import 'tailwindcss'` in app.css) resets every anchor in the app to
+	   `color: inherit; text-decoration: inherit`. There is no browser default
+	   left to fall back on, which is why this file already styles `.rules-list
+	   a` and `.note a` one scope at a time. The underline thickness and offset
+	   match `.rules-list a`, the most considered link in this file; its
+	   `font-weight: 700` deliberately does not come along, because three bold
+	   spans inside one dense consent sentence read as emphasis rather than as
+	   links. */
+	.consent-text a,
+	.link-button {
+		color: var(--accent);
+		text-decoration: underline;
+		text-decoration-thickness: 0.1em;
+		text-underline-offset: 0.16em;
+	}
+
+	.consent-text a:hover,
+	.link-button:hover {
+		color: var(--text);
+	}
+
+	/* The button half also has to shed its button-ness to sit inside the
+	   sentence: a <button> brings padding, a border, a background and a font
+	   of its own, none of which an inline link has. */
 	.link-button {
 		padding: 0;
 		border: none;
 		background: none;
 		font: inherit;
 		font-size: inherit;
-		color: var(--accent);
-		text-decoration: underline;
 		cursor: pointer;
 	}
 

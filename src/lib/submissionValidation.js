@@ -36,16 +36,30 @@ import { stripHtml, sanitizeExcerptHtml } from './ring.js';
 export const ENTRY_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art']);
 
 /**
- * Creator-facing labels for the schema values above. The stored value stays
- * `audio` because it names the media and playback implementation, while the
- * initial submission program is intentionally limited to music creators.
+ * Creator-facing labels for the schema values above. The stored value names
+ * the medium and playback implementation, not a genre: audio is split into
+ * music and spoken by the required `form` field below, so the type itself no
+ * longer needs to imply which one a submitter has in mind.
  */
 export const ENTRY_TYPE_LABELS = /** @type {const} */ ({
-	audio: 'Music',
+	audio: 'Audio',
 	comic: 'Comic',
 	text: 'Text',
 	game: 'Game',
 	art: 'Art'
+});
+
+/** Matches the schema's `form` enum. Audio only, required. */
+export const FORM_OPTIONS = /** @type {const} */ (['music', 'spoken']);
+
+/**
+ * Creator-facing labels for `form`. Declared so playback queues never mix
+ * music and spoken-word content, which tags alone can't separate (a spoken
+ * fantasy drama and a fantasy soundtrack can share every tag).
+ */
+export const FORM_LABELS = /** @type {const} */ ({
+	music: 'Music',
+	spoken: 'Spoken (narration, audio drama, voice work)'
 });
 
 /** Section 2.2. Order is the order the select renders. */
@@ -67,6 +81,23 @@ export const PRO_OPTIONS = /** @type {const} */ ([
  * would be re-collecting an answer already given.
  */
 const PRO_NAME_REQUIRED_FOR = 'Other';
+
+/**
+ * Whether the Rights section (the detailed rights warranty, naming
+ * co-writers/sample owners/publishers/collaborators/labels, plus the PRO
+ * disclosure sentence for music) applies to this submitter at all.
+ *
+ * Deliberately tied to `pro_membership`, not to `type`: the general EULA
+ * checkbox already collects a blanket "I hold full rights" affirmation from
+ * everyone, so the more detailed Rights section only earns its own required
+ * checkbox when there is an actual PRO relationship that could complicate
+ * that affirmation -- "Not a member" (or the field not yet answered) has
+ * nothing to disclose here.
+ * @param {Record<string, any>} review
+ */
+export function rightsSectionApplies(review) {
+	return Boolean(review?.pro_membership) && review.pro_membership !== 'Not a member';
+}
 
 /** Schema cap: three, so the ring stays a sampler rather than a host. */
 export const MAX_TRACKS = 3;
@@ -161,6 +192,10 @@ export function validateEntry(entry) {
 
 	if (!ENTRY_TYPES.includes(type)) {
 		errors.type = 'Pick a type.';
+	}
+
+	if (type === 'audio' && !FORM_OPTIONS.includes(entry?.form)) {
+		errors.form = 'Pick Music or Spoken.';
 	}
 
 	// Not a ring.json field itself (toRingEntry never emits it), but it
@@ -334,18 +369,24 @@ export function validateReview(review) {
 /**
  * Whether the submit action may be enabled.
  *
- * Only `eula_agreement` gates this. `rights_confirmation`'s wording is
- * necessarily written toward one kind of work (built for audio's "recording
- * and composition") and reads oddly for the others (a comic has no
- * recording), so it stays collected and shown but does not block
- * submission — the general EULA is the one statement every type can equally
- * agree to. Spec section 6 asks for the button to be *disabled* until this
- * is checked, rather than validating on click, so the requirement is
- * visible before the attempt rather than after it.
+ * `eula_agreement` always gates this — the general EULA is the one
+ * statement every type can equally agree to, worded generically rather than
+ * toward one kind of work the way `rights_confirmation` necessarily is
+ * (built for audio's "recording and composition", which reads oddly for a
+ * comic). Spec section 6 asks for the button to be *disabled* until this is
+ * checked, rather than validating on click, so the requirement is visible
+ * before the attempt rather than after it.
+ *
+ * `rights_confirmation` only joins the gate when `rightsSectionApplies`
+ * says the Rights section is actually shown (a stated PRO relationship,
+ * not "Not a member") — see that function's own comment for why it is tied
+ * to `pro_membership` rather than to `type`.
  * @param {Record<string, any>} review
  */
 export function consentGiven(review) {
-	return review?.eula_agreement === true;
+	if (review?.eula_agreement !== true) return false;
+	if (rightsSectionApplies(review)) return review?.rights_confirmation === true;
+	return true;
 }
 
 /**
@@ -382,6 +423,7 @@ export function toRingEntry(entry) {
 	const tracks = (entry.tracks ?? [])
 		.filter((/** @type {any} */ t) => t?.label?.trim() && t?.media_url?.trim())
 		.map((/** @type {any} */ t) => ({ label: t.label.trim(), media_url: t.media_url.trim() }));
+	if (entry.type === 'audio') out.form = entry.form;
 	if (entry.type === 'audio' && tracks.length) out.tracks = tracks;
 
 	if (entry.type === 'comic') {

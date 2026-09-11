@@ -36,6 +36,8 @@
 	} = $props();
 
 	import { flyFade } from '$lib/transitions.js';
+
+	const FORM_LABEL = { music: 'Music', spoken: 'Spoken' };
 </script>
 
 <article
@@ -59,7 +61,9 @@
 	<!-- "Audio Next", not "Audio": this card is a queued-up suggestion
 		     to move to, and a bare type label read as if it were describing
 		     the audio already sounding in the dock. -->
-	<span class="audio-discovery-chip">Audio Next</span>
+	<span class="audio-discovery-chip"
+		>Audio Next{entry.form ? ` · ${FORM_LABEL[entry.form]}` : ''}</span
+	>
 	<button
 		type="button"
 		class="audio-card-close"

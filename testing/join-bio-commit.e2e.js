@@ -16,6 +16,7 @@ import { expect, test } from '@playwright/test';
 const draft = {
 	creator: 'Bio Artist',
 	type: 'audio',
+	form: 'music',
 	why: 'A sufficiently detailed reason for joining this independent creator ring.',
 	has_own_site: 'no',
 	source_url: '',

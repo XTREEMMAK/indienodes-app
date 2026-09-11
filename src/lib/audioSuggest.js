@@ -28,6 +28,14 @@
  * the prompt is never a dead end in a ring whose entries have no tags in
  * common, and so the fallback is not just "whichever happened to be first".
  *
+ * Never crosses `form`: a spoken piece and a soundtrack can share every tag,
+ * so the expansion is restricted to whatever form was just playing before
+ * tags are even considered (see the addendum on audio form, section 5 --
+ * "Keep going" never mixes forms). `!playedForm` is a defensive fallback for
+ * a queue item somehow missing `form` post-migration; it is not a way to
+ * silently default a form, just a way for the prompt to still offer
+ * something rather than nothing in that edge case.
+ *
  * @param {RingEntry[]} entries the whole ring
  * @param {QueueItem[]} played the queue that just finished
  * @returns {RingEntry | null}
@@ -35,9 +43,14 @@
 export function suggestNext(entries, played) {
 	const playedIds = new Set(played.map((item) => item.entryId));
 	const playedTags = new Set(played.flatMap((item) => item.tags));
+	const playedForm = played[0]?.form;
 
 	const candidates = entries.filter(
-		(entry) => entry.type === 'audio' && !playedIds.has(entry.id) && (entry.tracks?.length ?? 0) > 0
+		(entry) =>
+			entry.type === 'audio' &&
+			!playedIds.has(entry.id) &&
+			(entry.tracks?.length ?? 0) > 0 &&
+			(!playedForm || entry.form === playedForm)
 	);
 	if (candidates.length === 0) return null;
 

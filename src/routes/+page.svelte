@@ -19,6 +19,7 @@
 	import { coverImageUrl, isVisibleTo } from '$lib/ring.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { preload } from '$lib/imagePreloader.js';
+	import { EARLY_ACCESS } from '$lib/config.js';
 
 	// Seconds-on-screen now comes from the visitor's own per-type setting
 	// (preferences.js `DEFAULT_ROTATION_MS`, adjustable in Settings), not one
@@ -537,9 +538,7 @@
 		     plenty and it is the node configuration that matches none. -->
 		<div class="empty-state">
 			<h1>IndieNodes</h1>
-			<p>
-				A webring for indie creators: audio, comics and visual art, writing, and eventually games.
-			</p>
+			<p>A webring for indie creators: audio, comics and visual art, writing, and games.</p>
 			{#if entries.length === 0 && hasActiveFilters}
 				<p class="status">
 					No entries match your current filters.
@@ -555,6 +554,39 @@
 				<p class="status">
 					Your Not for Me list is why nothing is showing. Restore some from
 					<a href={resolve('/lists')}>Lists</a>, or wait for more members to join.
+				</p>
+			{:else if EARLY_ACCESS}
+				<!-- The one branch where a visitor is looking at nothing at all,
+				     which during Early Access is the most useful moment there is
+				     to ask them to join rather than to explain and stop.
+
+				     It leads with the widget on purpose. "Be early" is a promise
+				     about a ring that does not exist yet, and asking someone to
+				     bet on that is the whole difficulty of a cold start; the
+				     widget is a thing they get working on their own site the day
+				     they join, whether the ring has two members or two hundred.
+				     That is the honest reason to join a small ring, so it is the
+				     one stated first.
+
+				     Nothing here hides how small the ring is -- the sentence
+				     below says so plainly. A directory that pretends to be full
+				     is found out on the first click; one that says it is being
+				     built is just accurate, and the invitation is what that
+				     accuracy is for. -->
+				<p class="status">
+					IndieNodes is in Early Access, building its founding ring. The ring has no entries yet, so
+					there is nothing to browse — but joining already gets you a discovery widget for your own
+					site.
+				</p>
+				<p class="status">
+					It's free, and every submission is reviewed by a person before it joins the ring.
+				</p>
+				<a class="primary-button" href={resolve('/join')}>Become a founding creator</a>
+				<p class="status">
+					See
+					<button type="button" class="about-link" onclick={() => aboutModalStore.show()}>
+						About
+					</button> for what IndieNodes is.
 				</p>
 			{:else}
 				<p class="status">
@@ -707,6 +739,15 @@
 
 	.primary-button:hover {
 		background: var(--accent-hover);
+	}
+
+	/* The Early Access branch uses this on an <a>, not a <button>: it navigates
+	   to /join, and a link that navigates should be a link. Anchors bring a
+	   default underline and are inline, neither of which a <button> has, so
+	   both are reset here rather than in a second near-identical class. */
+	a.primary-button {
+		display: inline-block;
+		text-decoration: none;
 	}
 
 	.empty-slot {
