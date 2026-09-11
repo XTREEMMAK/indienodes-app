@@ -426,6 +426,18 @@ export function createSubmissionStore() {
 			if (stepId === 'prep') return true;
 			if (stepId === 'submit') return Boolean(reference);
 
+			// The consent step's own Continue button is the last chance to
+			// stop someone from advancing without having actually agreed to
+			// anything -- the review step past it validates nothing about
+			// consent itself (it only disables Submit), so a submitter who
+			// clicked through here would otherwise land there with no
+			// explanation why Submit won't respond. `consentGiven` already
+			// encodes which checkboxes matter for this review (EULA always,
+			// Rights only when a PRO relationship makes it apply).
+			if (stepId === 'consent') {
+				return Object.keys(stepErrors(stepId)).length === 0 && consentGiven(review);
+			}
+
 			if (stepId === 'media') {
 				// Every one of `media`'s own fields is conditional on
 				// `entry.type` (tracks for audio, pages for comic, and so

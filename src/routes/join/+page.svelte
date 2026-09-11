@@ -38,6 +38,7 @@
 	import { RING_REPO_URL } from '$lib/config.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { submissionStore as form, STEPS } from '$lib/submissionStore.svelte.js';
+	import { rightsSectionApplies } from '$lib/submissionValidation.js';
 	import { PRO_OPTIONS } from '$lib/submissionValidation.js';
 	import { uniqueEntryId } from '$lib/slug.js';
 	import {
@@ -1885,26 +1886,33 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					     checkbox under the text of them is closer. Worded for any
 					     type of work, not just audio's "recording and composition";
 					     the PRO sentence is scoped to music (not spoken audio) since
-					     PRO membership itself only means something for music. This
-					     box does not gate Continue or Submit — see .eula-section
-					     below for the one that does. -->
-							<h3>Rights</h3>
-							<label class="option consent">
-								<input
-									type="checkbox"
-									bind:checked={review.rights_confirmation}
-									onchange={() => form.touch()}
-								/>
-								<span class="option-description consent-text">
-									I confirm that I hold full rights to what I am submitting, including that no third
-									party such as a co-writer, sample owner, publisher, collaborator, or label holds a
-									claim that would require separate compensation for its use on IndieNodes.
-									{#if entry.type === 'audio' && entry.form === 'music'}
-										I understand that PRO membership does not prevent me from submitting, but I am
-										disclosing it accurately above.
-									{/if}
-								</span>
-							</label>
+					     PRO membership itself only means something for music.
+					     Shown only when a stated PRO relationship makes it apply
+					     (see `rightsSectionApplies` in submissionValidation.js) --
+					     "Not a member" has nothing here to disclose, and the general
+					     EULA below already collects a blanket rights affirmation from
+					     everyone. When shown, this box does gate Continue and
+					     Submit, same as .eula-section below -- see `consentGiven`. -->
+							{#if rightsSectionApplies(review)}
+								<h3>Rights</h3>
+								<label class="option consent">
+									<input
+										type="checkbox"
+										bind:checked={review.rights_confirmation}
+										onchange={() => form.touch()}
+									/>
+									<span class="option-description consent-text">
+										I confirm that I hold full rights to what I am submitting, including that no
+										third party such as a co-writer, sample owner, publisher, collaborator, or label
+										holds a claim that would require separate compensation for its use on
+										IndieNodes.
+										{#if entry.type === 'audio' && entry.form === 'music'}
+											I understand that PRO membership does not prevent me from submitting, but I am
+											disclosing it accurately above.
+										{/if}
+									</span>
+								</label>
+							{/if}
 
 							<!-- The one consent that actually gates submission (see
 					     `consentGiven` in submissionValidation.js), so it stays short
@@ -1927,9 +1935,15 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 										Read the full EULA
 									</button>
 									By submitting, you also agree to the
-									<a href={resolve('/terms')} target="_blank" rel="noopener">Terms of Use</a>
+									<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved app route with an appended section anchor -->
+									<a href={`${resolve('/terms')}#terms-of-use`} target="_blank" rel="noopener"
+										>Terms of Use</a
+									>
 									and acknowledge the
-									<a href={resolve('/terms')} target="_blank" rel="noopener">Privacy Notice</a>.
+									<a href={`${resolve('/terms')}#privacy-notice`} target="_blank" rel="noopener"
+										>Privacy Notice</a
+									><!-- eslint-enable svelte/no-navigation-without-resolve
+									-->.
 								</span>
 							</label>
 

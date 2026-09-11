@@ -1490,7 +1490,19 @@ const review = {
   pro_membership: hasEntryBlock ? (rv.pro_membership || null) : null,
   pro_membership_name: hasEntryBlock ? (rv.pro_membership_name || null) : null
 };
-if (hasEntryBlock && (review.rights_confirmation !== true || review.eula_agreement !== true)) {
+// Rights only has to be confirmed alongside a stated PRO relationship --
+// "Not a member" (or unanswered) leaves nothing there to disclose, and the
+// general EULA already collects a blanket rights affirmation from everyone.
+// Mirrors `rightsSectionApplies`/`consentGiven` in
+// src/lib/submissionValidation.js, which is what actually gates the /join
+// form's own Continue and Submit buttons -- this is the same rule enforced
+// again server-side, not a second, independent one.
+const rightsSectionApplies =
+  hasEntryBlock && Boolean(review.pro_membership) && review.pro_membership !== 'Not a member';
+if (
+  hasEntryBlock &&
+  (review.eula_agreement !== true || (rightsSectionApplies && review.rights_confirmation !== true))
+) {
   return bad('invalid_request');
 }
 

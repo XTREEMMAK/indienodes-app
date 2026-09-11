@@ -82,6 +82,23 @@ export const PRO_OPTIONS = /** @type {const} */ ([
  */
 const PRO_NAME_REQUIRED_FOR = 'Other';
 
+/**
+ * Whether the Rights section (the detailed rights warranty, naming
+ * co-writers/sample owners/publishers/collaborators/labels, plus the PRO
+ * disclosure sentence for music) applies to this submitter at all.
+ *
+ * Deliberately tied to `pro_membership`, not to `type`: the general EULA
+ * checkbox already collects a blanket "I hold full rights" affirmation from
+ * everyone, so the more detailed Rights section only earns its own required
+ * checkbox when there is an actual PRO relationship that could complicate
+ * that affirmation -- "Not a member" (or the field not yet answered) has
+ * nothing to disclose here.
+ * @param {Record<string, any>} review
+ */
+export function rightsSectionApplies(review) {
+	return Boolean(review?.pro_membership) && review.pro_membership !== 'Not a member';
+}
+
 /** Schema cap: three, so the ring stays a sampler rather than a host. */
 export const MAX_TRACKS = 3;
 
@@ -352,18 +369,24 @@ export function validateReview(review) {
 /**
  * Whether the submit action may be enabled.
  *
- * Only `eula_agreement` gates this. `rights_confirmation`'s wording is
- * necessarily written toward one kind of work (built for audio's "recording
- * and composition") and reads oddly for the others (a comic has no
- * recording), so it stays collected and shown but does not block
- * submission — the general EULA is the one statement every type can equally
- * agree to. Spec section 6 asks for the button to be *disabled* until this
- * is checked, rather than validating on click, so the requirement is
- * visible before the attempt rather than after it.
+ * `eula_agreement` always gates this — the general EULA is the one
+ * statement every type can equally agree to, worded generically rather than
+ * toward one kind of work the way `rights_confirmation` necessarily is
+ * (built for audio's "recording and composition", which reads oddly for a
+ * comic). Spec section 6 asks for the button to be *disabled* until this is
+ * checked, rather than validating on click, so the requirement is visible
+ * before the attempt rather than after it.
+ *
+ * `rights_confirmation` only joins the gate when `rightsSectionApplies`
+ * says the Rights section is actually shown (a stated PRO relationship,
+ * not "Not a member") — see that function's own comment for why it is tied
+ * to `pro_membership` rather than to `type`.
  * @param {Record<string, any>} review
  */
 export function consentGiven(review) {
-	return review?.eula_agreement === true;
+	if (review?.eula_agreement !== true) return false;
+	if (rightsSectionApplies(review)) return review?.rights_confirmation === true;
+	return true;
 }
 
 /**

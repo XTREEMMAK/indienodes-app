@@ -37,7 +37,8 @@ import {
 	validateEntry,
 	toRingEntry,
 	validateReview,
-	consentGiven
+	consentGiven,
+	rightsSectionApplies
 } from './submissionValidation.js';
 
 describe('entry type labels', () => {
@@ -702,11 +703,48 @@ describe('validateReview', () => {
 });
 
 describe('consentGiven', () => {
-	it('is gated on the general EULA box only; rights_confirmation does not block it', () => {
+	it('is gated on the general EULA box regardless of rights_confirmation, when no PRO is stated', () => {
 		expect(consentGiven({ eula_agreement: true })).toBe(true);
 		expect(consentGiven({ eula_agreement: false })).toBe(false);
 		expect(consentGiven({ rights_confirmation: true, eula_agreement: false })).toBe(false);
 		expect(consentGiven({ rights_confirmation: false, eula_agreement: true })).toBe(true);
 		expect(consentGiven({})).toBe(false);
+	});
+
+	it('is gated on the general EULA box alone when pro_membership is "Not a member"', () => {
+		expect(consentGiven({ eula_agreement: true, pro_membership: 'Not a member' })).toBe(true);
+		expect(
+			consentGiven({
+				eula_agreement: true,
+				pro_membership: 'Not a member',
+				rights_confirmation: false
+			})
+		).toBe(true);
+	});
+
+	it('also requires rights_confirmation once a real PRO relationship is stated', () => {
+		expect(
+			consentGiven({ eula_agreement: true, pro_membership: 'BMI', rights_confirmation: true })
+		).toBe(true);
+		expect(
+			consentGiven({ eula_agreement: true, pro_membership: 'BMI', rights_confirmation: false })
+		).toBe(false);
+		expect(consentGiven({ eula_agreement: true, pro_membership: 'BMI' })).toBe(false);
+		// EULA still comes first: neither checked is still just "EULA missing".
+		expect(consentGiven({ eula_agreement: false, pro_membership: 'BMI' })).toBe(false);
+	});
+});
+
+describe('rightsSectionApplies', () => {
+	it('is false with no PRO stated yet, or "Not a member"', () => {
+		expect(rightsSectionApplies({})).toBe(false);
+		expect(rightsSectionApplies({ pro_membership: '' })).toBe(false);
+		expect(rightsSectionApplies({ pro_membership: 'Not a member' })).toBe(false);
+	});
+
+	it('is true for every other PRO answer, including "Not sure"', () => {
+		for (const value of ['ASCAP', 'BMI', 'SESAC', 'GMR', 'Other', 'Not sure']) {
+			expect(rightsSectionApplies({ pro_membership: value })).toBe(true);
+		}
 	});
 });

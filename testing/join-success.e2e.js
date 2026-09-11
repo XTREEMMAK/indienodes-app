@@ -27,8 +27,11 @@ test('join success shows confirmation and live embed previews', async ({ page },
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.locator('#f-email').fill('preview@example.com');
+	// "Not a member" leaves nothing for the Rights section to disclose, so it
+	// does not render and only the general EULA checkbox gates Continue here
+	// -- see join-consent-gate.e2e.js for the PRO-member branch that does
+	// bring Rights back.
 	await page.locator('#f-pro').selectOption('Not a member');
-	await page.getByRole('checkbox', { name: /I confirm that I hold full rights/ }).check();
 	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).check();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 

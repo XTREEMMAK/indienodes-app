@@ -424,6 +424,48 @@ check(
 );
 check('turnstile off by default', v.needsTurnstile, 'no');
 
+// --- Finalize Submission: consent gate --------------------------------------
+// Mirrors rightsSectionApplies/consentGiven in src/lib/submissionValidation.js,
+// which is what actually gates the /join form's own Continue and Submit
+// buttons: Rights only has to be confirmed alongside a stated PRO
+// relationship, so this server-side check must accept the same shapes the
+// form can produce or a real "Not a member" submitter (the common case) gets
+// silently rejected here even though the form told them they were done.
+check(
+	'consent: eula_agreement missing is always rejected, PRO or not',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, eula_agreement: false } })[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'consent: rights_confirmation is not required for "Not a member"',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'Not a member', rights_confirmation: false }
+	})[0].json.ok,
+	'yes'
+);
+check(
+	'consent: rights_confirmation is not required with no PRO answer at all',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, rights_confirmation: false } })[0].json.ok,
+	'yes'
+);
+check(
+	'consent: rights_confirmation is required once a real PRO is named',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: false }
+	})[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'consent: a real PRO plus rights_confirmation passes',
+	vrun(ROW, {
+		...BODY,
+		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: true }
+	})[0].json.ok,
+	'yes'
+);
+
 // --- Finalize Submission: skip a redundant re-verify fetch ------------------
 // The second fetch to the creator's source_url is redundant when `verify`
 // just succeeded moments ago -- see REVERIFY_SKIP_TTL_SECONDS in
