@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 const draft = {
 	creator: 'Test Artist',
 	type: 'audio',
+	form: 'music',
 	why: 'A sufficiently detailed reason for joining this independent creator ring.',
 	has_own_site: 'no',
 	source_url: '',
@@ -28,7 +29,7 @@ test('the editor holds settings and preview together, and covers the page chrome
 	await expect(page.getByRole('heading', { name: 'Do you have a site?' })).toBeVisible();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
-	await expect(page.locator('#f-type option[value="audio"]')).toHaveText('Music');
+	await expect(page.locator('#f-type option[value="audio"]')).toHaveText('Audio');
 	await expect(page.locator('#f-cover-file')).toBeVisible();
 	await page.locator('#f-cover-file').setInputFiles({
 		name: 'cover.png',

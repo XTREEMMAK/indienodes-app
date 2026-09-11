@@ -36,16 +36,30 @@ import { stripHtml, sanitizeExcerptHtml } from './ring.js';
 export const ENTRY_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art']);
 
 /**
- * Creator-facing labels for the schema values above. The stored value stays
- * `audio` because it names the media and playback implementation, while the
- * initial submission program is intentionally limited to music creators.
+ * Creator-facing labels for the schema values above. The stored value names
+ * the medium and playback implementation, not a genre: audio is split into
+ * music and spoken by the required `form` field below, so the type itself no
+ * longer needs to imply which one a submitter has in mind.
  */
 export const ENTRY_TYPE_LABELS = /** @type {const} */ ({
-	audio: 'Music',
+	audio: 'Audio',
 	comic: 'Comic',
 	text: 'Text',
 	game: 'Game',
 	art: 'Art'
+});
+
+/** Matches the schema's `form` enum. Audio only, required. */
+export const FORM_OPTIONS = /** @type {const} */ (['music', 'spoken']);
+
+/**
+ * Creator-facing labels for `form`. Declared so playback queues never mix
+ * music and spoken-word content, which tags alone can't separate (a spoken
+ * fantasy drama and a fantasy soundtrack can share every tag).
+ */
+export const FORM_LABELS = /** @type {const} */ ({
+	music: 'Music',
+	spoken: 'Spoken (narration, audio drama, voice work)'
 });
 
 /** Section 2.2. Order is the order the select renders. */
@@ -161,6 +175,10 @@ export function validateEntry(entry) {
 
 	if (!ENTRY_TYPES.includes(type)) {
 		errors.type = 'Pick a type.';
+	}
+
+	if (type === 'audio' && !FORM_OPTIONS.includes(entry?.form)) {
+		errors.form = 'Pick Music or Spoken.';
 	}
 
 	// Not a ring.json field itself (toRingEntry never emits it), but it
@@ -382,6 +400,7 @@ export function toRingEntry(entry) {
 	const tracks = (entry.tracks ?? [])
 		.filter((/** @type {any} */ t) => t?.label?.trim() && t?.media_url?.trim())
 		.map((/** @type {any} */ t) => ({ label: t.label.trim(), media_url: t.media_url.trim() }));
+	if (entry.type === 'audio') out.form = entry.form;
 	if (entry.type === 'audio' && tracks.length) out.tracks = tracks;
 
 	if (entry.type === 'comic') {

@@ -41,9 +41,9 @@ import {
 } from './submissionValidation.js';
 
 describe('entry type labels', () => {
-	it('presents the internal audio type as Music without changing its stored value', () => {
+	it('presents the internal audio type as Audio, split into music/spoken by `form`', () => {
 		expect(ENTRY_TYPES).toContain('audio');
-		expect(ENTRY_TYPE_LABELS.audio).toBe('Music');
+		expect(ENTRY_TYPE_LABELS.audio).toBe('Audio');
 	});
 	expect(ENTRY_TYPES).toContain('art');
 	expect(ENTRY_TYPE_LABELS.art).toBe('Art');
@@ -106,13 +106,14 @@ const cases = [
 	{ name: 'a complete text entry', entry: draft(), formValid: true },
 	{
 		name: 'audio with no tracks (link-only member, a supported shape)',
-		entry: draft({ type: 'audio', excerpts: undefined }),
+		entry: draft({ type: 'audio', form: 'music', excerpts: undefined }),
 		formValid: true
 	},
 	{
 		name: 'audio with three tracks',
 		entry: draft({
 			type: 'audio',
+			form: 'music',
 			excerpts: undefined,
 			tracks: [
 				{ label: 'One', media_url: 'https://archive.org/1.mp3' },
@@ -126,6 +127,7 @@ const cases = [
 		name: 'audio with four tracks',
 		entry: draft({
 			type: 'audio',
+			form: 'music',
 			excerpts: undefined,
 			tracks: Array.from({ length: 4 }, (_, i) => ({
 				label: `T${i}`,
@@ -133,6 +135,39 @@ const cases = [
 			}))
 		}),
 		formValid: false
+	},
+	{
+		name: 'spoken audio (narration, not music)',
+		entry: draft({
+			type: 'audio',
+			form: 'spoken',
+			excerpts: undefined,
+			tracks: [{ label: 'Chapter One', media_url: 'https://archive.org/ch1.mp3' }]
+		}),
+		formValid: true
+	},
+	{
+		name: 'audio missing its required form',
+		entry: draft({ type: 'audio', excerpts: undefined }),
+		formValid: false
+	},
+	{
+		name: 'audio with a form value outside the enum',
+		entry: draft({ type: 'audio', form: 'podcast', excerpts: undefined }),
+		formValid: false
+	},
+	{
+		name: 'a non-audio entry carrying a form value it must not have',
+		entry: draft({ form: 'music' }),
+		// `validateEntry` only checks `form` when `type` is audio, since the
+		// form never shows or collects it for any other type: it has nothing
+		// to say about a stray `form` here, so its own verdict is a pass.
+		// The schema is what actually forbids `form` outside audio -- see the
+		// dedicated assertion below, since this file's own agreement check
+		// only ever asserts "form accepts implies schema accepts" and would
+		// wrongly demand schema acceptance here if not marked formOnly.
+		formValid: true,
+		formOnly: true
 	},
 	{
 		name: 'a comic with one page',
@@ -325,6 +360,7 @@ const cases = [
 		name: 'a track rehosted on IndieNodes',
 		entry: draft({
 			type: 'audio',
+			form: 'music',
 			excerpts: undefined,
 			tracks: [{ label: 'One', media_url: 'https://indienodes.us/1.mp3' }]
 		}),
@@ -504,6 +540,18 @@ describe('validateEntry agrees with ring.schema.json', () => {
 	}
 });
 
+describe('schema forbids `form` outside audio, even though the form never checks that itself', () => {
+	it('rejects a non-audio entry carrying a form value', () => {
+		const candidate = { ...toRingEntry(draft()), form: 'music', ...BACKEND_FIELDS };
+		expect(validateAgainstSchema(candidate)).toBe(false);
+	});
+
+	it('accepts the same non-audio entry once form is removed', () => {
+		const candidate = { ...toRingEntry(draft()), ...BACKEND_FIELDS };
+		expect(validateAgainstSchema(candidate)).toBe(true);
+	});
+});
+
 describe('toRingEntry produces only ring-shaped fields', () => {
 	it('never carries review-only data into the entry', () => {
 		const out = toRingEntry({
@@ -522,6 +570,7 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 		const out = toRingEntry(
 			draft({
 				type: 'audio',
+				form: 'music',
 				excerpts: undefined,
 				tracks: [
 					{ label: 'Real', media_url: 'https://archive.org/a.mp3' },

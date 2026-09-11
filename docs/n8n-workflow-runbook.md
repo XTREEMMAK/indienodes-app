@@ -617,7 +617,7 @@ Removal prep → id known? → resolve member-file SHA → SHA verdict → file 
 
 ### The public allowlist
 
-`creator, type, why, tags, tracks, pages, artworks, excerpts, thumb_url, thumb_position, preview_url, trailer_url, explicit`, plus
+`creator, type, form, why, tags, tracks, pages, artworks, excerpts, thumb_url, thumb_position, preview_url, trailer_url, explicit`, plus
 backend-assigned `id`, `source_url`, and optional `creator_id`. This
 matches `toRingEntry` in `src/lib/submissionValidation.js` field for field. It is an allowlist,
 never a denylist: a field added to the form later must be deliberately published, not published

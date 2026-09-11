@@ -74,6 +74,7 @@ test('every verify failure reason renders its own message on /join', async ({ pa
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
 	await page.locator('#f-creator').fill('Test Creator');
 	await page.locator('#f-type').selectOption('audio');
+	await page.locator('#f-form').selectOption('music');
 	await page.locator('#f-why').fill('Testing the verify failure messages.');
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');
@@ -129,6 +130,7 @@ test('editing a redirected URL creates a fresh verification session', async ({
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
 	await page.locator('#f-creator').fill('Redirect Test');
 	await page.locator('#f-type').selectOption('audio');
+	await page.locator('#f-form').selectOption('music');
 	await page.locator('#f-why').fill('Testing a corrected verification URL.');
 	await page.locator('#f-source').fill('https://example.com/redirect');
 	await page.locator('#f-tags').fill('test');

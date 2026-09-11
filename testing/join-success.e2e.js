@@ -13,6 +13,7 @@ test('join success shows confirmation and live embed previews', async ({ page },
 
 	await page.locator('#f-creator').fill('Success Preview Test');
 	await page.locator('#f-type').selectOption('audio');
+	await page.locator('#f-form').selectOption('music');
 	await page.locator('#f-why').fill('Exercises the final confirmation state.');
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');

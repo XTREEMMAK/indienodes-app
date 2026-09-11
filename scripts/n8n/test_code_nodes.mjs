@@ -818,6 +818,7 @@ const memberFormatCases = [
 	{
 		creator: 'Key Jay',
 		type: 'audio',
+		form: 'music',
 		why: 'A submission with enough short tags to reproduce PR #9.',
 		tags: ['vgm', 'orchestra', 'hip-hop', 'r&b', 'edm', 'house'],
 		tracks: [
@@ -877,6 +878,11 @@ check(
 	false
 );
 check(
+	'generated audio member keeps its declared form -- the allowlist must not silently drop it',
+	generatedMember(memberFormatCases[0]).includes('"form": "music"'),
+	true
+);
+check(
 	'generated short tags use the compact form that PR #9 requires',
 	generatedMember(memberFormatCases[0]).includes(
 		'"tags": ["vgm", "orchestra", "hip-hop", "r&b", "edm", "house"]'
@@ -909,6 +915,7 @@ const evil = {
 	source_url: 'https://example.com/',
 	entry: JSON.stringify({
 		type: 'audio',
+		form: '<script>alert(4)</script>',
 		creator: '<script>alert(1)</script>',
 		why: 'w',
 		tags: ['"><img src=x onerror=alert(2)>'],
@@ -933,6 +940,16 @@ check(
 	'XSS: raw payload from thumb_url does not appear',
 	html.includes('"><script>alert(3)</script>'),
 	false
+);
+check(
+	'XSS: an out-of-enum form value is dropped entirely, not just escaped',
+	html.includes('alert(4)'),
+	false
+);
+check(
+	'A form outside the enum reads as "not set" in the checklist',
+	html.includes('not set'),
+	true
 );
 
 const artHtml = prun({

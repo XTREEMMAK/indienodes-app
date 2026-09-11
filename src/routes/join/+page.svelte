@@ -1884,10 +1884,10 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					     next to a link to terms is not consent to the terms, a
 					     checkbox under the text of them is closer. Worded for any
 					     type of work, not just audio's "recording and composition";
-					     the PRO sentence stays audio-specific since PRO membership
-					     itself only means something for music. This box does not
-					     gate Continue or Submit — see .eula-section below for the
-					     one that does. -->
+					     the PRO sentence is scoped to music (not spoken audio) since
+					     PRO membership itself only means something for music. This
+					     box does not gate Continue or Submit — see .eula-section
+					     below for the one that does. -->
 							<h3>Rights</h3>
 							<label class="option consent">
 								<input
@@ -1899,7 +1899,7 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 									I confirm that I hold full rights to what I am submitting, including that no third
 									party such as a co-writer, sample owner, publisher, collaborator, or label holds a
 									claim that would require separate compensation for its use on IndieNodes.
-									{#if entry.type === 'audio'}
+									{#if entry.type === 'audio' && entry.form === 'music'}
 										I understand that PRO membership does not prevent me from submitting, but I am
 										disclosing it accurately above.
 									{/if}

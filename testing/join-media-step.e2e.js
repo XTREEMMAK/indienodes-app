@@ -26,6 +26,7 @@ test('the own-site media step adds, fills and removes track rows', async ({ page
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
 	await page.locator('#f-creator').fill('Driftwood Radio');
 	await page.locator('#f-type').selectOption('audio');
+	await page.locator('#f-form').selectOption('music');
 	await page.locator('#f-why').fill('Warm tape loops for late evenings.');
 	await page.locator('#f-source').fill('https://example.com');
 	// At least one tag is required before the step will advance; the field

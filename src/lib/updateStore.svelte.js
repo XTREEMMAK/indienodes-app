@@ -90,6 +90,11 @@ function emptyEntry() {
 	return {
 		creator: '',
 		type: '',
+		// Audio only, required: 'music' or 'spoken'. Left blank rather than
+		// defaulted, since a silent default would mislabel spoken entries --
+		// this also applies to a pre-migration member with no form yet, which
+		// must prefill blank rather than assume one on the creator's behalf.
+		form: '',
 		why: '',
 		has_own_site: 'yes',
 		source_url: '',
@@ -536,6 +541,9 @@ export function createUpdateStore() {
 			entry = {
 				creator: found.creator,
 				type: found.type,
+				// '' for a pre-migration audio member with no form yet, forcing a
+				// choice before re-submission rather than assuming one.
+				form: found.form ?? '',
 				why: found.why ?? '',
 				has_own_site: 'yes',
 				source_url: found.source_url ?? '',

@@ -1,8 +1,9 @@
 # IndieNodes — Submission Form Spec
 
-**Version:** v1.0
+**Version:** v1.1
 **Status:** Implemented
 **Scope:** Submission form fields, validation, EULA copy, and data model mapping for the ring.json publishing pipeline. This is an implementation spec, not a legal reasoning document. Safe for the public repo.
+**Changelog (v1.1):** Per the audio-form addendum (`tmp/IndieNode_v2_Addendum_Audio_Form.md`): audio entries now require a `form` field (`music` | `spoken`), since spoken content (narration, audio drama, voice work) is now submitted under the existing `audio` type rather than a new one. The form displays the internal `audio` type as **Audio**, not **Music** — the music/spoken split is what `form` is for. The PRO-disclosure sentence in Section 3 is now shown only when `form` is `music`, since PRO membership means nothing for spoken-word audio.
 **Changelog (v1.0):** Adds Art as a first-class creator type with one to three works and accessible metadata, plus the additive game `trailer_url` used only for click-to-load YouTube embeds. Create, Update, and voluntary Remove are production-verified.
 **Changelog (v0.9):** The `why` input's product cap is reduced from 160 to 75 characters, enforced by both the browser input and `submissionValidation.js` while remaining outside the public ring schema's integrity constraints.
 **Changelog (v0.8):** Section 7's two open items (PR bot authentication, whether the merge click stays separate) are resolved: a fine-grained PAT scoped to this repo, and yes, the merge click stays manual. See `decisions.md`'s "LOCKED: PR authentication..." entry and the new `docs/n8n-workflow-runbook.md`.
@@ -28,6 +29,7 @@ Defines the fields, validation rules, and required consent copy for the entry su
 | creator      | text                           | yes         | Display name                                                                                                            |
 | creator_id   | system-generated               | n/a         | Not asked for. Links this creator's own nodes. See below.                                                               |
 | type         | enum                           | yes         | audio, comic, text, game, art                                                                                           |
+| form         | enum                           | conditional | Required if type is audio: music or spoken. Must not appear for any other type.                                         |
 | why          | text                           | yes         | One line, capped at 75 characters. Introduction and pitch combined; no separate title field.                            |
 | has_own_site | yes/no radio                   | yes         | Not a ring.json field. See below.                                                                                       |
 | source_url   | url                            | conditional | Required if has_own_site is yes. See below for the no branch.                                                           |
@@ -40,11 +42,12 @@ Defines the fields, validation rules, and required consent copy for the entry su
 | preview_url  | url                            | conditional | Optional if type is game. Muted preview only                                                                            |
 | trailer_url  | url                            | conditional | Optional if type is game. YouTube only; loaded after explicit play                                                      |
 
-The form displays the internal `audio` type as **Music**. For the initial proof of concept,
-that submission category is limited to musicians. The stored value remains `audio` because it
-also identifies the playback and media implementation; changing the label does not require a
-schema migration. Audiobooks, voice acting, sound design, and other audio-first creator types
-can be evaluated as later category expansions.
+The form displays the internal `audio` type as **Audio**. The stored value names the playback
+and media implementation, not a genre: an audio entry now also declares `form` (`music` or
+`spoken`), so voice actors, narrators, and audio-drama creators are supported directly through
+the existing `audio` type rather than as a hypothetical later category expansion. Queues never
+mix the two forms — see `src/lib/audioSuggest.js` — since tags alone can't separate a spoken
+piece from a soundtrack that happens to share every tag.
 
 **`has_own_site` is form-only, never written to `ring.json`, and it gates the rest of this table.** Answering "yes" keeps the flow exactly as it already was: `source_url` is asked for immediately, and the fields above map straight onto the creator's own already-hosted media. Answering "no" branches into the site generator (see `tmp/site-generator-claude-code-prompt.md`): the creator uploads actual files (a track, page images, artwork, or a screenshot) rather than typing URLs, the form builds a small static site from them, and `source_url` is asked for only afterward, once the creator has somewhere real to point it at. `tracks`/`pages`/`artworks`/`excerpts`/`thumb_url` end up populated either way, just derived from the generator's own output instead of typed in directly for the no-site branch.
 
@@ -75,9 +78,9 @@ The `pro_membership` field is data collection only. It does not block or approve
 
 ## 3. Rights Warranty (checkbox label text)
 
-Shown as a single checkbox. Collected for every type, but does not gate Continue or Submit — see Section 6. Worded for any type of work, not just audio's "recording and composition"; the PRO sentence is shown only when `type` is `audio`, since PRO membership only means something for music:
+Shown as a single checkbox. Collected for every type, but does not gate Continue or Submit — see Section 6. Worded for any type of work, not just audio's "recording and composition"; the PRO sentence is shown only when `type` is `audio` and `form` is `music`, since PRO membership only means something for music, not for spoken-word audio:
 
-> "I confirm that I hold full rights to what I am submitting, including that no third party such as a co-writer, sample owner, publisher, collaborator, or label holds a claim that would require separate compensation for its use on IndieNodes. [audio only:] I understand that PRO membership does not prevent me from submitting, but I am disclosing it accurately above."
+> "I confirm that I hold full rights to what I am submitting, including that no third party such as a co-writer, sample owner, publisher, collaborator, or label holds a claim that would require separate compensation for its use on IndieNodes. [music only:] I understand that PRO membership does not prevent me from submitting, but I am disclosing it accurately above."
 
 ## 4. General EULA (shown at submission, required checkbox)
 
@@ -113,7 +116,7 @@ The one consent that actually gates submission (Section 6). Worded for any type 
 **From here the two branches rejoin:**
 
 5. **On pass, the submission (every field, including `email`) enters a private review queue.** Nothing about the submission is visible outside the queue at this point, which is what keeps `email` from ever landing somewhere public. See Section 7 for what the queue actually is.
-6. A maintainer reviews the submission from inside the queue against EULA §8's moderation checklist and approves or rejects it. The checklist is deliberately not restated here — §8 is the binding text and this line went stale once already by paraphrasing it — but it covers a valid URL, working ownership proof, a declared type matching the content, rights confirmations, and work that is publicly reachable and authentically the submitter's. `indienodes-ring`'s `docs/curation-policy.md` is the reviewer-facing detail behind that clause. Because this is a private surface, the maintainer sees `email` and every other field, not just the `ring.json`-shaped ones.
+6. A maintainer reviews the submission from inside the queue against EULA §8's moderation checklist and approves or rejects it. The checklist is deliberately not restated here — §8 is the binding text and this line went stale once already by paraphrasing it — but it covers a valid URL, working ownership proof, a declared type matching the content (and, for audio, a declared `form` matching the content), rights confirmations, and work that is publicly reachable and authentically the submitter's. `indienodes-ring`'s `docs/curation-policy.md` is the reviewer-facing detail behind that clause. Because this is a private surface, the maintainer sees `email` and every other field, not just the `ring.json`-shaped ones.
 7. **On approval, a pull request is opened carrying only the public `ring.json`-shaped fields** from Section 2.1. The temporary `verification_token` is cleared when the request enters review and is not published. `email`, `rights_confirmation`, `pro_membership`, and every other Section 2.2 field are stripped before the PR exists; none of them were ever meant to be public, and this is the point where that stops being merely a policy and becomes something the data flow enforces. `email` is deleted from wherever the queue held it once the submission reaches this step.
 8. The PR goes through the existing pipeline (Semaphore/Ansible) to rebuild and deploy, unchanged from before this version. Whether that PR still needs its own human merge click, given a maintainer already approved the submission one step earlier, is noted as open in Section 7.
 9. On rejection, the submitter is told so at `email`, and nothing about their submission is retained past that point. **On approval they are told too**, immediately before the queue row's `email` is scrubbed — the address is used once, for the one outcome the submitter is actually waiting on, and then deleted. That mail says the entry was approved and that it joins the ring when the pull request is merged, rather than that it is already live, because the merge is a separate manual step. It also carries the assigned entry id, which is the value the widget's `site-id` must match and the handle needed at `/update` later. Delivery is attempted, not required: a bounced notification cannot undo an approval whose pull request is already open, which is the opposite of the rejection path, where delivery gates the delete because it is the last chance to say anything at all.

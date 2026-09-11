@@ -81,6 +81,7 @@
 	import TextSpeechButton from './TextSpeechButton.svelte';
 
 	const TYPE_LABEL = { audio: 'Audio', comic: 'Comic', text: 'Text', game: 'Game', art: 'Art' };
+	const FORM_LABEL = { music: 'Music', spoken: 'Spoken' };
 	let trailerPlaying = $state(false);
 	let trailerPausedTrackKey = /** @type {string | null} */ (null);
 
@@ -475,7 +476,12 @@
 			     means opening a menu per node to read something a chip already
 			     says. -->
 			<div class="top-row">
-				<span class="type-badge">{TYPE_LABEL[entry.type]}</span>
+				<div class="badge-group">
+					<span class="type-badge">{TYPE_LABEL[entry.type]}</span>
+					{#if entry.type === 'audio' && entry.form}
+						<span class="form-badge">{FORM_LABEL[entry.form]}</span>
+					{/if}
+				</div>
 				{#if showCurateControls && !editMode}
 					<div class="curate-controls" class:hover-reveal={ambient}>
 						<button
@@ -987,6 +993,13 @@
 		padding: 0.85rem;
 	}
 
+	.badge-group {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex-wrap: wrap;
+	}
+
 	.type-badge {
 		padding: 0.15rem 0.6rem;
 		border-radius: 999px;
@@ -996,6 +1009,15 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
+	}
+
+	.form-badge {
+		padding: 0.15rem 0.55rem;
+		border-radius: 999px;
+		background: var(--bg-elevated);
+		color: var(--text-muted);
+		font-size: 0.7rem;
+		font-weight: 500;
 	}
 
 	.curate-controls {

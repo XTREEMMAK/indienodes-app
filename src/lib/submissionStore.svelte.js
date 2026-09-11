@@ -96,6 +96,9 @@ function emptyEntry() {
 	return {
 		creator: '',
 		type: '',
+		// Audio only, required: 'music' or 'spoken'. Left blank rather than
+		// defaulted, since a silent default would mislabel spoken entries.
+		form: '',
 		why: '',
 		// '' (undecided) / 'yes' / 'no'. Gates whether `source_url` below is
 		// asked for now (owns a site already) or produced later by the

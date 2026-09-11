@@ -26,12 +26,17 @@ async function enterAmbient(page) {
 	await expect(page.getByRole('region', { name: 'Ambient view' })).toBeVisible();
 }
 
-test('b: discovery chip reads "Audio Next"', async ({ page }) => {
+test('b: discovery chip reads "Audio Next", plus the form label for a declared entry', async ({
+	page
+}) => {
 	await routeAudio(page);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/');
 	await enterAmbient(page);
-	await expect(page.locator('.audio-discovery-chip')).toHaveText('Audio Next');
+	// The seeded fixture's audio entries are all `form: "music"` (see
+	// testing/ring.e2e.json), so the chip appends that label -- the addendum's
+	// "visible form label" requirement.
+	await expect(page.locator('.audio-discovery-chip')).toHaveText('Audio Next · Music');
 });
 
 test('a: candidate preview honours the player volume instead of full blast', async ({ page }) => {

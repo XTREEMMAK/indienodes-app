@@ -135,6 +135,9 @@ test('update review keeps exact data inside the shared scroll container', async 
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await expect(page.getByRole('heading', { name: "What's changing?" })).toBeVisible();
+	// The stubbed node predates `form`, so the pre-migration audio member has
+	// none yet and the step re-asks for it before Continue is enabled.
+	await page.locator('#f-form').selectOption('music');
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Review and send' })).toBeVisible();
 

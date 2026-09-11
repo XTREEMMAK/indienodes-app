@@ -36,6 +36,9 @@ import { preferencesStore } from './preferencesStore.svelte.js';
  * @property {string | null} cover
  * @property {string[]} tags carried per item so the end-of-queue suggestion
  *   can match on what was actually played, without re-reading ring.json
+ * @property {string} [form] 'music' | 'spoken', carried per item so the
+ *   end-of-queue suggestion can restrict to the same form without
+ *   re-reading ring.json -- Keep going must never mix the two
  */
 
 let nextKey = 0;
@@ -59,7 +62,8 @@ function itemsFor(entry, cover) {
 				label: track.label,
 				url: track.media_url,
 				cover,
-				tags: entry.tags ?? []
+				tags: entry.tags ?? [],
+				form: entry.form
 			};
 		});
 }
