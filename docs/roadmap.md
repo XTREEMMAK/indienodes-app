@@ -70,6 +70,7 @@ Currently there is exactly one Field: `layoutStore` and `filtersStore` each hold
 **Direction agreed: a fixed set of five slots, not an unlimited named list**, kept local-only like everything else in `STORAGE_KEYS` — there is no account/cloud layer in this app to justify more. Each slot snapshots both halves of a Field together, `layoutStore`'s node configs and `filtersStore`'s global tag toggles, since a workspace described only by node layout, without which global tags were active, would not reproduce what the person actually saw.
 
 Not yet decided, and worth settling before building:
+
 - Whether loading a preset pushes onto `layoutStore`'s in-memory undo stack (making "load preset" itself undoable) or simply resets history.
 - Validating a stored preset against the live `nodeShape.js` type list on load, reusing the defensive pattern already in `nodeChannel.js` (`matchesType`, `pruneTagsForType`), rather than trusting an old snapshot outright.
 
