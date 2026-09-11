@@ -35,7 +35,7 @@
 	import { SITE_ORIGIN } from '$lib/config.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { hasBackend, useMock } from '$lib/submissionApi.js';
-	import { RING_REPO_URL } from '$lib/config.js';
+	import { RING_REPO_URL, EARLY_ACCESS } from '$lib/config.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { submissionStore as form, STEPS } from '$lib/submissionStore.svelte.js';
 	import { rightsSectionApplies } from '$lib/submissionValidation.js';
@@ -1066,6 +1066,26 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					>
 						{#if form.step === 'prep'}
 							<h2 tabindex="-1" use:focusHeading>Before you start</h2>
+							<!-- Ahead of the practical "here is what this costs you"
+							     paragraph, because someone who arrived from an
+							     Early Access chip is deciding whether to join at all
+							     before they care how long the form takes.
+
+							     It states the two things the framing raises and
+							     otherwise leaves ambiguous: that "founding" costs
+							     nothing (the word is strongly associated with paid
+							     membership tiers, and an unanswered "founding
+							     member" reads as a pitch about to arrive), and that
+							     a person reviews submissions -- which is already
+							     true of the queue behind this form, and is the part
+							     that makes a small curated ring worth being in. -->
+							{#if EARLY_ACCESS}
+								<p class="interim-note">
+									<strong>IndieNodes is in Early Access.</strong> The ring is still being built, so you'd
+									be joining as a founding creator. It's free, there's no membership tier, and a person
+									reviews every submission before it joins the ring — which also means it isn't instant.
+								</p>
+							{/if}
 							<p>
 								This takes about five minutes. Nothing is saved on a server until you press submit
 								at the end, and your progress is kept in this browser if you need to step away.

@@ -37,21 +37,28 @@ WORKDIR /app
 # something a deployment can read from somewhere other than its own origin: a
 # packaged client and a Docker deployment may each need to name the canonical
 # endpoint. Unset still means `/ring.json` on this origin, so every existing
-# build is byte-identical. Whether any of the six below are actually set is an
+# build is byte-identical. Whether any of the rest below are actually set is an
 # infra decision this image takes no position on: SITE_ORIGIN defaults to the
 # project's own site as a starting point for a bare `docker build .` with no
 # args -- not this repo's opinion of the "real" value, and any build that
 # cares what origin ships should pass its own --build-arg rather than rely on
 # it -- and the rest default to unset, which is itself a valid, documented
-# choice (mocks in dev, "closed"/no-widget/no-tab in a production build)
-# rather than an oversight to fix later.
+# choice (mocks in dev, "closed"/no-widget/no-tab/not-in-Early-Access in a
+# production build) rather than an oversight to fix later.
+#
+# That SITE_ORIGIN default is `app.indienodes.us`, matching what
+# docker-publish.yml falls back to. It used to read `indienodes.us`, the apex,
+# which is not where this app is served from -- a bare `docker build .` baked
+# in an origin that does not answer, and SITE_ORIGIN is the one value a wrong
+# setting breaks silently across origins: the widget is embedded on third-party
+# sites and cannot use a relative path, so it fetches whatever this says.
 # Docker's own build linter flags VITE_TURNSTILE_SITE_KEY below as
 # "sensitive data in ARG/ENV" -- a false positive worth leaving documented
 # rather than silenced. Turnstile's *site* key is designed to be public and
 # embedded in every page that renders the widget; the matching *secret* key
 # (the one that would actually be sensitive) never appears in this repo at
 # all, by design -- see the .env.example entry this ARG mirrors.
-ARG VITE_SITE_ORIGIN=https://indienodes.us
+ARG VITE_SITE_ORIGIN=https://app.indienodes.us
 ARG VITE_SUBMISSION_WEBHOOK_URL=
 ARG VITE_CONTACT_WEBHOOK_URL=
 ARG VITE_RATING_WEBHOOK_URL=
@@ -59,6 +66,7 @@ ARG VITE_TURNSTILE_SITE_KEY=
 ARG VITE_KOFI_URL=
 ARG VITE_RING_REPO_URL=
 ARG VITE_RING_URL=
+ARG VITE_EARLY_ACCESS=
 ENV VITE_SITE_ORIGIN=$VITE_SITE_ORIGIN
 ENV VITE_SUBMISSION_WEBHOOK_URL=$VITE_SUBMISSION_WEBHOOK_URL
 ENV VITE_CONTACT_WEBHOOK_URL=$VITE_CONTACT_WEBHOOK_URL
@@ -67,6 +75,7 @@ ENV VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
 ENV VITE_KOFI_URL=$VITE_KOFI_URL
 ENV VITE_RING_REPO_URL=$VITE_RING_REPO_URL
 ENV VITE_RING_URL=$VITE_RING_URL
+ENV VITE_EARLY_ACCESS=$VITE_EARLY_ACCESS
 
 COPY package.json package-lock.json ./
 RUN npm ci

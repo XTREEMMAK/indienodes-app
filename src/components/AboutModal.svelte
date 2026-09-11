@@ -4,7 +4,7 @@
 	import Modal from './Modal.svelte';
 	import { outFade } from '$lib/transitions.js';
 	import { aboutModalStore } from '$lib/aboutModalStore.svelte.js';
-	import { GITHUB_URL, GITHUB_ISSUES_URL, KOFI_URL } from '$lib/config.js';
+	import { GITHUB_URL, GITHUB_ISSUES_URL, KOFI_URL, EARLY_ACCESS } from '$lib/config.js';
 	// Named import, not the default. `import pkg from '.../package.json'`
 	// pulls the whole file into the client bundle for one field: every
 	// script, every dependency and its version, all shipped to visitors.
@@ -151,10 +151,24 @@
 			<div class="panel" in:fade={{ duration: 120 }} out:outFade={{ duration: 120 }}>
 				{#if activeTab === 'overview'}
 					<div role="tabpanel" id="about-panel-overview" aria-labelledby="about-tab-overview">
+						<!-- First, above the description, because "what is this?"
+						     and "why is it so empty?" are the same question while
+						     the ring is still small, and answering the second one
+						     second leaves the visitor to draw their own conclusion
+						     in the meantime. The status chip in the corner is the
+						     label; this is the paragraph it is short for. -->
+						{#if EARLY_ACCESS}
+							<p class="phase-note">
+								<strong>IndieNodes is in Early Access.</strong> The app works, but the ring is still being
+								built — we're recruiting founding creators before the wider launch. Expect it to feel
+								sparse for now, and expect it to fill in. Joining is free, and every submission is reviewed
+								by a person.
+							</p>
+						{/if}
 						<p>
 							IndieNodes is a lightweight, decentralized way to stumble into real indie creators'
-							work: audio, comics and visual art, writing, and eventually games. It is a webring,
-							not a platform. There is no account system, no server-side user data, and no algorithm
+							work: audio, comics and visual art, writing, and games. It is a webring, not a
+							platform. There is no account system, no server-side user data, and no algorithm
 							deciding what you see, only a field of nodes you arrange yourself.
 						</p>
 						<p>
@@ -429,6 +443,20 @@
 
 	p + p {
 		margin-top: 1.2rem;
+	}
+
+	/* The left-accent callout the forms already use for their own interim
+	   notices (`.interim-note` on /contact, /join and /update). Matched rather
+	   than invented so "this is a temporary state of the site, not part of the
+	   content" reads the same wherever it appears -- it is the same kind of
+	   message, and this is the fourth place to need it. */
+	.phase-note {
+		margin-bottom: 1.2rem;
+		padding: 0.7rem 1rem;
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
+		border-radius: var(--radius-sm);
+		background: var(--bg-elevated);
 	}
 
 	.principle-list {

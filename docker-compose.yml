@@ -30,6 +30,7 @@ services:
         VITE_KOFI_URL: ${VITE_KOFI_URL:-}
         VITE_RING_REPO_URL: ${VITE_RING_REPO_URL:-}
         VITE_RING_URL: ${VITE_RING_URL:-}
+        VITE_EARLY_ACCESS: ${VITE_EARLY_ACCESS:-}
         # Access gate for staging/preview builds (see gate/gate.caddy and
         # docs/pre-launch-gate.md). Both empty by default, which builds an
         # ungated image; set both in .env to build a gated one. Not VITE_ vars

@@ -24,6 +24,7 @@
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	import { updateStore } from '$lib/updateStore.svelte.js';
+	import { EARLY_ACCESS } from '$lib/config.js';
 
 	let { data } = $props();
 
@@ -202,10 +203,22 @@
 		</div>
 	{/if}
 
+	<!-- The count is printed directly above this, so the Early Access wording
+	     here does not restate how small the ring is -- it says what being early
+	     is worth. The widget is named because it is the part that works at any
+	     ring size; "shape what it becomes" on its own is a promise, and this
+	     page is where someone has just seen exactly how much is still promise. -->
 	<a class="join-cta" href={resolve('/join')}>
 		<span>
-			<strong>Join the ring</strong>
-			<span class="join-sub">Add your own site, audio, comic, writing, or game.</span>
+			<strong>{EARLY_ACCESS ? 'Become a founding creator' : 'Join the ring'}</strong>
+			{#if EARLY_ACCESS}
+				<span class="join-sub">
+					The ring is still being built. Joining is free, gets you a discovery widget for your own
+					site, and helps decide what this becomes.
+				</span>
+			{:else}
+				<span class="join-sub">Add your own site, audio, comic, writing, or game.</span>
+			{/if}
 		</span>
 		<span class="join-arrow" aria-hidden="true">&rarr;</span>
 	</a>
