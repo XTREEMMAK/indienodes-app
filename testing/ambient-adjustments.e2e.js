@@ -64,6 +64,17 @@ test('a: entering with a queue adopts it instead of starting its own preview', a
 		.click();
 	await expect(page.locator('.player')).toBeVisible();
 
+	// `currentSrc` is not set when the element mounts -- the browser assigns it
+	// at the end of its own resource selection, a beat later -- so "the player
+	// is visible" does not yet mean "the source resolved". Reading `before`
+	// without waiting for it captured "" on a loaded CI runner and then
+	// compared that against the real URL below, so a test about whether ambient
+	// *changed* the track failed on a value that only meant it had not loaded
+	// yet. Locally it passed every time, because resolution beat the read.
+	await expect
+		.poll(() => page.evaluate(() => document.querySelector('[data-main-player-audio]')?.currentSrc))
+		.toBeTruthy();
+
 	const before = await page.evaluate(
 		() => document.querySelector('[data-main-player-audio]')?.currentSrc
 	);
