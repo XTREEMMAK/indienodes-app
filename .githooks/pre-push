@@ -24,15 +24,44 @@
 # To bypass once: git push --no-verify
 # To turn off entirely: git config --unset core.hooksPath
 
-if [ ! -f scripts/validate-ring-mirror.mjs ]; then
-	exit 0 # Not a full checkout; nothing to validate against.
-fi
+# Each check guards its own prerequisites rather than the whole hook exiting
+# early on the first missing file, so that a partial checkout skips only the
+# check it cannot run.
 
-if ! node scripts/validate-ring-mirror.mjs; then
+if [ -f scripts/validate-ring-mirror.mjs ] && ! node scripts/validate-ring-mirror.mjs; then
 	echo ''
 	echo 'pre-push: the ring mirror is malformed, so this push was stopped.'
 	echo '          Run `npm run ring:sync` to refresh it from the canonical'
 	echo '          source, commit the result, and try again.'
 	echo '          To push anyway: git push --no-verify'
 	exit 1
+fi
+
+# Refuses a push whose n8n generator has changed without the matching export.
+#
+# `scripts/n8n/test_code_nodes.mjs` runs the generated code nodes straight out
+# of build_workflows.py, so it goes green on a rule that has never reached n8n.
+# That is not hypothetical: the relaxed consent gate committed on 2026-09-09
+# sat unpushed until 2026-09-12 with a full green suite, and every submission
+# from a creator who is not a PRO member was rejected on live for those three
+# days. Tests prove the generator is right; only the export proves it shipped.
+#
+# Network-free and key-free, exactly like the mirror check above: it compares
+# the committed generator against the committed export, never the live
+# instance. A red result means run --push then --export, not that n8n is down.
+#
+# python3 may legitimately be absent (a Node-only contributor, the Docker
+# build), so its absence skips the check rather than blocking a push.
+if [ -f scripts/n8n/build_workflows.py ] && command -v python3 >/dev/null 2>&1; then
+	if ! python3 scripts/n8n/build_workflows.py --check-drift; then
+		echo ''
+		echo 'pre-push: the n8n generator has changed but backups/ has not, so'
+		echo '          this push was stopped. The workflows above are live with'
+		echo '          the previous version of that code. To resolve:'
+		echo '            python3 scripts/n8n/build_workflows.py --push'
+		echo '            python3 scripts/n8n/build_workflows.py --export'
+		echo '          then commit the refreshed backups and try again.'
+		echo '          To push anyway: git push --no-verify'
+		exit 1
+	fi
 fi

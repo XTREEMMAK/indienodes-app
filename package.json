@@ -26,6 +26,7 @@
 		"platforms:check": "node scripts/platforms/verify-versions.mjs",
 		"ring:sync": "node scripts/sync-ring-mirror.mjs",
 		"ring:validate": "node scripts/validate-ring-mirror.mjs",
+		"n8n:check": "python3 scripts/n8n/build_workflows.py --check-drift",
 		"generator:preview": "node scripts/preview-generator-template.js",
 		"generator:preview:once": "node scripts/preview-generator-template.js --once",
 		"generator:new": "node scripts/scaffold-generator-template.js",

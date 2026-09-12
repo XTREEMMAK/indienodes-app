@@ -72,7 +72,20 @@ python3 scripts/n8n/build_workflows.py --dry-run --only token-lifecycle
 python3 scripts/n8n/build_workflows.py --push
 node scripts/n8n/test_code_nodes.mjs      # run before every push
 python3 scripts/n8n/build_workflows.py --export         # after every push
+python3 scripts/n8n/build_workflows.py --check-drift    # did the last change ship?
 ```
+
+`--check-drift` compares the generator's code nodes against `backups/`, and `.githooks/pre-push`
+runs it on every push. Red means the generator has moved and n8n has not — the live workflows are
+still running the previous version of that code, and `--push` + `--export` is the fix. It is
+network-free: it never asks n8n anything, it only checks that the two committed halves agree.
+
+This check exists because the suite above cannot catch that case. `test_code_nodes.mjs` runs the
+code nodes straight out of `build_workflows.py`, so it passes on a rule that has never been
+pushed. That is how the relaxed consent gate committed on 2026-09-09 stayed unpushed until
+2026-09-12 with 307/307 green, rejecting every submission from a creator who is not a PRO member
+with "That submission was not valid." Tests prove the generator is right; only the export proves
+it shipped.
 
 Raw backups of the eight live workflows live in `scripts/n8n/backups/` (checked in, not
 gitignored) — see that directory's own README for what they're for and how to restore from one.

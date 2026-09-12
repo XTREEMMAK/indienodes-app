@@ -12,6 +12,7 @@ Usage:
     python3 scripts/n8n/build_workflows.py --list
     python3 scripts/n8n/build_workflows.py --dry-run [--only NAME]
     python3 scripts/n8n/build_workflows.py --push    [--only NAME]
+    python3 scripts/n8n/build_workflows.py --check-drift
 
 The API key is read from ~/.n8n-api-key and is never written to disk or stdout
 by this script. Nothing here contains a secret: the review-link HMAC secret
@@ -20,6 +21,8 @@ Crypto node, so it never reaches workflow data or an export.
 """
 
 import argparse
+import difflib
+import itertools
 import json
 import re
 import os
@@ -3809,6 +3812,96 @@ def export_workflows():
     print(f"\n  {count} workflow(s) exported to {out_dir}")
 
 
+def check_drift():
+    """Fail when the generator has moved and `backups/` has not.
+
+    The failure this exists for: a generator commit lands, `--push` is never
+    run, and nothing notices. `test_code_nodes.mjs` exercises the source in
+    *this* file, so it stays green while production runs the previous rule --
+    which is how the relaxed consent gate in the finalize workflow sat unpushed
+    from 2026-09-09 to 2026-09-12 while every non-PRO submission on live was
+    rejected with "That submission was not valid."
+
+    Compares `parameters.jsCode` and nothing else. `ctx` reaches only
+    `settings()` and `workflowId` fields, never a code body, so a build from
+    `ctx_for_emit()` produces byte-identical `jsCode` to a real `--push`: a
+    difference here is always a real one and never an artifact of the empty
+    context. That restriction costs little, because the code nodes are where
+    everything worth catching lives -- the validation rules, the publish
+    allowlist, and the review-email HTML are all inside one.
+
+    The corollary is that this is deliberately not a full workflow diff. Node
+    positions, credentials, caller allowlists and settings are invisible to it,
+    and a change confined to those passes. Widening it would mean telling a
+    stale export apart from an absent live id, which `ctx_for_emit()` cannot do
+    by construction -- that is the same reason `--emit` is not a substitute for
+    `--push`.
+
+    Network-free and key-free, the same bias as the ring-mirror check in
+    `.githooks/pre-push`: it asks whether what is committed agrees with itself,
+    not whether n8n is reachable. Freshness of the live instance is `--push`'s
+    job, not a push-time concern.
+    """
+    out_dir = pathlib.Path(__file__).parent / "backups"
+    stale = []
+
+    def code_nodes(wf):
+        """Node name -> jsCode, for the code nodes only."""
+        out = {}
+        for n in wf.get("nodes", []):
+            js = (n.get("parameters") or {}).get("jsCode")
+            if js is not None:
+                out[n["name"]] = js
+        return out
+
+    for _, builder in BUILDERS:
+        built = builder(ctx_for_emit())
+        name = built["name"]
+        path = out_dir / f"{slugify(name)}.json"
+        if not path.exists():
+            stale.append(name)
+            print(f"  NO EXPORT  {name}  -- nothing at backups/{path.name}")
+            continue
+
+        mine = code_nodes(built)
+        theirs = code_nodes(json.loads(path.read_text()))
+        added = sorted(set(mine) - set(theirs))
+        removed = sorted(set(theirs) - set(mine))
+        changed = sorted(k for k in set(mine) & set(theirs) if mine[k] != theirs[k])
+
+        if not (added or removed or changed):
+            print(f"  ok         {name}")
+            continue
+
+        stale.append(name)
+        print(f"  STALE      {name}")
+        for n in added:
+            print(f"               + {n!r} is generated but absent from the export")
+        for n in removed:
+            print(f"               - {n!r} is live but no longer generated")
+        for n in changed:
+            print(f"               ~ {n!r}")
+
+        # One diff, not every diff: enough to name the rule that actually moved
+        # without burying it. The others are listed by name just above and show
+        # their own diff once this one is resolved.
+        first = (changed or added or removed)[0]
+        diff = difflib.unified_diff(
+            theirs.get(first, "").splitlines(), mine.get(first, "").splitlines(),
+            fromfile=f"live/{first}", tofile=f"generated/{first}", lineterm="", n=2)
+        for line in itertools.islice(diff, 60):
+            print(f"      {line}")
+
+    print()
+    if stale:
+        print(f"  {len(stale)} workflow(s) differ from the last export: {', '.join(stale)}")
+        print("  The generator has changed and n8n has not. To resolve:")
+        print("    python3 scripts/n8n/build_workflows.py --push")
+        print("    python3 scripts/n8n/build_workflows.py --export")
+        sys.exit(1)
+    print(f"  {len(BUILDERS)} workflow(s) match the last export")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -3817,6 +3910,7 @@ def main():
     ap.add_argument("--create-tables", action="store_true")
     ap.add_argument("--export", action="store_true")
     ap.add_argument("--emit", action="store_true")
+    ap.add_argument("--check-drift", action="store_true")
     ap.add_argument("--only")
     args = ap.parse_args()
 
@@ -3831,6 +3925,10 @@ def main():
 
     if args.export:
         export_workflows()
+        return
+
+    if args.check_drift:
+        check_drift()
         return
 
     # Full generator output to stdout, for importing a workflow through n8n's
@@ -3856,7 +3954,7 @@ def main():
         return
 
     if not (args.dry_run or args.push):
-        ap.error("pass --dry-run, --push, --create-tables, or --export")
+        ap.error("pass --dry-run, --push, --create-tables, --export, or --check-drift")
 
     key = api_key() if args.push else None
     existing = existing_by_name(key) if args.push else {}
