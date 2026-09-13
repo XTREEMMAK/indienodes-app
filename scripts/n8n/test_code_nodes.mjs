@@ -394,7 +394,7 @@ const ROW = {
 };
 const BODY = {
 	action: 'submit',
-	entry: { creator: 'C', type: 'audio', why: 'w', tags: ['t'] },
+	entry: { creator: 'C', type: 'audio', why: 'w', tags: ['t'], form: 'music' },
 	review: { email: 'a@b.co', rights_confirmation: true, eula_agreement: true }
 };
 const vrun = (row = ROW, body = BODY) => {
@@ -423,6 +423,59 @@ check(
 	false
 );
 check('turnstile off by default', v.needsTurnstile, 'no');
+
+// --- Finalize Submission: the audio form field ------------------------------
+// Mirrors the schema's allOf: required for audio, forbidden everywhere else.
+// Both halves matter because both are what validate:publish demands, and it
+// demands them only after a reviewer has already read the submission.
+check(
+	'form: audio without one is rejected',
+	vrun(ROW, { ...BODY, entry: { ...BODY.entry, form: undefined } })[0].json.error_code,
+	'invalid_request'
+);
+check('form: audio with "music" passes', vrun()[0].json.ok, 'yes');
+check(
+	'form: audio with "spoken" passes',
+	vrun(ROW, { ...BODY, entry: { ...BODY.entry, form: 'spoken' } })[0].json.ok,
+	'yes'
+);
+check(
+	'form: a value outside the enum is rejected',
+	vrun(ROW, { ...BODY, entry: { ...BODY.entry, form: 'podcast' } })[0].json.error_code,
+	'invalid_request'
+);
+// /update seeds '' for a pre-migration audio member with no form yet, so that
+// the creator is made to choose rather than have one assumed. The form's own
+// validation stops it there; this is the same rule behind it.
+check(
+	'form: the empty pre-migration seed is rejected',
+	vrun(ROW, { ...BODY, entry: { ...BODY.entry, form: '' } })[0].json.error_code,
+	'invalid_request'
+);
+// `includes` compares by SameValueZero, so a non-string cannot match its way
+// past the enum the way a loose `indexOf` on a coerced value might.
+check(
+	'form: a non-string does not slip through the enum check',
+	vrun(ROW, { ...BODY, entry: { ...BODY.entry, form: { toString: () => 'music' } } })[0].json
+		.error_code,
+	'invalid_request'
+);
+check(
+	'form: a non-audio type carrying one is rejected',
+	vrun(
+		{ ...ROW, type: 'comic' },
+		{ ...BODY, entry: { ...BODY.entry, type: 'comic', form: 'music' } }
+	)[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'form: a non-audio type without one passes',
+	vrun(
+		{ ...ROW, type: 'comic' },
+		{ ...BODY, entry: { ...BODY.entry, type: 'comic', form: undefined } }
+	)[0].json.ok,
+	'yes'
+);
 
 // --- Finalize Submission: consent gate --------------------------------------
 // Mirrors rightsSectionApplies/consentGiven in src/lib/submissionValidation.js,

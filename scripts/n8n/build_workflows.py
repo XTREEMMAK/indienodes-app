@@ -1390,6 +1390,20 @@ const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
 const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 if (!str(entry.creator, 200)) return bad('invalid_request');
 if (!TYPES.includes(entry.type)) return bad('invalid_request');
+// `form` pairs with `type`, and the schema's allOf makes that pairing exact:
+// required for audio, forbidden on every other type. Both halves are checked,
+// because both halves are what validate:publish demands afterwards -- without
+// this the field reached the publish allowlist unvalidated and an audio entry
+// missing it failed only on the PR, after a reviewer had already spent their
+// time on it. FORM_OPTIONS in src/lib/submissionValidation.js is this same
+// list, and `toRingEntry` emits the field for audio and nothing else, so no
+// payload either entry form can build is rejected here.
+const FORMS = ['music', 'spoken'];
+if (entry.type === 'audio') {
+  if (!FORMS.includes(entry.form)) return bad('invalid_request');
+} else if (entry.form !== undefined) {
+  return bad('invalid_request');
+}
 if (!str(entry.why, 400)) return bad('invalid_request');
 if (!Array.isArray(entry.tags) || entry.tags.length < 1 ||
     !entry.tags.every((t) => str(t, 60))) return bad('invalid_request');
