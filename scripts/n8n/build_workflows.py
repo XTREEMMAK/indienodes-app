@@ -4273,9 +4273,28 @@ def push(payload, key, existing):
     body = {k: payload[k] for k in ("name", "nodes", "connections", "settings")}
     wid = existing.get(payload["name"])
     if wid:
-        request("PUT", f"/workflows/{wid}", key, body)
-        return wid, "updated"
-    return request("POST", "/workflows", key, body)["id"], "created"
+        saved = request("PUT", f"/workflows/{wid}", key, body)
+        action = "updated"
+    else:
+        saved = request("POST", "/workflows", key, body)
+        wid, action = saved["id"], "created"
+
+    # Saving an active workflow publishes it; creating one does not. Every
+    # helper this generator ever pushed already existed, so nothing noticed
+    # until Check Media URL was added on 2026-09-12: it was created unpublished,
+    # n8n then refused to publish Finalize (whose new version calls it), and
+    # the run died with Review Action and Intake still on their old versions.
+    # A helper is safe to publish unattended -- its only trigger is Execute
+    # Workflow, so publishing exposes nothing -- and it must be published
+    # before the caller pushed next can be. A workflow with a public webhook is
+    # never activated here: turning an endpoint on stays a deliberate act.
+    triggers = {n["type"] for n in payload["nodes"] if n["type"].endswith("Trigger")
+                or n["type"] == "n8n-nodes-base.webhook"}
+    is_helper = triggers == {"n8n-nodes-base.executeWorkflowTrigger"}
+    if is_helper and not saved.get("active"):
+        request("POST", f"/workflows/{wid}/activate", key)
+        action += "+published"
+    return wid, action
 
 
 def create_tables():
@@ -4340,6 +4359,7 @@ def export_workflows():
     out_dir = pathlib.Path(__file__).parent / "backups"
     out_dir.mkdir(exist_ok=True)
     count = 0
+    unpublished = []
     for _, builder in BUILDERS:
         name = builder({})["name"]
         wid = existing.get(name)
@@ -4353,12 +4373,27 @@ def export_workflows():
             raw = r.read()
         path = out_dir / f"{slugify(name)}.json"
         path.write_bytes(raw)
+        # The API returns the saved draft, which is not necessarily what runs.
+        # On 2026-09-12 a half-finished push left Finalize with an unpublished
+        # draft; this export captured the draft, and --check-drift then called
+        # a workflow "ok" that live traffic was not using.
+        live = json.loads(raw)
+        if live.get("activeVersionId") and live.get("versionId") != live.get("activeVersionId"):
+            unpublished.append(name)
+        elif not live.get("active"):
+            unpublished.append(name)
         # Relative to this file's own repo, not the caller's cwd -- avoids a
         # crash if this is ever run from somewhere other than the repo root.
         repo_root = pathlib.Path(__file__).resolve().parents[2]
         print(f"  exported {wid}  {name}  -> {path.resolve().relative_to(repo_root)}")
         count += 1
     print(f"\n  {count} workflow(s) exported to {out_dir}")
+    if unpublished:
+        print(f"\n  NOT LIVE: {', '.join(unpublished)}")
+        print("  These exports are saved drafts that n8n has not published (or the")
+        print("  workflow is inactive), so live traffic is still on an older version.")
+        print("  Fix the publish error --push reported, push again, then re-export.")
+        sys.exit(1)
 
 
 def check_drift():
@@ -4552,8 +4587,11 @@ def main():
     # allowlist now that all the IDs are known.
     passes = 2 if len(targets) > 1 else 1
     for p in range(passes):
-        rebuild_ctx()
         for name, builder in targets:
+            # Per workflow, not per pass: a helper created earlier in this same
+            # pass has an id its callers need now. Resolving once per pass left
+            # a first-pass caller with an empty workflowId, which push() refuses.
+            rebuild_ctx()
             wf = builder(ctx)
             wid, action = push(wf, key, existing)
             existing[wf["name"]] = wid
