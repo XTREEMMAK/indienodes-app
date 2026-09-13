@@ -147,6 +147,12 @@ RATE_LIMIT_CREDENTIAL = {"id": "0h2rO7wsu6dmkcbS", "name": "IndieNodes - Rate Li
 REVIEWER_EMAIL = "get@jamaale.live"
 NOTIFY_FROM_EMAIL = "indienodes@j2it.us"
 
+# Applied to every Send Email node. n8n appends "This email was sent
+# automatically with n8n" to each message unless the node says otherwise, and
+# the setting lived only in the n8n UI -- so every --push put the footer back
+# on submitter and contact mail until someone turned it off by hand again.
+EMAIL_OPTIONS = {"appendAttribution": False}
+
 # Treated as "not configured" wherever that distinction matters, so the reject
 # path holds a submission rather than deleting it and failing to notify.
 EMAIL_CONFIGURED = not NOTIFY_FROM_EMAIL.endswith("@invalid")
@@ -2202,7 +2208,7 @@ return [{ json: {
                 "subject": "={{ $('build reviewer notification').first().json.title }}",
                 "emailFormat": "text",
                 "text": "={{ $('build reviewer notification').first().json.body }}",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("email delivered?", (3740, 180),
@@ -3242,7 +3248,7 @@ return [{ json: { html: body } }];
                 # immediately after, and a rejection rationale would be exactly
                 # the kind of record spec section 5 step 9 says is not retained.
                 "text": "=Thanks for submitting to IndieNodes.\n\nAfter review, your submission was not added to the ring this time. Nothing about it has been kept.\n\nYou're welcome to submit again.\n\n-- IndieNodes",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("reject: delivered?", (2000, 40),
@@ -3397,7 +3403,7 @@ return [{ json: { html: body } }];
                         "at /update if you ever need to change or remove it.\n\n"
                         "This address is now deleted. Nothing else will be sent to it.\n\n"
                         "-- IndieNodes",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("approve: build success page", (5080, -400), approved_page),
@@ -3990,7 +3996,7 @@ return [{ json: { ok: true, reference: fakeId() } }];
             "subject": "={{ $('build notification').first().json.title }}",
             "emailFormat": "text",
             "text": "={{ $('build notification').first().json.body }}",
-            "options": {"replyTo": "={{ $('build notification').first().json.replyTo }}"}},
+            "options": {**EMAIL_OPTIONS, "replyTo": "={{ $('build notification').first().json.replyTo }}"}},
              credentials={"smtp": SMTP_CREDENTIAL},
              onError="continueErrorOutput"),
         code_node("email delivered?", (680, 20), delivered),

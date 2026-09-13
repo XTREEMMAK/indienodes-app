@@ -2111,5 +2111,25 @@ const getVerdict = (res, kind = 'image') =>
 	);
 }
 
+// --- Email: no n8n attribution footer ---------------------------------------------
+// n8n appends its own footer to every Send Email node unless told not to. Set
+// only in the UI, it came back on every --push; --check-drift compares code
+// nodes and cannot see it, so it is pinned here instead.
+{
+	const emailNodes = ['finalize-submission', 'review-action', 'contact'].flatMap((b) =>
+		workflow(b)
+			.nodes.filter((n) => n.type === 'n8n-nodes-base.emailSend')
+			.map((n) => ({ b, n }))
+	);
+	check('email: all four Send Email nodes are covered', emailNodes.length, 4);
+	for (const { b, n } of emailNodes) {
+		check(
+			`email: ${b} / ${n.name} has attribution off`,
+			n.parameters.options?.appendAttribution,
+			false
+		);
+	}
+}
+
 console.log(`\n  ${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
