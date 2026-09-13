@@ -54,13 +54,14 @@ export const useMock = import.meta.env.DEV && !hasBackend;
  * `webhookClient.js` now, shared with Contact and node updates.
  * @param {string} action
  * @param {Record<string, unknown>} payload
+ * @param {{ timeoutMs?: number }} [options]
  * @returns {Promise<Record<string, any>>}
  */
-async function post(action, payload) {
+async function post(action, payload, options) {
 	if (!hasBackend) {
 		throw new WebhookError('Submissions are closed right now.', { code: 'no_backend' });
 	}
-	return postWebhook(SUBMISSION_WEBHOOK_URL, { action, ...payload });
+	return postWebhook(SUBMISSION_WEBHOOK_URL, { action, ...payload }, options);
 }
 
 /**
@@ -151,8 +152,34 @@ export async function verify(submissionId) {
  */
 export async function submit(input) {
 	if (useMock) return mock.submit(input);
-	const body = await post('submit', input);
+	const body = await post('submit', input, { timeoutMs: SUBMIT_TIMEOUT_MS });
 	return { reference: body.reference };
+}
+
+/**
+ * Longer than the shared 15s. Finalize now fetches the headers of every image
+ * URL in the entry (up to four for a comic) before it re-verifies the page, and
+ * a slow creator host can use most of the default on its own. A timeout here is
+ * the worst outcome in this file — see `submit` on why it is never retried — so
+ * it gets the room.
+ */
+const SUBMIT_TIMEOUT_MS = 45000;
+
+/**
+ * Asks the backend whether a typed media URL is really an image: a HEAD (or
+ * ranged GET) from the server, with an `image/*` content type required — see
+ * `mediaUrlCheck.js` for why the URL's own shape cannot answer that.
+ *
+ * Carries the honeypot and dwell fields like every form-entry action: it makes
+ * an outbound request on a stranger's behalf, so an obvious bot is dropped
+ * before it can. The answer is a verdict word and nothing more.
+ * @param {{ url: string, kind: 'image' | 'preview', website: string, elapsed_ms: number }} input
+ * @returns {Promise<{ accepted: boolean, verdict: string }>}
+ */
+export async function checkMediaUrl(input) {
+	if (useMock) return mock.checkMediaUrl(input);
+	const body = await post('check_media_url', input);
+	return { accepted: body.accepted === true, verdict: String(body.verdict ?? '') };
 }
 
 /**

@@ -1,6 +1,18 @@
 import { browser } from '$app/environment';
 import { STORAGE_KEYS } from './storageKeys.js';
-import { bindSourceUrl as bindSourceUrlApi, issueToken, submit, verify } from './submissionApi.js';
+import {
+	bindSourceUrl as bindSourceUrlApi,
+	checkMediaUrl,
+	issueToken,
+	submit,
+	verify
+} from './submissionApi.js';
+import {
+	MEDIA_ERROR_VERDICTS,
+	mediaUrlFields,
+	mediaVerdictMessage,
+	quickMediaVerdict
+} from './mediaUrlCheck.js';
 import {
 	consentGiven,
 	toRingEntry,
@@ -42,6 +54,20 @@ const STORAGE_KEY = STORAGE_KEYS.submissionDraft.key;
 
 /** Written to storage this long after the last keystroke. */
 const PERSIST_DEBOUNCE_MS = 400;
+
+/** A typed media URL is checked this long after it stops changing. */
+export const MEDIA_CHECK_DEBOUNCE_MS = 600;
+
+/**
+ * Cache key for one media check. The kind is part of it because a game preview
+ * may be a video where an image field may not, so one URL can pass as one and
+ * fail as the other.
+ * @param {string} kind
+ * @param {string} url
+ */
+function mediaKey(kind, url) {
+	return `${kind} ${url}`;
+}
 
 /**
  * Minimum time between a submitter's first keystroke and their submission.
@@ -312,6 +338,26 @@ export function createSubmissionStore() {
 
 	const antiBot = createAntiBot();
 
+	/**
+	 * Finalize checks every media URL again and names the field it refused.
+	 * Recording that as a check result puts the message beside the field on its
+	 * own step, not only in the banner at submit — and holds Continue there
+	 * until the URL is changed. The field path is relative to the payload
+	 * (`toRingEntry` drops empty rows), so the URL is looked up there and the
+	 * result keyed by URL, which is what every field is matched on anyway.
+	 * @param {{ code?: string, field?: string }} e
+	 */
+	function recordMediaRefusal(e) {
+		const verdict = e?.code ? MEDIA_ERROR_VERDICTS[e.code] : undefined;
+		if (!verdict || !e.field) return;
+		/** @type {any} */
+		let node = toRingEntry(entry);
+		for (const part of e.field.split('.')) node = node?.[part];
+		if (typeof node !== 'string' || !node) return;
+		const kind = e.field === 'preview_url' ? 'preview' : 'image';
+		mediaChecks[mediaKey(kind, node)] = { status: 'done', verdict };
+	}
+
 	/** @type {ReturnType<typeof setTimeout> | undefined} */
 	let persistTimer;
 
@@ -328,7 +374,52 @@ export function createSubmissionStore() {
 		}, PERSIST_DEBOUNCE_MS);
 	}
 
-	const entryErrors = $derived(validateEntry(entry));
+	/**
+	 * Results of asking the backend whether each typed media URL is really an
+	 * image, keyed by `mediaKey`. Keyed by URL rather than field so editing a
+	 * field back to a URL already checked needs no second request, and a result
+	 * can never be shown against a URL it was not about. Not persisted: a page
+	 * that was an image yesterday may not be today, and the backend checks
+	 * again at submit either way.
+	 *
+	 * `unknown` is a check that got no answer (offline, or a backend that does
+	 * not have the action yet). It blocks nothing: finalize runs the real check
+	 * regardless, and this form must not be unusable because a courtesy failed.
+	 * @type {Record<string, { status: 'pending' | 'done', verdict: string }>}
+	 */
+	let mediaChecks = $state({});
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let mediaTimer;
+
+	const shapeErrors = $derived(validateEntry(entry));
+
+	/**
+	 * The media URLs this form asks the backend about: only a creator with their
+	 * own site types them. The generated-site branch derives its URLs from its
+	 * own export, and those are checked at finalize instead.
+	 * @returns {import('./mediaUrlCheck.js').MediaUrlField[]}
+	 */
+	function checkableMediaFields() {
+		if (entry.has_own_site === 'no') return [];
+		// A URL already failing its shape rule (not https, our own domain) says
+		// so already; asking whether it is an image would be noise.
+		return mediaUrlFields(entry).filter((f) => !shapeErrors[f.field]);
+	}
+
+	const mediaErrors = $derived.by(() => {
+		/** @type {Record<string, string>} */
+		const out = {};
+		for (const f of checkableMediaFields()) {
+			const check = mediaChecks[mediaKey(f.kind, f.url)];
+			const message = check?.status === 'done' ? mediaVerdictMessage(check.verdict, f.kind) : null;
+			if (message) out[f.field] = message;
+		}
+		return out;
+	});
+
+	// Shape errors win over a media verdict for the same field; both are keyed
+	// the same way, so every existing `form.entryErrors[...]` slot shows either.
+	const entryErrors = $derived({ ...mediaErrors, ...shapeErrors });
 	const reviewErrors = $derived(validateReview(review));
 
 	/**
@@ -341,6 +432,54 @@ export function createSubmissionStore() {
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
 		consent: ['email', 'pro_membership', 'pro_membership_name']
 	};
+
+	/**
+	 * Whether any media URL on this step still has no answer. Continue waits
+	 * for it: letting someone past a page URL while its check is in flight is
+	 * exactly how PR #30's entry got through.
+	 * @param {string} stepId
+	 */
+	function mediaUnchecked(stepId) {
+		const fields = stepFields[/** @type {keyof typeof stepFields} */ (stepId)] ?? [];
+		return checkableMediaFields().some(
+			(f) =>
+				fields.includes(f.field.split('.')[0]) &&
+				mediaChecks[mediaKey(f.kind, f.url)]?.status !== 'done'
+		);
+	}
+
+	/**
+	 * Asks about every checkable media URL that has no result yet.
+	 * @returns {Promise<void>}
+	 */
+	async function runMediaChecks() {
+		const todo = checkableMediaFields().filter((f) => !mediaChecks[mediaKey(f.kind, f.url)]);
+		await Promise.all(
+			todo.map(async (f) => {
+				const key = mediaKey(f.kind, f.url);
+				const quick = quickMediaVerdict(f.url);
+				if (quick) {
+					mediaChecks[key] = { status: 'done', verdict: quick };
+					return;
+				}
+				mediaChecks[key] = { status: 'pending', verdict: '' };
+				try {
+					const result = await checkMediaUrl({
+						url: f.url,
+						kind: f.kind,
+						website: antiBot.honeypot,
+						elapsed_ms: antiBot.elapsedMs
+					});
+					mediaChecks[key] = {
+						status: 'done',
+						verdict: result.accepted ? 'ok' : result.verdict || 'unknown'
+					};
+				} catch {
+					mediaChecks[key] = { status: 'done', verdict: 'unknown' };
+				}
+			})
+		);
+	}
 
 	/** @param {string} stepId */
 	function stepErrors(stepId) {
@@ -438,6 +577,8 @@ export function createSubmissionStore() {
 				return Object.keys(stepErrors(stepId)).length === 0 && consentGiven(review);
 			}
 
+			if ((stepId === 'entry' || stepId === 'media') && mediaUnchecked(stepId)) return false;
+
 			if (stepId === 'media') {
 				// Every one of `media`'s own fields is conditional on
 				// `entry.type` (tracks for audio, pages for comic, and so
@@ -506,6 +647,33 @@ export function createSubmissionStore() {
 			}
 
 			return Object.keys(stepErrors(stepId)).length === 0;
+		},
+
+		/**
+		 * Checks typed media URLs once they stop changing. Called from the steps
+		 * that show those fields, from an effect, so a draft restored from storage
+		 * is checked as well as one being typed. Reads the URLs synchronously
+		 * (which is what makes the calling effect re-run on an edit) and writes
+		 * nothing until the timer fires.
+		 */
+		scheduleMediaChecks() {
+			const pendingWork = checkableMediaFields().some((f) => !mediaChecks[mediaKey(f.kind, f.url)]);
+			clearTimeout(mediaTimer);
+			if (!pendingWork) return;
+			mediaTimer = setTimeout(() => {
+				runMediaChecks();
+			}, MEDIA_CHECK_DEBOUNCE_MS);
+		},
+
+		runMediaChecks,
+
+		/**
+		 * Whether this field's URL is being checked right now, for a status hint.
+		 * @param {string} field
+		 */
+		mediaCheckPending(field) {
+			const f = checkableMediaFields().find((c) => c.field === field);
+			return Boolean(f && mediaChecks[mediaKey(f.kind, f.url)]?.status === 'pending');
 		},
 
 		/** Records interaction for draft persistence; the dwell clock starts when the form loads. */
@@ -710,6 +878,7 @@ export function createSubmissionStore() {
 				if (entry.has_own_site === 'no') await generatorDraftStore.discard();
 			} catch (e) {
 				error = /** @type {any} */ (e);
+				recordMediaRefusal(/** @type {any} */ (e));
 			} finally {
 				pending = 'idle';
 			}
@@ -725,6 +894,8 @@ export function createSubmissionStore() {
 			verified = false;
 			sourceUrlBound = false;
 			lastExportAssetPaths = null;
+			clearTimeout(mediaTimer);
+			mediaChecks = {};
 			reference = '';
 			error = null;
 			verifyFailure = '';

@@ -65,7 +65,8 @@ export async function postWebhook(url, body, { timeoutMs = 15000 } = {}) {
 			// 5xx and 429 are worth retrying; a 400 means the payload is wrong
 			// and retrying it unchanged will fail identically.
 			retryable: error.retryable ?? (response.status >= 500 || response.status === 429),
-			status: response.status
+			status: response.status,
+			field: typeof error.field === 'string' ? error.field : ''
 		});
 	}
 

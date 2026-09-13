@@ -206,11 +206,17 @@ describe("isStepComplete('entry') cover ownership", () => {
 		tags: ['game']
 	};
 
-	it('requires an own-site game cover on the Entry step', () => {
+	it('requires an own-site game cover on the Entry step', async () => {
 		const store = freshStore(validEntry);
 		expect(store.isStepComplete('entry')).toBe(false);
 
 		store.entry.thumb_url = 'https://example.com/cover.png';
+		// A typed cover is not accepted until its image check has answered
+		// (the dev mock here, which treats a path with a file extension as an image).
+		expect(store.isStepComplete('entry')).toBe(false);
+		const checked = store.runMediaChecks();
+		await vi.advanceTimersByTimeAsync(1000);
+		await checked;
 		expect(store.isStepComplete('entry')).toBe(true);
 	});
 

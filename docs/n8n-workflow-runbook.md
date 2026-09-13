@@ -142,6 +142,7 @@ silently drops every legitimate continuation request.
 | `submit_update`        | `{ submission_id, node_id, entry, email, website, elapsed_ms, turnstile_token? }` | `{ reference: string }`                                     |
 | `request_removal`      | `{ submission_id, node_id, reason?, website, elapsed_ms, turnstile_token? }`      | `{ reference: string }`                                     |
 | `rate_status`          | `{ source_url }`                                                                  | `{ blocked: boolean, retry_after_seconds: number \| null }` |
+| `check_media_url`      | `{ url, kind?: 'image' \| 'preview', website, elapsed_ms }`                       | `{ accepted: boolean, verdict: string }`                    |
 
 Notes that change how you build this:
 
@@ -151,6 +152,7 @@ Notes that change how you build this:
 - `request_update_token`/`submit_update`/`request_removal` are keyed by an existing `node_id`, not a new submission. The workflow must fetch the node's **current** `source_url` from the live `ring.json` itself (not from anything the client sends) to check the token against — same reasoning as `verify`.
 - `turnstile_token` is optional and appears **only** on `submit_update`, `request_removal`, and the Contact webhook — `issue_token`/`verify`/`submit` on `/join` are not Turnstile-guarded at all. Don't add a Turnstile check to those three actions; the client never sends a token for them.
 - `rate_status` (added 2026-08-31) is a **read-only** pre-check: whether a fresh `submit`/`submit_update`/`request_removal` for this `source_url` would be rate-limited right now, asked from `/update`'s identify step as soon as a node is found — before the visitor has invested time in the form or a Turnstile challenge only to be told to come back later. It reads the same `rate_limits` bucket §5's rate limiting describes but never writes to it, and it has none of `resume`/`is_removal`'s exemptions (it doesn't yet know which the visitor will end up doing), so it can occasionally say "blocked" a beat before the real gate at actual submit time would exempt it. That's intentional — it's advisory, never the gate; the client treats a failure to reach it as "nothing to show," not an error.
+- `check_media_url` (added 2026-09-12) asks whether a typed media URL is really an image — the check that would have stopped ring PR #30's `?pg=29#showComic` reader-page URLs. Bot-gated like `issue_token`, because it makes an outbound request on the caller's behalf. `verdict` is one of `ok | html | not_image | redirect | unreachable | unsafe_url` and nothing else is ever returned (no status, content type or body). Like `rate_status` it is a courtesy: `submit`/`submit_update` and approval run the same check again (§6a), and the form treats no answer as "nothing to show". A `submit` refused this way carries `error.field` (e.g. `pages.0.image_url`) and a specific `error.message`.
 
 ### 2.3 Contact webhook — one action, no envelope discriminator
 
@@ -172,9 +174,9 @@ Returns `{ ok: true }`. The client ignores the response entirely and never surfa
 
 `type` is `audio|comic|text|game|art`, and the conditionally-required media array follows from it (`pages` for comic, `excerpts` for text, `artworks` for art, `thumb_url` for game). And `additionalProperties: false` rejects anything not in the schema, which is what makes the allowlist approach in §9 safe: an accidental leak of a review-only field fails `npm run validate:publish` in the ring repo's CI, not just a policy.
 
-The temporary `verification_token` is private workflow state, cleared when a row enters review and never published. Note the schema still lists it as `required` — a cross-repo lag tracked in `ring-audit-2026-09-04.md`, resolved in `indienodes-ring`, not here.
+`verification_token` is **required** by the canonical schema and **is published**: approval copies the row's token — the one `verify` checked — into the member file, and refuses to open a PR without one. It is the same value already public in the creator's `<meta name="indienode-verification">` tag, and `indienodes-ring`'s `member-health.js` reads it to confirm that tag is still there. It was dropped from approvals on 2026-09-02 (`830395f`) without the schema changing, so every PR since failed `validate:publish` until ring PR #30 was repaired by hand; restored 2026-09-12.
 
-Media URLs (`media_url` inside `tracks`, `image_url` inside `pages`, `thumb_url`, `preview_url`) must be `https://` and must not resolve to the `indienodes.us` domain — the schema's `externalMediaUrl` `$def` enforces this. Nothing in the workflow needs to duplicate that check; it's the CI gate's job to catch a violation, not the workflow's.
+Media URLs (`media_url` inside `tracks`, `image_url` inside `pages`, `thumb_url`, `preview_url`) must be `https://` and must not resolve to the `indienodes.us` domain — the schema's `externalMediaUrl` `$def` enforces this. Nothing in the workflow needs to duplicate that check; it's the CI gate's job to catch a violation, not the workflow's. What the schema **cannot** check is whether an image URL serves an image; that is §6a's job.
 
 ---
 
@@ -190,7 +192,8 @@ its own webhook, no storage, no shared state (§11).
 | Webring - Intake v2                         | `lUd8H2AQLwHgpx3z` |    14 | The public webhook. Validation, bot gate, routing, `rate_status` read, one response shape. |
 | Webring - Token Lifecycle v2                | `FGJT1bkhNBjNUjdV` |    27 | `issue_token`, `request_update_token`, `bind_source_url`, `verify`                         |
 | Webring - Action - Finalize Submission v2   | `WjimdnD3ATuotLGX` |    30 | `submit`, `submit_update`, `request_removal`                                               |
-| Webring - Helper - Re-verify Token v2       | `FtLH2sf84rtyiEz4` |     6 | The SSRF boundary — the only outbound fetch to a submitter-chosen address                  |
+| Webring - Helper - Re-verify Token v2       | `FtLH2sf84rtyiEz4` |     6 | The SSRF boundary for the creator's page (`source_url`)                                    |
+| Webring - Helper - Check Media URL v2       | _not yet pushed_   |    13 | The SSRF boundary for typed media URLs: HEAD / ranged GET, `image/*` required (§6a)        |
 | Webring - Helper - Review Link Signature v2 | `7wu0t1GVk6zurL2x` |     4 | HMAC-SHA256 sign **and** verify                                                            |
 | Webring - Review Action v2                  | `ZEWLoY146ecZDENP` |    58 | Signed approve/reject links → GitHub PR (incl. removal)                                    |
 | Webring - Error Workflow                    | `YNJ5lpAUJnLH70Ko` |     2 | Failure metadata, allowlisted                                                              |
@@ -211,7 +214,7 @@ verifier inlined in another: two copies of one algorithm, free to drift. They di
 verifier relied on a default `type` the signer set explicitly. One helper with a
 `mode: sign | verify` input makes that class of drift impossible.
 
-**Boundaries that stay isolated:** SSRF egress (Re-verify), secret handling (Signature), and
+**Boundaries that stay isolated:** SSRF egress (Re-verify, Check Media URL), secret handling (Signature), and
 the GitHub PAT (Review Action, entirely off the public router).
 
 ---
@@ -400,6 +403,48 @@ which the HTTP node offers directly.
 
 ---
 
+## 6a. Media URL check
+
+`Webring - Helper - Check Media URL v2` answers one question about one URL: is it really an
+image? Ring PR #30 is why: a comic went out with reader-page URLs
+(`https://frammyjammy.com/suzu-and-jack/?pg=29#showComic`) in `pages[].image_url`, which pass
+every schema rule because nothing about their shape is wrong. Called by Intake
+(`check_media_url`), Finalize Submission (every media field, before re-verify and before the
+claim) and Review Action (again, before any GitHub call); `callerPolicy` restricted to those three.
+
+Input: `url`, `kind` (`image`, or `preview` for a game preview, which may also be `video/*`),
+`field`, `label`. Output: `ok: yes|no`, `verdict: ok | none | html | not_image | redirect |
+unreachable | unsafe_url`, and the `field`/`label`/`kind` it was given.
+
+- **The same SSRF guard as §6, tightened.** `SAFE_URL_JS` and `DOH_VERDICT_JS` are the §6 checks,
+  written once and interpolated into both helpers. On top: `https` only, and no port other than
+  443, so the public action cannot be used to probe services on a host. Redirects are not followed.
+- **A web-page extension (`.html`, `.htm`, `.xhtml`) is refused without a request.** An image
+  extension is never trusted: those URLs are always fetched.
+- **HEAD first**; a `GET` with `Range: bytes=0-1023` only when HEAD is refused
+  (400/403/405/406/501) or answers without a content type. A transport failure is `unreachable`
+  without a second attempt, to keep finalize inside the form's 45s submit timeout.
+- **`image/*` is required** (`video/*` also for a preview). `text/html` and
+  `application/xhtml+xml` are `html`; anything else, `application/octet-stream` included, is
+  `not_image`.
+- **Only a verdict word leaves the helper**, and Intake returns only `{ accepted, verdict }`.
+  Status codes, content types and bodies are never reflected to a caller.
+
+In Finalize and Review Action the helper runs once per media field (Execute Workflow
+`mode: each`, at most `MAX_MEDIA_URLS` of them) with `onError: continueRegularOutput`, so a helper
+failure is an item on the one output that `MEDIA_VERDICT_JS` refuses; an error _output_ would split
+the items and run the verdict node twice. A refusal at finalize returns a `media_*` error code with
+the field and a specific message; at approval it marks `approval_failed` and tells the maintainer
+which field failed, before any branch or PR exists.
+
+**Residual, accepted risk.** The same DNS-rebinding window as §6. The `check_media_url` action
+lets an anonymous caller (past the honeypot/dwell gate) have n8n request a public https URL and
+learn a one-word verdict. The ranged GET has no response-size ceiling in the HTTP node, so a server
+that ignores `Range` can send a whole file; `MEDIA_FETCH_TIMEOUT_MS` bounds it. The egress proxy
+§6 recommends would close both.
+
+---
+
 ## 7. Private review notification
 
 Built from the **stored, normalised** row, never from unvalidated request fields. Deliberately
@@ -564,7 +609,8 @@ rejection rationale is exactly the kind of record §5 step 9 says is not retaine
 
 Separate nodes per GitHub operation, deliberately — their individual execution records are what
 make a partial failure diagnosable. Fetch ring → parse → generate id + `creator_id` → strip to
-the public allowlist → resolve existing member-file SHA → get main ref → create branch → commit
+the public allowlist → **refuse if the row has no verification token** → **re-check every media
+URL (§6a)** → resolve existing member-file SHA → get main ref → create branch → commit
 `members/<id>.json` → open PR → verify → mark approved and scrub.
 
 Rather than an IF after each call, all six set `onError: continueErrorOutput` into one shared
@@ -589,6 +635,10 @@ Corrections against v1:
 - The approval-success page is rendered in a Code node and handed to the response node as one
   value. Embedding the full styled page inside an n8n expression caused successful approvals to
   end on an `invalid syntax` response after the PR had already been created.
+
+Both refusals (no token, a media URL that is not an image) stop before the first GitHub call,
+mark `approval_failed`, and show the maintainer why. A PR that `validate:publish` is certain to
+fail is worse than none: it looks done.
 
 `approval_failed` is resumable. The residual risk: if a run died _after_ opening the PR but
 _before_ marking approved, a retry can open a second one. Prior-artifact detection is not
@@ -631,12 +681,16 @@ Removal prep → id known? → resolve member-file SHA → SHA verdict → file 
 ### The public allowlist
 
 `creator, type, form, why, tags, tracks, pages, artworks, excerpts, thumb_url, thumb_position, preview_url, trailer_url, explicit`, plus
-backend-assigned `id`, `source_url`, and optional `creator_id`. This
+backend-assigned `id`, `source_url`, `verification_token`, and optional `creator_id`. This
 matches `toRingEntry` in `src/lib/submissionValidation.js` field for field. It is an allowlist,
 never a denylist: a field added to the form later must be deliberately published, not published
 by default.
 
-`verification_token` is temporary private workflow state. It is cleared when a verified request enters the private review queue and is never copied into a newly generated member file. The schema accepts the property only for legacy published entries while the canonical ring repository is migrated.
+`verification_token` is **required** by the canonical schema and is the row's own token — the one
+`verify` checked and finalize re-checked. It stays on the row through review (a
+`notification_failed` resume re-verifies against it) and is scrubbed from the row only after the
+PR carrying it exists. A row without a well-formed one is refused before any GitHub call. See §2.5
+for why it is published at all.
 
 Only `members/<id>.json` is written. The repository regenerates `ring.json` from `members/*.json`
 in a separate auto-build workflow (commit `2c8ce07`); `validate:publish` runs on the PR via CI,

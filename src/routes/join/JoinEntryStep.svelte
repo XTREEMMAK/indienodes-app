@@ -33,6 +33,12 @@
 	import { ALLOWED_RATIOS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
 
 	const entry = $derived(form.entry);
+
+	// The cover URL gets the same image check as the media step's URLs; see
+	// JoinMediaStep.svelte for why this is an effect.
+	$effect(() => {
+		form.scheduleMediaChecks();
+	});
 	const generator = $derived(generatorDraftStore.generator);
 	let localCoverUrl = $state('');
 
@@ -288,9 +294,11 @@
 			<FormField
 				id="f-thumb"
 				label={entry.type === 'game' ? 'Node cover or screenshot' : 'Node cover'}
-				hint={entry.type === 'game'
-					? 'Required for games. It can be a portrait, logo, artwork, recent cover art, or a screenshot; it represents you as a creator, not just this work.'
-					: 'Optional but encouraged. It does not have to be a portrait: use a logo, artwork, or cover art from a recent work. The node still represents you as a creator, not that single release.'}
+				hint={form.mediaCheckPending('thumb_url')
+					? 'Checking that this link is an image…'
+					: entry.type === 'game'
+						? 'Required for games. It can be a portrait, logo, artwork, recent cover art, or a screenshot; it represents you as a creator, not just this work.'
+						: 'Optional but encouraged. It does not have to be a portrait: use a logo, artwork, or cover art from a recent work. The node still represents you as a creator, not that single release.'}
 				required={entry.type === 'game'}
 				error={form.entryErrors.thumb_url}
 			>

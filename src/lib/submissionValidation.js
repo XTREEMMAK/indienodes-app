@@ -18,7 +18,7 @@
  *   layer exists to tell a person what is wrong while they can still fix it,
  *   not to protect the ring.
  * - **Complete against the schema.** It validates what the form can produce.
- *   Fields the form never collects (`id`, `creator_id`)
+ *   Fields the form never collects (`id`, `creator_id`, `verification_token`)
  *   are supplied by the backend and are checked there.
  *
  * Errors are keyed by form field path so the UI can put each message beside
@@ -404,7 +404,7 @@ export function validateSubmission({ entry, review }) {
  * This is what gets sent as `entry`, and it is the reason the payload can be
  * trusted not to carry Section 2.2 data by accident: the entry half is built
  * by naming its fields, never by spreading the form state and deleting the
- * private ones. `id` and an optional `creator_id` are added by the backend.
+ * private ones. `id`, `verification_token` and an optional `creator_id` are added by the backend.
  *
  * Empty repeatable rows are dropped here rather than in the UI, so a
  * half-typed row a submitter abandoned does not become a schema violation.
