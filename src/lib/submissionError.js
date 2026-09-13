@@ -18,7 +18,7 @@ export class WebhookError extends Error {
 	/**
 	 * @param {string} message Shown to the visitor as-is, so it is written
 	 *   for them rather than for a log.
-	 * @param {{ code?: string, retryable?: boolean, status?: number }} [meta]
+	 * @param {{ code?: string, retryable?: boolean, status?: number, field?: string }} [meta]
 	 */
 	constructor(message, meta = {}) {
 		super(message);
@@ -29,5 +29,7 @@ export class WebhookError extends Error {
 		this.retryable = meta.retryable ?? false;
 		/** 0 when the request never got a response at all. */
 		this.status = meta.status ?? 0;
+		/** The entry field a refusal is about (`pages.0.image_url`), when the backend names one. */
+		this.field = meta.field ?? '';
 	}
 }

@@ -20,7 +20,7 @@ import DOMPurify from 'isomorphic-dompurify';
  * @property {string} [preview_url]
  * @property {string} [trailer_url]
  * @property {boolean} [explicit]
- * @property {string} [verification_token] Legacy field; new approvals do not publish it.
+ * @property {string} [verification_token] Required by the ring schema; approval publishes the checked token.
  */
 
 /**

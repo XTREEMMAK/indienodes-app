@@ -17,6 +17,7 @@
  *   /join?mock=network        Every call fails as a network error
  *   /join?mock=rate-limited   Every call fails as a 429
  *   /join?mock=slow           Responses take 6s, for testing pending states
+ *   /join?mock=media-page     Every media URL check answers "a web page"
  *
  * This module is imported unconditionally by `submissionApi.js` and tree-
  * shaken out of production builds, because `useMock` is `import.meta.env.DEV`
@@ -100,6 +101,20 @@ export async function verify() {
 	if (mode() === 'redirect') return { verified: false, reason: 'redirect' };
 	if (mode() === 'unknown-verify') return { verified: false, reason: 'unexpected_backend_reason' };
 	return { verified: true };
+}
+
+/**
+ * Mirrors `check_media_url`. Without a server to ask, it guesses the way the
+ * real failure usually looks: a URL whose path has no file extension (a
+ * reader page such as `/comic/?pg=29`) is a page, anything else an image.
+ * `?mock=media-page` forces the page answer for any URL.
+ * @param {{ url: string }} input
+ */
+export async function checkMediaUrl(input) {
+	await gate();
+	const path = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/i.exec(input.url)?.[1] ?? '';
+	const looksLikePage = mode() === 'media-page' || !/\.[a-z0-9]{2,5}$/i.test(path);
+	return looksLikePage ? { accepted: false, verdict: 'html' } : { accepted: true, verdict: 'ok' };
 }
 
 /**

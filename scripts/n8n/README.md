@@ -72,7 +72,11 @@ n8n losing a workflow the way it lost `submissions`. **Re-export after every pro
   refuses to publish a workflow whose Execute Workflow node references an
   unpublished sub-workflow, so helpers activate first. This is safe: a helper
   has only an Execute Workflow trigger and no webhook, so activating it exposes
-  nothing publicly.
+  nothing publicly. `--push` publishes a helper it has just created (saving an
+  existing active workflow republishes it on its own); it never activates a
+  workflow with a webhook. `--export` exits non-zero if any exported workflow
+  is a draft n8n has not published, since `--check-drift` compares against
+  those exports and would otherwise report a draft as shipped.
 - **`callerPolicy: workflowsFromAList` with an empty `callerIds` blocks every
   caller.** The script omits the policy entirely until at least one named
   caller exists. Set `N8N_EXTRA_CALLERS=<id>,<id>` to temporarily admit a test

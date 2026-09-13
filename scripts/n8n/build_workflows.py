@@ -12,6 +12,7 @@ Usage:
     python3 scripts/n8n/build_workflows.py --list
     python3 scripts/n8n/build_workflows.py --dry-run [--only NAME]
     python3 scripts/n8n/build_workflows.py --push    [--only NAME]
+    python3 scripts/n8n/build_workflows.py --check-drift
 
 The API key is read from ~/.n8n-api-key and is never written to disk or stdout
 by this script. Nothing here contains a secret: the review-link HMAC secret
@@ -20,6 +21,8 @@ Crypto node, so it never reaches workflow data or an export.
 """
 
 import argparse
+import difflib
+import itertools
 import json
 import re
 import os
@@ -143,6 +146,12 @@ RATE_LIMIT_CREDENTIAL = {"id": "0h2rO7wsu6dmkcbS", "name": "IndieNodes - Rate Li
 # needed rather than a blank.
 REVIEWER_EMAIL = "get@jamaale.live"
 NOTIFY_FROM_EMAIL = "indienodes@j2it.us"
+
+# Applied to every Send Email node. n8n appends "This email was sent
+# automatically with n8n" to each message unless the node says otherwise, and
+# the setting lived only in the n8n UI -- so every --push put the footer back
+# on submitter and contact mail until someone turned it off by hand again.
+EMAIL_OPTIONS = {"appendAttribution": False}
 
 # Treated as "not configured" wherever that distinction matters, so the reject
 # path holds a submission rather than deleting it and failing to notify.
@@ -291,6 +300,14 @@ SIGNATURE_CALLER_NAMES = [
 REVERIFY_CALLER_NAMES = [
     "Webring - Token Lifecycle v2",
     "Webring - Action - Finalize Submission v2",
+]
+
+# Check Media URL is called from the public action, at finalize, and again at
+# approval -- and from nowhere else.
+MEDIACHECK_CALLER_NAMES = [
+    "Webring - Intake v2",
+    "Webring - Action - Finalize Submission v2",
+    "Webring - Review Action v2",
 ]
 
 
@@ -586,6 +603,130 @@ function canonical(u) {
 """.strip()
 
 
+# The SSRF guard for any address a stranger chose, written once and
+# interpolated into both helpers that fetch one: `validate url + expiry` in
+# Re-verify Token (the creator's page) and `validate url` in Check Media URL
+# (an image they typed). Same reasoning as IP_RANGE_CHECK_JS above -- two
+# hand-kept copies of a security boundary drift, and the drift is the hole.
+# Callers layer their own policy on top (Check Media URL additionally refuses
+# plain http and any explicit port); nothing here is relaxed per caller.
+#
+# A hostname passes with `isName` set and has NOT been resolved; the caller
+# must still send it through the DNS-over-HTTPS check. Literal IPs are fully
+# range-checked here.
+SAFE_URL_JS = (IP_RANGE_CHECK_JS + """
+
+function safeUrlTarget(raw) {
+  const fail = (reason) => ({ ok: false, reason });
+  if (!raw || raw.length > 2048) return fail('unsafe_url');
+
+  // Control characters, whitespace and backslashes are how parser-confusion
+  // tricks are built (https://evil.com\\@good.com and friends). Nothing
+  // legitimate needs them.
+  if (/[\\s\\\\]/.test(raw) || /[\\u0000-\\u001f\\u007f]/.test(raw)) return fail('unsafe_url');
+
+  // Hand-rolled because URL is not available in this sandbox.
+  const m = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\\/\\/([^\\/?#]*)([\\/?#][\\s\\S]*)?$/);
+  if (!m) return fail('unsafe_url');
+
+  const scheme = m[1].toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') return fail('unsafe_url');
+
+  let authority = m[2];
+  if (authority.indexOf('@') !== -1) return fail('unsafe_url');  // userinfo
+
+  let host = authority;
+  let port = '';
+  if (host.charAt(0) === '[') {                                   // bracketed IPv6
+    const close = host.indexOf(']');
+    if (close < 0) return fail('unsafe_url');
+    port = host.slice(close + 1);
+    host = host.slice(1, close);
+  } else {
+    const colon = host.indexOf(':');
+    if (colon >= 0) { port = host.slice(colon); host = host.slice(0, colon); }
+  }
+  if (port && !/^:[0-9]{1,5}$/.test(port)) return fail('unsafe_url');
+
+  host = host.toLowerCase();
+  if (!host || host.length > 253) return fail('unsafe_url');
+  // Non-ASCII must arrive already punycoded; deciding homograph equivalence is
+  // not something to attempt at a security boundary.
+  if (/[^\\x21-\\x7e]/.test(host)) return fail('unsafe_url');
+
+  const isIPv4 = /^[0-9]{1,3}(\\.[0-9]{1,3}){3}$/.test(host);
+  const isIPv6 = host.indexOf(':') !== -1;
+  const isName = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(host);
+  if (!isIPv4 && !isIPv6 && !isName) return fail('unsafe_url');
+
+  // Rejects the obfuscated numeric forms (2130706433, 0x7f000001, 0177.0.0.1):
+  // anything all-digits or 0x-prefixed that is not a well-formed dotted quad.
+  if (!isIPv4 && !isIPv6) {
+    if (/^[0-9]+$/.test(host.replace(/\\./g, ''))) return fail('unsafe_url');
+    if (/^0x/i.test(host)) return fail('unsafe_url');
+  }
+
+  const blockedNames = ['localhost', 'metadata.google.internal', 'instance-data'];
+  if (blockedNames.indexOf(host) !== -1) return fail('unsafe_url');
+  for (const suffix of ['.localhost', '.local', '.internal', '.home.arpa']) {
+    if (host.slice(-suffix.length) === suffix) return fail('unsafe_url');
+  }
+
+  if (isIPv4 && isUnsafeIPv4(host)) return fail('unsafe_url');
+  if (isIPv6 && isUnsafeIPv6(host)) return fail('unsafe_url');
+
+  return { ok: true, scheme, host, port, isIPv4, isIPv6, isName };
+}
+""")
+
+
+# The DNS-over-HTTPS half of the SSRF guard: every A/AAAA record a hostname
+# resolves to must be public. Interpolated into Re-verify Token's `classify
+# resolved ips` and Check Media URL's `media: classify resolved ips`, for the
+# same one-definition reason as SAFE_URL_JS. Returns 'ok', 'unresolvable' or
+# 'unsafe_resolved_ip'.
+DOH_VERDICT_JS = (IP_RANGE_CHECK_JS + """
+
+// Pull well-formed A/AAAA records out of one DoH JSON response. Anything
+// that is not a clean 2xx carrying DNS Status 0 (NOERROR) is "no usable
+// answer from this query" -- NXDOMAIN, SERVFAIL, a transport failure (the
+// error output's `.error` string, the same shape an HTTP Request node produces
+// on a DNS/TCP failure) and a malformed body all collapse the same
+// way, deliberately: a resolver hiccup must never look identical to "no
+// unsafe records found".
+function records(resp, wantType) {
+  if (!resp || resp.error !== undefined) return null;
+  const status = Number(resp.statusCode || 0);
+  const body = resp.body;
+  if (status < 200 || status >= 300 || !body || body.Status !== 0) return null;
+  const answers = Array.isArray(body.Answer) ? body.Answer : [];
+  return answers.filter((a) => a && a.type === wantType).map((a) => (a.data || '').toString());
+}
+
+function dohVerdict(aResp, aaaaResp) {
+  const aRecords    = records(aResp, 1);
+  const aaaaRecords = records(aaaaResp, 28);
+
+  // null means that query itself failed to answer at all. NXDOMAIN with an
+  // empty Answer array is Status 0 with zero records -- `[]`, not null -- and a
+  // domain with only an AAAA record (or only an A record) is normal, so it
+  // must not fail here just because the other query came back empty.
+  if (aRecords === null && aaaaRecords === null) return 'unresolvable';
+
+  const all = [...(aRecords || []), ...(aaaaRecords || [])];
+  if (all.length === 0) return 'unresolvable';
+
+  // Reject if ANY resolved address is unsafe, not just the first: the fetch
+  // that follows does its own separate DNS resolution and may land on any of
+  // the addresses this lookup saw, round-robin or not.
+  if (all.some((ip) => (ip.indexOf(':') !== -1 ? isUnsafeIPv6(ip) : isUnsafeIPv4(ip)))) {
+    return 'unsafe_resolved_ip';
+  }
+  return 'ok';
+}
+""")
+
+
 def wf_reverify_token(ctx):
     """Fetches a submitter-controlled URL and looks for the ownership token.
 
@@ -611,64 +752,12 @@ const expRaw = (inp.expires_at || '').toString();
 const expMs = Date.parse(expRaw);
 if (!expRaw || Number.isNaN(expMs) || Date.now() > expMs) return fail('expired');
 
-if (!token || !raw || raw.length > 2048) return fail('unsafe_url');
-
-// Control characters, whitespace and backslashes are how parser-confusion
-// tricks are built (https://evil.com\\@good.com and friends). Nothing
-// legitimate needs them.
-if (/[\\s\\\\]/.test(raw) || /[\\u0000-\\u001f\\u007f]/.test(raw)) return fail('unsafe_url');
-
-// Hand-rolled because URL is not available in this sandbox.
-const m = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\\/\\/([^\\/?#]*)([\\/?#][\\s\\S]*)?$/);
-if (!m) return fail('unsafe_url');
-
-const scheme = m[1].toLowerCase();
-if (scheme !== 'http' && scheme !== 'https') return fail('unsafe_url');
-
-let authority = m[2];
-if (authority.indexOf('@') !== -1) return fail('unsafe_url');  // userinfo
-
-let host = authority;
-let port = '';
-if (host.charAt(0) === '[') {                                   // bracketed IPv6
-  const close = host.indexOf(']');
-  if (close < 0) return fail('unsafe_url');
-  port = host.slice(close + 1);
-  host = host.slice(1, close);
-} else {
-  const colon = host.indexOf(':');
-  if (colon >= 0) { port = host.slice(colon); host = host.slice(0, colon); }
-}
-if (port && !/^:[0-9]{1,5}$/.test(port)) return fail('unsafe_url');
-
-host = host.toLowerCase();
-if (!host || host.length > 253) return fail('unsafe_url');
-// Non-ASCII must arrive already punycoded; deciding homograph equivalence is
-// not something to attempt at a security boundary.
-if (/[^\\x21-\\x7e]/.test(host)) return fail('unsafe_url');
-
-const isIPv4 = /^[0-9]{1,3}(\\.[0-9]{1,3}){3}$/.test(host);
-const isIPv6 = host.indexOf(':') !== -1;
-const isName = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(host);
-if (!isIPv4 && !isIPv6 && !isName) return fail('unsafe_url');
-
-// Rejects the obfuscated numeric forms (2130706433, 0x7f000001, 0177.0.0.1):
-// anything all-digits or 0x-prefixed that is not a well-formed dotted quad.
-if (!isIPv4 && !isIPv6) {
-  if (/^[0-9]+$/.test(host.replace(/\\./g, ''))) return fail('unsafe_url');
-  if (/^0x/i.test(host)) return fail('unsafe_url');
-}
-
-const blockedNames = ['localhost', 'metadata.google.internal', 'instance-data'];
-if (blockedNames.indexOf(host) !== -1) return fail('unsafe_url');
-for (const suffix of ['.localhost', '.local', '.internal', '.home.arpa']) {
-  if (host.slice(-suffix.length) === suffix) return fail('unsafe_url');
-}
-
 %(range_check_js)s
 
-if (isIPv4 && isUnsafeIPv4(host)) return fail('unsafe_url');
-if (isIPv6 && isUnsafeIPv6(host)) return fail('unsafe_url');
+if (!token) return fail('unsafe_url');
+const target = safeUrlTarget(raw);
+if (!target.ok) return fail(target.reason);
+const { host, isIPv4, isIPv6, isName } = target;
 
 // A literal IP is now fully range-checked above. A name has not been
 // resolved at all -- that gap (a hostname's A/AAAA record pointed at a
@@ -685,7 +774,7 @@ if (isIPv6 && isUnsafeIPv6(host)) return fail('unsafe_url');
 if (isName && !isIPv4 && !isIPv6) return [{ json: { proceed: 'check_dns', host, url: raw, token } }];
 
 return [{ json: { proceed: 'yes', url: raw, token } }];
-""" % {"range_check_js": IP_RANGE_CHECK_JS}
+""" % {"range_check_js": SAFE_URL_JS}
 
     classify_js = """
 // Both branches of the IF land here: the skip path already carries its verdict,
@@ -727,43 +816,11 @@ const fail = (reason) => [{ json: { proceed: 'no', matched: 'no', reason } }];
 const url   = $('validate url + expiry').item.json.url;
 const token = $('validate url + expiry').item.json.token;
 
-// Pull well-formed A/AAAA records out of one DoH JSON response. Anything
-// that is not a clean 2xx carrying DNS Status 0 (NOERROR) is "no usable
-// answer from this query" -- NXDOMAIN, SERVFAIL, a transport failure (the
-// error output's `.error` string, same shape `fetch source_url` already
-// produces on a DNS/TCP failure) and a malformed body all collapse the same
-// way, deliberately: a resolver hiccup must never look identical to "no
-// unsafe records found".
-function records(resp, wantType) {
-  if (!resp || resp.error !== undefined) return null;
-  const status = Number(resp.statusCode || 0);
-  const body = resp.body;
-  if (status < 200 || status >= 300 || !body || body.Status !== 0) return null;
-  const answers = Array.isArray(body.Answer) ? body.Answer : [];
-  return answers.filter((a) => a && a.type === wantType).map((a) => (a.data || '').toString());
-}
-
-const aRecords    = records($('resolve A').item.json, 1);
-const aaaaRecords = records($('resolve AAAA').item.json, 28);
-
-// null means that query itself failed to answer at all. NXDOMAIN with an
-// empty Answer array is Status 0 with zero records -- `[]`, not null -- and a
-// domain with only an AAAA record (or only an A record) is normal, so it
-// must not fail here just because the other query came back empty.
-if (aRecords === null && aaaaRecords === null) return fail('unresolvable');
-
-const all = [...(aRecords || []), ...(aaaaRecords || [])];
-if (all.length === 0) return fail('unresolvable');
-
-// Reject if ANY resolved address is unsafe, not just the first: `fetch
-// source_url` does its own separate DNS resolution afterward and may land on
-// any of the addresses this lookup saw, round-robin or not.
-if (all.some((ip) => (ip.indexOf(':') !== -1 ? isUnsafeIPv6(ip) : isUnsafeIPv4(ip)))) {
-  return fail('unsafe_resolved_ip');
-}
+const verdict = dohVerdict($('resolve A').item.json, $('resolve AAAA').item.json);
+if (verdict !== 'ok') return fail(verdict);
 
 return [{ json: { proceed: 'yes', url, token } }];
-""" % {"range_check_js": IP_RANGE_CHECK_JS}
+""" % {"range_check_js": DOH_VERDICT_JS}
 
     return {
         "name": "Webring - Helper - Re-verify Token v2",
@@ -900,6 +957,339 @@ return [{ json: { proceed: 'yes', url, token } }];
                 [{"node": "extract meta tag", "type": "main", "index": 0}],
             ]},
             "extract meta tag": {"main": [[{"node": "check meta tag", "type": "main", "index": 0}]]},
+        },
+    }
+
+
+
+# --- Workflow: Check Media URL -----------------------------------------------
+
+# Every URL that must actually be an image (or, for a game's muted preview, an
+# image or a video). Ring PR #30 is the reason this exists: a comic went out
+# with `?pg=29#showComic` reader-page URLs in pages[].image_url, which pass
+# every https/host rule and render as a broken image for every reader.
+MEDIA_URLS_JS = r"""
+// The typed media URLs in one ring entry, keyed by the same field paths
+// src/lib/submissionValidation.js reports errors under, so a refusal can name
+// the control it belongs to. Mirrors `mediaUrlFields` in src/lib/mediaUrlCheck.js.
+function mediaUrls(entry) {
+  const out = [];
+  const e = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+  const add = (field, url, kind, label) => {
+    if (typeof url === 'string' && url.trim()) out.push({ field, url: url.trim(), kind, label });
+  };
+  (Array.isArray(e.pages) ? e.pages : []).forEach((p, i) =>
+    add('pages.' + i + '.image_url', p && p.image_url, 'image', 'Page ' + (i + 1) + ' image'));
+  (Array.isArray(e.artworks) ? e.artworks : []).forEach((a, i) =>
+    add('artworks.' + i + '.image_url', a && a.image_url, 'image', 'Artwork ' + (i + 1) + ' image'));
+  add('thumb_url', e.thumb_url, 'image', 'Cover image');
+  add('preview_url', e.preview_url, 'preview', 'Preview');
+  return out;
+}
+""".strip()
+
+# Well above what the schema allows (3 pages or 3 artworks, a cover and a
+# preview), and low enough that a crafted payload cannot turn one finalize
+# call into hundreds of outbound requests.
+MAX_MEDIA_URLS = 8
+
+
+def media_list_js(entry_js):
+    """Code node body: one item per media URL in `entry_js`, for a per-item call."""
+    return r"""
+%(media_urls_js)s
+
+const entry = %(entry_js)s;
+const urls = mediaUrls(entry);
+// Always at least one item: the helper answers 'none' for an empty url, so an
+// entry with no image fields (audio, text) still produces a verdict rather
+// than an empty run that stops the workflow.
+if (urls.length > %(max)d) return [{ json: { url: '', kind: '', field: '', label: '', too_many: 'yes' } }];
+if (!urls.length) return [{ json: { url: '', kind: '', field: '', label: '' } }];
+return urls.map((u) => ({ json: u }));
+""" % {"media_urls_js": MEDIA_URLS_JS, "entry_js": entry_js, "max": MAX_MEDIA_URLS}
+
+
+MEDIA_VERDICT_JS = r"""
+// Turns the per-URL results of Check Media URL into one pass/refuse decision.
+// Fails closed: an item that errored inside the helper, or no items at all,
+// is a refusal, never a pass.
+const MEDIA_ERROR_CODES = {
+  html: 'media_web_page', not_image: 'media_not_image', redirect: 'media_redirect',
+  unreachable: 'media_unreachable', unsafe_url: 'media_unsafe_url'
+};
+
+function mediaMessage(verdict, label, kind) {
+  const what = kind === 'preview' ? 'an image or video' : 'an image';
+  const M = {
+    html: label + ' looks like a web page, not ' + what + '. Open the image itself, right-click ' +
+          'it and choose "Copy image address", then use that link instead.',
+    not_image: label + ' is not served as ' + what + ' (PNG, JPEG, WebP, GIF or AVIF). ' +
+               'Use the direct link to the file.',
+    redirect: label + ' redirects somewhere else. Open it in a browser and use the address it ends up at.',
+    unreachable: label + ' could not be loaded. Check that the link is public and spelled correctly, then try again.',
+    unsafe_url: label + ' is not a public https:// link.'
+  };
+  return M[verdict] || M.unreachable;
+}
+
+function mediaVerdict(results, tooMany) {
+  if (tooMany) return { ok: 'no', error_code: 'invalid_request' };
+  if (!results.length) {
+    return { ok: 'no', error_code: 'media_unreachable', error_message: mediaMessage('unreachable', 'An image link', 'image') };
+  }
+  for (const r of results) {
+    if (r && r.ok === 'yes') continue;
+    const verdict = r && typeof r.verdict === 'string' && MEDIA_ERROR_CODES[r.verdict] ? r.verdict : 'unreachable';
+    const label = r && r.label ? String(r.label) : 'An image link';
+    return {
+      ok: 'no', error_code: MEDIA_ERROR_CODES[verdict], verdict,
+      field: r && r.field ? String(r.field) : '',
+      error_message: mediaMessage(verdict, label, r && r.kind)
+    };
+  }
+  return { ok: 'yes' };
+}
+""".strip()
+
+
+MEDIA_TYPE_JS = r"""
+function headerValue(headers, name) {
+  if (!headers || typeof headers !== 'object') return '';
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() !== name) continue;
+    const v = headers[k];
+    return (Array.isArray(v) ? (v[0] || '') : (v === undefined || v === null ? '' : v)).toString();
+  }
+  return '';
+}
+
+// 'ok' | 'html' | 'not_image', or '' when the response carries no content type
+// to judge by. The content type is the whole test: a `.png` in the path is
+// not evidence, and a reader page is served as text/html whatever its URL
+// looks like.
+function mediaTypeVerdict(contentType, kind) {
+  const t = (contentType || '').split(';')[0].trim().toLowerCase();
+  if (!t) return '';
+  if (t === 'text/html' || t === 'application/xhtml+xml') return 'html';
+  if (/^image\/[a-z0-9.+-]+$/.test(t)) return 'ok';
+  if (kind === 'preview' && /^video\/[a-z0-9.+-]+$/.test(t)) return 'ok';
+  return 'not_image';
+}
+""".strip()
+
+
+MEDIA_FETCH_TIMEOUT_MS = 5000
+MEDIA_DOH_TIMEOUT_MS = 3000
+
+
+def media_check_call(name, pos, ctx, each, value, on_error):
+    """Execute Workflow node calling Check Media URL.
+
+    `each` runs the helper once per incoming item (a finalize or approval with
+    several image fields); otherwise once for the single item (Intake).
+
+    Per-item callers use `continueRegularOutput`: a helper run that throws
+    lands on the one main output as an item with `error` and no verdict, which
+    MEDIA_VERDICT_JS refuses. An error *output* would split the items across
+    two branches, and the downstream verdict node would then run once per
+    branch -- a pass on one and a refusal on the other."""
+    params = {
+        "workflowId": {"__rl": True, "value": ctx.get("mediacheck_id", ""), "mode": "list",
+                       "cachedResultName": "Webring - Helper - Check Media URL v2"},
+        "workflowInputs": {"mappingMode": "defineBelow", "value": value,
+                           "matchingColumns": [""], "schema": [],
+                           "attemptToConvertTypes": False, "convertFieldsToString": True},
+        "options": {}}
+    if each:
+        params["mode"] = "each"
+    return node(name, "n8n-nodes-base.executeWorkflow", 1.3, pos, params, onError=on_error)
+
+
+def wf_media_check(ctx):
+    """Fetches the headers of a submitter-typed media URL and says what it is.
+
+    The second workflow that requests an address a stranger chose, so it
+    carries the whole Re-verify Token guard (SAFE_URL_JS, then DOH_VERDICT_JS
+    for names, redirects never followed) and tightens it: https only, no
+    explicit port. It returns a verdict word and nothing else -- never the
+    status, the content type or a byte of body -- so reaching it through the
+    public `check_media_url` action tells a caller only "image or not" about a
+    public https URL.
+
+    HEAD first; a ranged GET only when HEAD is refused or answers without a
+    content type. The HTTP Request node has no response-size cap, so a server
+    that ignores Range can still send a whole file to that fallback; the short
+    timeout bounds it.
+    """
+    validate_js = r"""
+%(safe_url_js)s
+
+const inp = $input.first().json;
+const raw = (inp.url || '').toString().trim();
+const kind = inp.kind === 'preview' ? 'preview' : 'image';
+const done = (verdict) => [{ json: { proceed: 'no', verdict } }];
+
+// Nothing to check. A caller running this once per media field still sends
+// one empty item for an entry that has none.
+if (!raw) return done('none');
+
+const target = safeUrlTarget(raw);
+if (!target.ok) return done('unsafe_url');
+// Stricter than Re-verify Token: the schema only accepts https media, and a
+// media file has no reason to name a port, so a typed URL cannot be used to
+// probe arbitrary services on a public host.
+if (target.scheme !== 'https') return done('unsafe_url');
+if (target.port && target.port !== ':443') return done('unsafe_url');
+
+// A quick first check only, and deliberately one-directional: a path ending in
+// a web-page extension is a web page, so there is nothing to fetch. An image
+// extension proves nothing and is never trusted -- that URL is still fetched.
+const path = (raw.match(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\/?#]*([^?#]*)/) || [])[1] || '';
+if (/\.(html?|xhtml)$/i.test(path)) return done('html');
+
+if (target.isName && !target.isIPv4 && !target.isIPv6) {
+  return [{ json: { proceed: 'check_dns', host: target.host, url: raw, kind } }];
+}
+return [{ json: { proceed: 'yes', url: raw, kind } }];
+""" % {"safe_url_js": SAFE_URL_JS}
+
+    classify_dns_js = r"""
+%(doh_js)s
+
+const v = $('validate url').item.json;
+const verdict = dohVerdict($('resolve A').item.json, $('resolve AAAA').item.json);
+if (verdict === 'unresolvable') return [{ json: { proceed: 'no', verdict: 'unreachable' } }];
+if (verdict !== 'ok') return [{ json: { proceed: 'no', verdict: 'unsafe_url' } }];
+return [{ json: { proceed: 'yes', url: v.url, kind: v.kind } }];
+""" % {"doh_js": DOH_VERDICT_JS}
+
+    classify_head_js = r"""
+%(media_type_js)s
+
+const kind = $('validate url').item.json.kind;
+const res = $json || {};
+const decided = (verdict) => [{ json: { decided: 'yes', verdict } }];
+const fallback = () => [{ json: { decided: 'no' } }];
+
+// DNS/TCP failure or timeout: the error output, no status. Not retried as a
+// GET -- a host that cannot answer HEAD in time will not answer GET either,
+// and a second full timeout would only push finalize past the form's patience.
+if (res.statusCode === undefined || res.statusCode === null || res.statusCode === '') {
+  return decided('unreachable');
+}
+const status = Number(res.statusCode);
+if (status >= 300 && status < 400) return decided('redirect');
+if (status >= 200 && status < 300) {
+  const verdict = mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind);
+  return verdict ? decided(verdict) : fallback();
+}
+// Plenty of hosts refuse HEAD, or answer it differently from GET.
+if ([400, 403, 405, 406, 501].indexOf(status) !== -1) return fallback();
+return decided('unreachable');
+""" % {"media_type_js": MEDIA_TYPE_JS}
+
+    classify_get_js = r"""
+%(media_type_js)s
+
+const kind = $('validate url').item.json.kind;
+const res = $json || {};
+const verdict = (v) => [{ json: { verdict: v } }];
+
+if (res.statusCode === undefined || res.statusCode === null || res.statusCode === '') return verdict('unreachable');
+const status = Number(res.statusCode);
+if (status >= 300 && status < 400) return verdict('redirect');
+// 206 is the answer to the Range header; 200 is a server that ignored it.
+if (status >= 200 && status < 300) {
+  return verdict(mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind) || 'not_image');
+}
+return verdict('unreachable');
+""" % {"media_type_js": MEDIA_TYPE_JS}
+
+    result_js = r"""
+const inp = $('Trigger').first().json;
+const verdict = ($json && typeof $json.verdict === 'string' && $json.verdict) ? $json.verdict : 'unreachable';
+return [{ json: {
+  ok: verdict === 'ok' || verdict === 'none' ? 'yes' : 'no',
+  verdict,
+  field: (inp.field || '').toString(),
+  label: (inp.label || '').toString(),
+  kind: inp.kind === 'preview' ? 'preview' : 'image'
+} }];
+"""
+
+    def ifn(name, pos, left, right, idx):
+        return node(name, "n8n-nodes-base.if", 2.3, pos, {
+            "conditions": {"options": {"caseSensitive": True, "leftValue": "",
+                                       "typeValidation": "loose", "version": 3},
+                           "conditions": [{"id": "m0000000-0000-4000-8000-%012d" % idx,
+                                           "leftValue": left, "rightValue": right,
+                                           "operator": {"type": "string", "operation": "equals"}}],
+                           "combinator": "and"}, "options": {}})
+
+    def fetch(name, pos, method, url, extra=None):
+        params = {"method": method, "url": url,
+                  "options": {"timeout": MEDIA_FETCH_TIMEOUT_MS,
+                              "redirect": {"redirect": {"followRedirects": False}},
+                              "response": {"response": {"neverError": True, "fullResponse": True,
+                                                        "responseFormat": "text"}}}}
+        params.update(extra or {})
+        return node(name, "n8n-nodes-base.httpRequest", 4.5, pos, params,
+                    onError="continueErrorOutput")
+
+    def resolve(name, pos, rtype, host_expr):
+        return node(name, "n8n-nodes-base.httpRequest", 4.5, pos, {
+            "method": "GET",
+            "url": "={{ 'https://dns.google/resolve?type=%s&name=' + %s }}" % (rtype, host_expr),
+            "options": {"timeout": MEDIA_DOH_TIMEOUT_MS,
+                        "redirect": {"redirect": {"followRedirects": False}},
+                        "response": {"response": {"neverError": True, "fullResponse": True,
+                                                  "responseFormat": "json"}}}},
+            onError="continueErrorOutput")
+
+    c = lambda n: [{"node": n, "type": "main", "index": 0}]
+    return {
+        "name": "Webring - Helper - Check Media URL v2",
+        "settings": settings(error_workflow_id=ctx.get("error_workflow_id"),
+                             caller_ids=ctx.get("mediacheck_callers", [])),
+        "nodes": [
+            node("Trigger", "n8n-nodes-base.executeWorkflowTrigger", 1.2, (0, 0), {
+                "workflowInputs": {"values": [
+                    {"name": "url", "type": "string"},
+                    {"name": "kind", "type": "string"},
+                    {"name": "field", "type": "string"},
+                    {"name": "label", "type": "string"},
+                ]}}),
+            code_node("validate url", (240, 0), validate_js),
+            ifn("needs dns check?", (480, 0), "={{ $json.proceed }}", "check_dns", 1),
+            resolve("resolve A", (720, 160), "A", "$json.host"),
+            resolve("resolve AAAA", (960, 160), "AAAA", "$('validate url').item.json.host"),
+            code_node("classify resolved ips", (1200, 160), classify_dns_js),
+            ifn("safe to fetch?", (1440, 0), "={{ $json.proceed }}", "yes", 2),
+            fetch("HEAD media", (1680, -80), "HEAD", "={{ $('validate url').item.json.url }}"),
+            code_node("classify HEAD", (1920, -80), classify_head_js),
+            ifn("HEAD decided?", (2160, -80), "={{ $json.decided }}", "yes", 3),
+            # One small slice of the file, for hosts that refuse HEAD.
+            fetch("GET media (ranged)", (2400, -200), "GET", "={{ $('validate url').item.json.url }}", {
+                "sendHeaders": True, "specifyHeaders": "keypair",
+                "headerParameters": {"parameters": [{"name": "Range", "value": "bytes=0-1023"}]}}),
+            code_node("classify GET", (2640, -200), classify_get_js),
+            code_node("result", (2880, 0), result_js),
+        ],
+        "connections": {
+            "Trigger": {"main": [c("validate url")]},
+            "validate url": {"main": [c("needs dns check?")]},
+            "needs dns check?": {"main": [c("resolve A"), c("safe to fetch?")]},
+            "resolve A": {"main": [c("resolve AAAA"), c("resolve AAAA")]},
+            "resolve AAAA": {"main": [c("classify resolved ips"), c("classify resolved ips")]},
+            "classify resolved ips": {"main": [c("safe to fetch?")]},
+            # Every path ends at `result`, so no branch can return nothing.
+            "safe to fetch?": {"main": [c("HEAD media"), c("result")]},
+            "HEAD media": {"main": [c("classify HEAD"), c("classify HEAD")]},
+            "classify HEAD": {"main": [c("HEAD decided?")]},
+            "HEAD decided?": {"main": [c("result"), c("GET media (ranged)")]},
+            "GET media (ranged)": {"main": [c("classify GET"), c("classify GET")]},
+            "classify GET": {"main": [c("result")]},
         },
     }
 
@@ -1387,6 +1777,20 @@ const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
 const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 if (!str(entry.creator, 200)) return bad('invalid_request');
 if (!TYPES.includes(entry.type)) return bad('invalid_request');
+// `form` pairs with `type`, and the schema's allOf makes that pairing exact:
+// required for audio, forbidden on every other type. Both halves are checked,
+// because both halves are what validate:publish demands afterwards -- without
+// this the field reached the publish allowlist unvalidated and an audio entry
+// missing it failed only on the PR, after a reviewer had already spent their
+// time on it. FORM_OPTIONS in src/lib/submissionValidation.js is this same
+// list, and `toRingEntry` emits the field for audio and nothing else, so no
+// payload either entry form can build is rejected here.
+const FORMS = ['music', 'spoken'];
+if (entry.type === 'audio') {
+  if (!FORMS.includes(entry.form)) return bad('invalid_request');
+} else if (entry.form !== undefined) {
+  return bad('invalid_request');
+}
 if (!str(entry.why, 400)) return bad('invalid_request');
 if (!Array.isArray(entry.tags) || entry.tags.length < 1 ||
     !entry.tags.every((t) => str(t, 60))) return bad('invalid_request');
@@ -1626,6 +2030,22 @@ return [{ json: {
             code_node("validate + normalize", (-440, 0), validate_js),
             ifn("eligible?", (-220, 0), "={{ $json.ok }}", "yes", 1),
 
+            # Every typed image URL must really be an image, checked here and
+            # not only in the browser: the form's own check is a courtesy a
+            # hand-built request (or a resumed draft) never runs. Before
+            # re-verify and before the claim, so a refusal costs no outbound
+            # fetch of source_url and changes no row.
+            code_node("media: list urls", (-220, -300),
+                      media_list_js("$('validate + normalize').first().json.entry")),
+            media_check_call("media: check each", (-40, -300), ctx, True, {
+                "url": "={{ $json.url }}", "kind": "={{ $json.kind }}",
+                "field": "={{ $json.field }}", "label": "={{ $json.label }}"},
+                "continueRegularOutput"),
+            code_node("media: verdict", (140, -300),
+                      MEDIA_VERDICT_JS + "\n\nreturn [{ json: mediaVerdict($input.all().map((i) => i.json), "
+                      "$('media: list urls').first().json.too_many === 'yes') }];"),
+            ifn("media: all images?", (320, -300), "={{ $json.ok }}", "yes", 10),
+
             # Skips the second fetch to the creator's source_url when `verify`
             # already succeeded moments ago -- see REVERIFY_SKIP_TTL_SECONDS.
             ifn("skip re-verify?", (-110, -140),
@@ -1637,9 +2057,9 @@ return [{ json: {
                 "workflowId": {"__rl": True, "value": ctx.get("reverify_id", ""), "mode": "list",
                                "cachedResultName": "Webring - Helper - Re-verify Token v2"},
                 "workflowInputs": {"mappingMode": "defineBelow",
-                                   "value": {"source_url": "={{ $json.source_url }}",
-                                             "verification_token": "={{ $json.verification_token }}",
-                                             "expires_at": "={{ $json.expires_at }}"},
+                                   "value": {"source_url": "={{ $('validate + normalize').first().json.source_url }}",
+                                             "verification_token": "={{ $('validate + normalize').first().json.verification_token }}",
+                                             "expires_at": "={{ $('validate + normalize').first().json.expires_at }}"},
                                    "matchingColumns": [""], "schema": [],
                                    "attemptToConvertTypes": False, "convertFieldsToString": True},
                 "options": {}}),
@@ -1722,13 +2142,19 @@ return [{ json: {
                       "return [{ json: { ok: status.indexOf(mine) === 0 ? 'yes' : 'no',\n"
                       "                  error_code: 'already_submitted' } }];"),
             ifn("claimed?", (2420, 120), "={{ $json.ok }}", "yes", 6),
+            # The token stays on the row through review. It was blanked here
+            # once (830395f), which broke two things downstream: approval had
+            # nothing to publish, so every member file failed validate:publish
+            # (ring PR #30), and a `notification_failed` resume re-verified
+            # against an empty token and could never succeed. Approval scrubs
+            # it only after the pull request carrying it exists.
             node("claim: set pending_review", "n8n-nodes-base.dataTable", 1.1, (2420, 20), {
                 "operation": "update", "dataTableId": subtable(),
                 "filters": {"conditions": [
                     {"keyName": "submission_id",
                      "keyValue": "={{ $('validate + normalize').first().json.submission_id }}"}]},
                 "columns": {"mappingMode": "defineBelow",
-                            "value": {"status": "pending_review", "verification_token": ""},
+                            "value": {"status": "pending_review"},
                             "matchingColumns": [], "schema": dt_schema(),
                             "attemptToConvertTypes": False, "convertFieldsToString": False},
                 "options": {}}),
@@ -1782,7 +2208,7 @@ return [{ json: {
                 "subject": "={{ $('build reviewer notification').first().json.title }}",
                 "emailFormat": "text",
                 "text": "={{ $('build reviewer notification').first().json.body }}",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("email delivered?", (3740, 180),
@@ -1818,10 +2244,20 @@ return [{ json: {
                       "  verification_lapsed:  ['Verification lapsed - please verify again.', true],\n"
                       "  turnstile_failed:     ['Spam check failed - please try again.', true],\n"
                       "  rate_limited:         ['Please wait before submitting again.', true],\n"
-                      "  service_misconfigured:['Submissions are temporarily unavailable.', true]\n"
+                      "  service_misconfigured:['Submissions are temporarily unavailable.', true],\n"
+                      "  media_web_page:       ['One of the image links is a web page, not an image.', false],\n"
+                      "  media_not_image:      ['One of the image links is not an image file.', false],\n"
+                      "  media_redirect:       ['One of the image links redirects somewhere else.', false],\n"
+                      "  media_unreachable:    ['One of the image links could not be loaded.', true],\n"
+                      "  media_unsafe_url:     ['One of the image links is not a public https:// link.', false]\n"
                       "};\n"
-                      "const [message, retryable] = M[code] || M.invalid_request;\n"
-                      "return [{ json: { ok: false, error: { message, code, retryable } } }];"),
+                      "const [fallback, retryable] = M[code] || M.invalid_request;\n"
+                      "// `media: verdict` names the exact field and what to do about it. Only\n"
+                      "// that node sets error_message, from fixed text; nothing request-supplied.\n"
+                      "const message = ($json.error_message || fallback).toString();\n"
+                      "const error = { message, code, retryable };\n"
+                      "if ($json.field) error.field = $json.field.toString();\n"
+                      "return [{ json: { ok: false, error } }];"),
             code_node("lapsed", (220, 200),
                       "const r = ($json.reason || '').toString();\n"
                       "return [{ json: { error_code: r === 'expired' ? 'verification_expired' : 'verification_lapsed' } }];"),
@@ -1833,6 +2269,12 @@ return [{ json: {
             "get submission row": {"main": [[{"node": "validate + normalize", "type": "main", "index": 0}]]},
             "validate + normalize": {"main": [[{"node": "eligible?", "type": "main", "index": 0}]]},
             "eligible?": {"main": [
+                [{"node": "media: list urls", "type": "main", "index": 0}],
+                [{"node": "shape error", "type": "main", "index": 0}]]},
+            "media: list urls": {"main": [[{"node": "media: check each", "type": "main", "index": 0}]]},
+            "media: check each": {"main": [[{"node": "media: verdict", "type": "main", "index": 0}]]},
+            "media: verdict": {"main": [[{"node": "media: all images?", "type": "main", "index": 0}]]},
+            "media: all images?": {"main": [
                 [{"node": "skip re-verify?", "type": "main", "index": 0}],
                 [{"node": "shape error", "type": "main", "index": 0}]]},
             "skip re-verify?": {"main": [
@@ -2427,9 +2869,24 @@ const allowed = ['creator', 'type', 'form', 'why', 'tags', 'tracks', 'pages', 'a
 const out = { id: gen.id };
 for (const k of allowed) if (entry[k] !== undefined) out[k] = entry[k];
 
-// Backend-assigned public routing fields. The temporary verification token
-// proved control before this point and is deliberately not published.
+// Backend-assigned. verification_token is REQUIRED by the canonical
+// ring.schema.json, and it is the same value already public in the member's
+// own <meta name="indienode-verification"> tag. 830395f stopped publishing it
+// without the upstream schema ever changing, so every approval since then
+// opened a PR that failed validate:publish (ring PR #30, fixed by hand).
+//
+// It is the token on the row: the one issued for this source_url and checked
+// by `verify` and again at finalize. A row without a usable one is refused
+// here, before any GitHub call, rather than published into a PR CI rejects.
+const token = (row.verification_token || '').toString();
+if (!/^[A-Za-z0-9_-]{1,200}$/.test(token)) {
+  return [{ json: { ok: 'no', id: gen.id,
+    message: 'No pull request was opened: this submission has no verification token on ' +
+             'record, so its entry would fail validate:publish. Ask the creator to verify ' +
+             'again, or reject it.' } }];
+}
 out.source_url = row.source_url;
+out.verification_token = token;
 if (gen.creator_id) out.creator_id = gen.creator_id;
 
 // n8n's Code sandbox cannot import the repository's Prettier dependency, but
@@ -2472,6 +2929,7 @@ const isUpdate = Boolean(row.node_id);
 // `submission/<id>`, which collides on any retry.
 const suffix = Date.now().toString(36) + '-' + $execution.id;
 return [{ json: {
+  ok: 'yes',
   newEntry: out, id: gen.id, node_id: row.node_id || null,
   branchName: (isUpdate ? 'update/' : 'submission/') + gen.id + '-' + suffix,
   commitMsg: (isUpdate ? 'Update ring entry: ' : 'Add ring entry: ') + gen.id,
@@ -2532,6 +2990,16 @@ try {
   sha = payload.sha || null;
 } catch (e) { sha = null; }
 return [{ json: Object.assign({ ok: sha ? 'yes' : 'no', existingSha: sha }, prep) }];
+"""
+
+    refusal_message = r"""
+// Reached from either gate: the strip node's missing-token refusal carries
+// `message`, the media verdict carries `error_message`. Escaped here because
+// the respond node concatenates it into HTML; the text is fixed wording plus
+// field labels, but a page is not the place to rely on that staying true.
+const raw = ($json.error_message || $json.message || 'The entry did not pass its pre-publish checks.').toString();
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+return [{ json: { message: esc(raw) } }];
 """
 
     pr_verdict = """
@@ -2780,7 +3248,7 @@ return [{ json: { html: body } }];
                 # immediately after, and a rejection rationale would be exactly
                 # the kind of record spec section 5 step 9 says is not retained.
                 "text": "=Thanks for submitting to IndieNodes.\n\nAfter review, your submission was not added to the ring this time. Nothing about it has been kept.\n\nYou're welcome to submit again.\n\n-- IndieNodes",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("reject: delivered?", (2000, 40),
@@ -2843,11 +3311,45 @@ return [{ json: { html: body } }];
             ifn("approve: ring ok?", (2220, -320), "={{ $json.ok }}", "yes", 4),
             code_node("approve: generate id + creator_id", (2440, -320), gen_id),
             code_node("approve: strip fields (allowlist)", (2660, -320), strip_fields),
+            # Both gates below stand before the first GitHub call. A PR that
+            # validate:publish is certain to fail is worse than no PR: it looks
+            # done, and someone has to notice and repair it by hand (ring PR #30).
+            ifn("approve: verification present?", (2660, -160), "={{ $json.ok }}", "yes", 40),
+            # Re-checked at approval, not only at finalize: a row that entered
+            # review before finalize checked media at all, or whose host has
+            # started serving a page where the image was, must not be published.
+            code_node("approve: list media urls", (2660, -40), media_list_js(
+                "(() => { try { return JSON.parse($('get submission row').first().json.entry || '{}'); } "
+                "catch (e) { return {}; } })()")),
+            media_check_call("approve: check media", (2780, -40), ctx, True, {
+                "url": "={{ $json.url }}", "kind": "={{ $json.kind }}",
+                "field": "={{ $json.field }}", "label": "={{ $json.label }}"},
+                "continueRegularOutput"),
+            code_node("approve: media verdict", (2900, -40),
+                      MEDIA_VERDICT_JS + "\n\nreturn [{ json: mediaVerdict($input.all().map((i) => i.json), "
+                      "$('approve: list media urls').first().json.too_many === 'yes') }];"),
+            ifn("approve: media are images?", (3020, -40), "={{ $json.ok }}", "yes", 41),
+            code_node("approve: refusal message", (3140, 100), refusal_message),
+            node("approve: mark refused", "n8n-nodes-base.dataTable", 1.1, (3360, 100), {
+                "operation": "update", "dataTableId": subtable, "filters": sid_filter,
+                # approval_failed, not pending_review: still actionable from the
+                # review page, so the maintainer can reject it or retry once the
+                # creator has fixed their page.
+                "columns": {"mappingMode": "defineBelow", "value": {"status": "approval_failed"},
+                            "matchingColumns": [], "schema": dt_schema,
+                            "attemptToConvertTypes": False, "convertFieldsToString": False},
+                "options": {}}),
+            respond("respond approval refused", (3580, 100),
+                    html_expr("'<div class=\"status-icon\" aria-hidden=\"true\">!</div>' + "
+                              "'<p class=\"eyebrow\">Action not completed</p>' + "
+                              "'<h1>No pull request was opened</h1><p>' + "
+                              "$('approve: refusal message').first().json.message + '</p>'",
+                              "warning")),
             # Authenticated, unlike the original: an unauthenticated call shares
             # the 60/hour anonymous pool, and exhausting it yields a null sha,
             # which makes updating an existing member file fail with a 409.
             gh("approve: check existing member file", (2880, -320),
-               "={{ '%s/contents/members/' + $json.id + '.json' }}" % REPO),
+               "={{ '%s/contents/members/' + $('approve: strip fields (allowlist)').first().json.id + '.json' }}" % REPO),
             code_node("approve: build member file", (3100, -320), build_member),
             ifn("approve: member sha known?", (3320, -320), "={{ $json.ok }}", "yes", 5),
             gh("approve: get main ref", (3540, -320), REPO + "/git/ref/heads/main"),
@@ -2901,7 +3403,7 @@ return [{ json: { html: body } }];
                         "at /update if you ever need to change or remove it.\n\n"
                         "This address is now deleted. Nothing else will be sent to it.\n\n"
                         "-- IndieNodes",
-                "options": {}},
+                "options": dict(EMAIL_OPTIONS)},
                  credentials={"smtp": SMTP_CREDENTIAL},
                  onError="continueErrorOutput"),
             code_node("approve: build success page", (5080, -400), approved_page),
@@ -3017,7 +3519,18 @@ return [{ json: { html: body } }];
                 [{"node": "approve: generate id + creator_id", "type": "main", "index": 0}],
                 [{"node": "approve: mark approval_failed", "type": "main", "index": 0}]]},
             "approve: generate id + creator_id": {"main": [[{"node": "approve: strip fields (allowlist)", "type": "main", "index": 0}]]},
-            "approve: strip fields (allowlist)": {"main": [[{"node": "approve: check existing member file", "type": "main", "index": 0}]]},
+            "approve: strip fields (allowlist)": {"main": [[{"node": "approve: verification present?", "type": "main", "index": 0}]]},
+            "approve: verification present?": {"main": [
+                [{"node": "approve: list media urls", "type": "main", "index": 0}],
+                [{"node": "approve: refusal message", "type": "main", "index": 0}]]},
+            "approve: list media urls": {"main": [[{"node": "approve: check media", "type": "main", "index": 0}]]},
+            "approve: check media": {"main": [[{"node": "approve: media verdict", "type": "main", "index": 0}]]},
+            "approve: media verdict": {"main": [[{"node": "approve: media are images?", "type": "main", "index": 0}]]},
+            "approve: media are images?": {"main": [
+                [{"node": "approve: check existing member file", "type": "main", "index": 0}],
+                [{"node": "approve: refusal message", "type": "main", "index": 0}]]},
+            "approve: refusal message": {"main": [[{"node": "approve: mark refused", "type": "main", "index": 0}]]},
+            "approve: mark refused": {"main": [[{"node": "respond approval refused", "type": "main", "index": 0}]]},
             "approve: check existing member file": {"main": [
                 [{"node": "approve: build member file", "type": "main", "index": 0}],
                 [{"node": "approve: build member file", "type": "main", "index": 0}]]},
@@ -3098,7 +3611,12 @@ const FINAL_ACTIONS = ['submit', 'submit_update', 'request_removal'];
 // A read-only status check, not a form submission -- see this workflow's own
 // docstring on why it is neither token-shaped nor final-shaped.
 const STATUS_ACTIONS = ['rate_status'];
-if (!TOKEN_ACTIONS.includes(action) && !FINAL_ACTIONS.includes(action) && !STATUS_ACTIONS.includes(action)) {
+// The /join form asking whether a typed media URL is really an image. Answers
+// a verdict word only -- see Check Media URL's docstring for why that is all
+// it may ever return.
+const MEDIA_ACTIONS = ['check_media_url'];
+if (!TOKEN_ACTIONS.includes(action) && !FINAL_ACTIONS.includes(action) &&
+    !STATUS_ACTIONS.includes(action) && !MEDIA_ACTIONS.includes(action)) {
   return err('unsupported_action', 'Unsupported submission action.', false);
 }
 
@@ -3108,8 +3626,10 @@ if (!TOKEN_ACTIONS.includes(action) && !FINAL_ACTIONS.includes(action) && !STATU
 // Gating those continuations on absent form fields silently drops every real
 // Verify request before Token Lifecycle can run. rate_status is asked before
 // the visitor has spent any dwell time at all, for the same reason.
+// check_media_url is gated too: it makes outbound requests on a stranger's
+// behalf, so an obvious bot must not reach it.
 const BOT_GATED_ACTIONS = [
-  'issue_token', 'request_update_token',
+  'issue_token', 'request_update_token', 'check_media_url',
   'submit', 'submit_update', 'request_removal'
 ];
 if (BOT_GATED_ACTIONS.includes(action)) {
@@ -3124,7 +3644,9 @@ if (BOT_GATED_ACTIONS.includes(action)) {
 }
 
 return [{ json: {
-  route: STATUS_ACTIONS.includes(action) ? 'status' : (TOKEN_ACTIONS.includes(action) ? 'token' : 'final'),
+  route: STATUS_ACTIONS.includes(action) ? 'status'
+       : MEDIA_ACTIONS.includes(action) ? 'media'
+       : (TOKEN_ACTIONS.includes(action) ? 'token' : 'final'),
   action, body
 } }];
 """ % {"dwell": MIN_DWELL_MS}
@@ -3162,6 +3684,24 @@ return [{ json: { ok: true, blocked,
   retry_after_seconds: blocked ? Math.ceil((WINDOW - elapsed) / 1000) : null } }];
 """ % {"win": RATE_LIMIT_WINDOW_SECONDS}
 
+    prep_media = r"""
+const b = $json.body || {};
+const url = typeof b.url === 'string' ? b.url.trim() : '';
+const kind = b.kind === undefined || b.kind === 'image' ? 'image' : (b.kind === 'preview' ? 'preview' : '');
+if (!url || url.length > 2048 || !kind) {
+  return [{ json: { route: 'error', payload: { ok: false, error: {
+    message: 'That request was not valid.', code: 'invalid_request', retryable: false } } } }];
+}
+return [{ json: { route: 'ready', url, kind } }];
+"""
+
+    shape_media = r"""
+// The helper's verdict word and nothing else. `none` cannot occur: prep
+// refused an empty url.
+const verdict = ($json && typeof $json.verdict === 'string') ? $json.verdict : 'unreachable';
+return [{ json: { ok: true, accepted: $json.ok === 'yes', verdict } }];
+"""
+
     fake = """
 // Shapes match the real success envelope for the requested action, so a bot
 // cannot tell it was dropped. Nothing is allocated and no row is written.
@@ -3173,7 +3713,8 @@ const shapes = {
   request_update_token: { submission_id: fakeId(), verification_token: fakeId(), expires_at: exp },
   submit:               { reference: fakeId() },
   submit_update:        { reference: fakeId() },
-  request_removal:      { reference: fakeId() }
+  request_removal:      { reference: fakeId() },
+  check_media_url:      { accepted: true, verdict: 'ok' }
 };
 return [{ json: Object.assign({ ok: true }, shapes[a] || {}) }];
 """
@@ -3219,7 +3760,7 @@ return [{ json: Object.assign({ ok: true }, shapes[a] || {}) }];
             code_node("validate + classify", (-660, 0), classify),
             node("route", "n8n-nodes-base.switch", 3.4, (-440, 0), {
                 "rules": {"values": [rule("token", 1), rule("final", 2), rule("dropped", 3),
-                                      rule("status", 4)]},
+                                      rule("status", 4), rule("media", 5)]},
                 "options": {"fallbackOutput": "extra"}}),
             call("call Token Lifecycle v2", (-200, -180), ctx.get("lifecycle_id", ""),
                  "Webring - Token Lifecycle v2"),
@@ -3243,6 +3784,13 @@ return [{ json: Object.assign({ ok: true }, shapes[a] || {}) }];
                  alwaysOutputData=True),
             code_node("rate status: decide", (680, 260), decide_rate_status),
 
+            code_node("media: prep", (-200, 760), prep_media),
+            ifn("media: valid?", (20, 760), "={{ $json.route }}", "error", 2),
+            media_check_call("call Check Media URL v2", (240, 720), ctx, False, {
+                "url": "={{ $json.url }}", "kind": "={{ $json.kind }}", "field": "", "label": ""},
+                "continueErrorOutput"),
+            code_node("media: shape", (460, 720), shape_media),
+
             code_node("shape client error", (-200, 460), "return [{ json: $json.payload }];"),
             # A sub-workflow that throws must still produce JSON. Without this
             # the run aborts, Respond never fires, and the browser waits out its
@@ -3262,7 +3810,16 @@ return [{ json: Object.assign({ ok: true }, shapes[a] || {}) }];
                 [{"node": "call Finalize Submission v2", "type": "main", "index": 0}],
                 [{"node": "shape fake success", "type": "main", "index": 0}],
                 [{"node": "rate status: prep", "type": "main", "index": 0}],
+                [{"node": "media: prep", "type": "main", "index": 0}],
                 [{"node": "shape client error", "type": "main", "index": 0}]]},
+            "media: prep": {"main": [[{"node": "media: valid?", "type": "main", "index": 0}]]},
+            "media: valid?": {"main": [
+                [{"node": "shape client error", "type": "main", "index": 0}],
+                [{"node": "call Check Media URL v2", "type": "main", "index": 0}]]},
+            "call Check Media URL v2": {"main": [
+                [{"node": "media: shape", "type": "main", "index": 0}],
+                [{"node": "shape operational error", "type": "main", "index": 0}]]},
+            "media: shape": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]},
             "call Token Lifecycle v2": {"main": [
                 [{"node": "Respond", "type": "main", "index": 0}],
                 [{"node": "shape operational error", "type": "main", "index": 0}]]},
@@ -3439,7 +3996,7 @@ return [{ json: { ok: true, reference: fakeId() } }];
             "subject": "={{ $('build notification').first().json.title }}",
             "emailFormat": "text",
             "text": "={{ $('build notification').first().json.body }}",
-            "options": {"replyTo": "={{ $('build notification').first().json.replyTo }}"}},
+            "options": {**EMAIL_OPTIONS, "replyTo": "={{ $('build notification').first().json.replyTo }}"}},
              credentials={"smtp": SMTP_CREDENTIAL},
              onError="continueErrorOutput"),
         code_node("email delivered?", (680, 20), delivered),
@@ -3667,6 +4224,7 @@ BUILDERS = [
     ("error-workflow", wf_error_workflow),
     ("signature-helper", wf_signature_helper),
     ("reverify-token", wf_reverify_token),
+    ("media-check", wf_media_check),
     ("token-lifecycle", wf_token_lifecycle),
     ("finalize-submission", wf_finalize_submission),
     ("review-action", wf_review_action),
@@ -3721,9 +4279,28 @@ def push(payload, key, existing):
     body = {k: payload[k] for k in ("name", "nodes", "connections", "settings")}
     wid = existing.get(payload["name"])
     if wid:
-        request("PUT", f"/workflows/{wid}", key, body)
-        return wid, "updated"
-    return request("POST", "/workflows", key, body)["id"], "created"
+        saved = request("PUT", f"/workflows/{wid}", key, body)
+        action = "updated"
+    else:
+        saved = request("POST", "/workflows", key, body)
+        wid, action = saved["id"], "created"
+
+    # Saving an active workflow publishes it; creating one does not. Every
+    # helper this generator ever pushed already existed, so nothing noticed
+    # until Check Media URL was added on 2026-09-12: it was created unpublished,
+    # n8n then refused to publish Finalize (whose new version calls it), and
+    # the run died with Review Action and Intake still on their old versions.
+    # A helper is safe to publish unattended -- its only trigger is Execute
+    # Workflow, so publishing exposes nothing -- and it must be published
+    # before the caller pushed next can be. A workflow with a public webhook is
+    # never activated here: turning an endpoint on stays a deliberate act.
+    triggers = {n["type"] for n in payload["nodes"] if n["type"].endswith("Trigger")
+                or n["type"] == "n8n-nodes-base.webhook"}
+    is_helper = triggers == {"n8n-nodes-base.executeWorkflowTrigger"}
+    if is_helper and not saved.get("active"):
+        request("POST", f"/workflows/{wid}/activate", key)
+        action += "+published"
+    return wid, action
 
 
 def create_tables():
@@ -3788,6 +4365,7 @@ def export_workflows():
     out_dir = pathlib.Path(__file__).parent / "backups"
     out_dir.mkdir(exist_ok=True)
     count = 0
+    unpublished = []
     for _, builder in BUILDERS:
         name = builder({})["name"]
         wid = existing.get(name)
@@ -3801,12 +4379,117 @@ def export_workflows():
             raw = r.read()
         path = out_dir / f"{slugify(name)}.json"
         path.write_bytes(raw)
+        # The API returns the saved draft, which is not necessarily what runs.
+        # On 2026-09-12 a half-finished push left Finalize with an unpublished
+        # draft; this export captured the draft, and --check-drift then called
+        # a workflow "ok" that live traffic was not using.
+        live = json.loads(raw)
+        if live.get("activeVersionId") and live.get("versionId") != live.get("activeVersionId"):
+            unpublished.append(name)
+        elif not live.get("active"):
+            unpublished.append(name)
         # Relative to this file's own repo, not the caller's cwd -- avoids a
         # crash if this is ever run from somewhere other than the repo root.
         repo_root = pathlib.Path(__file__).resolve().parents[2]
         print(f"  exported {wid}  {name}  -> {path.resolve().relative_to(repo_root)}")
         count += 1
     print(f"\n  {count} workflow(s) exported to {out_dir}")
+    if unpublished:
+        print(f"\n  NOT LIVE: {', '.join(unpublished)}")
+        print("  These exports are saved drafts that n8n has not published (or the")
+        print("  workflow is inactive), so live traffic is still on an older version.")
+        print("  Fix the publish error --push reported, push again, then re-export.")
+        sys.exit(1)
+
+
+def check_drift():
+    """Fail when the generator has moved and `backups/` has not.
+
+    The failure this exists for: a generator commit lands, `--push` is never
+    run, and nothing notices. `test_code_nodes.mjs` exercises the source in
+    *this* file, so it stays green while production runs the previous rule --
+    which is how the relaxed consent gate in the finalize workflow sat unpushed
+    from 2026-09-09 to 2026-09-12 while every non-PRO submission on live was
+    rejected with "That submission was not valid."
+
+    Compares `parameters.jsCode` and nothing else. `ctx` reaches only
+    `settings()` and `workflowId` fields, never a code body, so a build from
+    `ctx_for_emit()` produces byte-identical `jsCode` to a real `--push`: a
+    difference here is always a real one and never an artifact of the empty
+    context. That restriction costs little, because the code nodes are where
+    everything worth catching lives -- the validation rules, the publish
+    allowlist, and the review-email HTML are all inside one.
+
+    The corollary is that this is deliberately not a full workflow diff. Node
+    positions, credentials, caller allowlists and settings are invisible to it,
+    and a change confined to those passes. Widening it would mean telling a
+    stale export apart from an absent live id, which `ctx_for_emit()` cannot do
+    by construction -- that is the same reason `--emit` is not a substitute for
+    `--push`.
+
+    Network-free and key-free, the same bias as the ring-mirror check in
+    `.githooks/pre-push`: it asks whether what is committed agrees with itself,
+    not whether n8n is reachable. Freshness of the live instance is `--push`'s
+    job, not a push-time concern.
+    """
+    out_dir = pathlib.Path(__file__).parent / "backups"
+    stale = []
+
+    def code_nodes(wf):
+        """Node name -> jsCode, for the code nodes only."""
+        out = {}
+        for n in wf.get("nodes", []):
+            js = (n.get("parameters") or {}).get("jsCode")
+            if js is not None:
+                out[n["name"]] = js
+        return out
+
+    for _, builder in BUILDERS:
+        built = builder(ctx_for_emit())
+        name = built["name"]
+        path = out_dir / f"{slugify(name)}.json"
+        if not path.exists():
+            stale.append(name)
+            print(f"  NO EXPORT  {name}  -- nothing at backups/{path.name}")
+            continue
+
+        mine = code_nodes(built)
+        theirs = code_nodes(json.loads(path.read_text()))
+        added = sorted(set(mine) - set(theirs))
+        removed = sorted(set(theirs) - set(mine))
+        changed = sorted(k for k in set(mine) & set(theirs) if mine[k] != theirs[k])
+
+        if not (added or removed or changed):
+            print(f"  ok         {name}")
+            continue
+
+        stale.append(name)
+        print(f"  STALE      {name}")
+        for n in added:
+            print(f"               + {n!r} is generated but absent from the export")
+        for n in removed:
+            print(f"               - {n!r} is live but no longer generated")
+        for n in changed:
+            print(f"               ~ {n!r}")
+
+        # One diff, not every diff: enough to name the rule that actually moved
+        # without burying it. The others are listed by name just above and show
+        # their own diff once this one is resolved.
+        first = (changed or added or removed)[0]
+        diff = difflib.unified_diff(
+            theirs.get(first, "").splitlines(), mine.get(first, "").splitlines(),
+            fromfile=f"live/{first}", tofile=f"generated/{first}", lineterm="", n=2)
+        for line in itertools.islice(diff, 60):
+            print(f"      {line}")
+
+    print()
+    if stale:
+        print(f"  {len(stale)} workflow(s) differ from the last export: {', '.join(stale)}")
+        print("  The generator has changed and n8n has not. To resolve:")
+        print("    python3 scripts/n8n/build_workflows.py --push")
+        print("    python3 scripts/n8n/build_workflows.py --export")
+        sys.exit(1)
+    print(f"  {len(BUILDERS)} workflow(s) match the last export")
 
 
 def main():
@@ -3817,6 +4500,7 @@ def main():
     ap.add_argument("--create-tables", action="store_true")
     ap.add_argument("--export", action="store_true")
     ap.add_argument("--emit", action="store_true")
+    ap.add_argument("--check-drift", action="store_true")
     ap.add_argument("--only")
     args = ap.parse_args()
 
@@ -3831,6 +4515,10 @@ def main():
 
     if args.export:
         export_workflows()
+        return
+
+    if args.check_drift:
+        check_drift()
         return
 
     # Full generator output to stdout, for importing a workflow through n8n's
@@ -3856,7 +4544,7 @@ def main():
         return
 
     if not (args.dry_run or args.push):
-        ap.error("pass --dry-run, --push, --create-tables, or --export")
+        ap.error("pass --dry-run, --push, --create-tables, --export, or --check-drift")
 
     key = api_key() if args.push else None
     existing = existing_by_name(key) if args.push else {}
@@ -3886,6 +4574,8 @@ def main():
             "finalize_callers": [existing[n] for n in ["Webring - Intake v2"] if n in existing] + extra,
             "lifecycle_id": existing.get("Webring - Token Lifecycle v2", ""),
             "finalize_id": existing.get("Webring - Action - Finalize Submission v2", ""),
+            "mediacheck_id": existing.get("Webring - Helper - Check Media URL v2", ""),
+            "mediacheck_callers": [existing[n] for n in MEDIACHECK_CALLER_NAMES if n in existing] + extra,
         })
 
     targets = [(n, b) for n, b in BUILDERS if not args.only or args.only == n]
@@ -3903,8 +4593,11 @@ def main():
     # allowlist now that all the IDs are known.
     passes = 2 if len(targets) > 1 else 1
     for p in range(passes):
-        rebuild_ctx()
         for name, builder in targets:
+            # Per workflow, not per pass: a helper created earlier in this same
+            # pass has an id its callers need now. Resolving once per pass left
+            # a first-pass caller with an empty workflowId, which push() refuses.
+            rebuild_ctx()
             wf = builder(ctx)
             wid, action = push(wf, key, existing)
             existing[wf["name"]] = wid

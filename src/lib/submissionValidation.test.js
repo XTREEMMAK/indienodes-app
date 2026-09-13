@@ -61,11 +61,8 @@ const validateAgainstSchema = ajv.compile(schema);
  * These have to match whatever `schema/ring.schema.json` currently requires,
  * because that file is a *mirror* of indienodes-ring's canonical schema
  * (re-fetched by `sync-ring-mirror`), not something this repository authors.
- * `verification_token` is listed here even though the approval workflow has
- * stopped publishing it, precisely because the canonical schema still requires
- * it: dropping it here would make this suite assert a contract the ring does
- * not actually offer yet. Remove it once indienodes-ring relaxes that
- * requirement and the relaxation has been synced back.
+ * `verification_token` is one of them: approval copies the row's checked token
+ * into the member file, because the canonical schema requires it.
  */
 const BACKEND_FIELDS = {
 	id: 'test-entry',
@@ -445,8 +442,7 @@ describe('published entries stay valid across the excerpt shape change', () => {
 			source_url: 'https://example.com/loose-leaf',
 			tags: ['essay'],
 			excerpts,
-			// Both are required by the mirrored schema; see BACKEND_FIELDS above
-			// for why verification_token is still supplied here.
+			// Both are required by the mirrored schema; see BACKEND_FIELDS above.
 			verification_token: 'tok-abc123',
 			joined_at: '2026-01-01T00:00:00Z'
 		};

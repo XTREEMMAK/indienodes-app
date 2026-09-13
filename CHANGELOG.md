@@ -8,6 +8,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-12
+
+A release about what the submission pipeline lets through. The first public submissions after
+the Early Access soft-open found two ways an entry could clear every automated check and still
+reach the ring broken — no verification token, and comic pages pointing at a reader page instead
+of an image — and a third where the backend quietly ran older rules than the form. Each now
+fails where the creator or the maintainer can still act on it, rather than on the pull request
+afterwards.
+
+### Added
+
+- **Typed image URLs are checked to be images.** A creator with their own site pastes URLs for
+  comic pages, artworks, their cover and a game preview, and the easy mistake is copying the
+  address bar of the page an image sits on — ring PR #30 went out with
+  `…/suzu-and-jack/?pg=29#showComic` as a page image. That passes every https and host rule,
+  because nothing about its shape is wrong. The backend now requests each URL (HEAD, falling
+  back to a ranged GET) and requires an `image/*` content type (`video/*` also for a game
+  preview). `/join` asks as the creator types, holds Continue until it has an answer, and
+  explains a web page as a web page, with "right-click the image and choose Copy image
+  address" as the fix. A file extension is only ever a first check that rejects `.html`; it
+  never passes a URL on its own. The same check runs again at submit and at approval, so no
+  path can skip it. It carries the verification helper's full SSRF guard, restricted further to
+  https on port 443, and answers with a verdict word only.
+- **A push is refused when the n8n generator changed but never reached n8n.** The pre-push hook
+  now runs `--check-drift`, which compares the generator's code nodes against the committed
+  exports of the live workflows. The test suite runs the generator directly, so it went green
+  for three days on a consent-gate rule production was not running.
+
+### Fixed
+
+- **Approved entries carry their verification token again.** An approval opened a pull request
+  without `verification_token`, which the ring's schema requires and its member health check
+  reads, so every approval since 2026-09-02 failed `validate:publish` and had to be repaired by
+  hand. The token was being cleared as a submission entered review, which also meant a
+  resubmit after a failed reviewer notification re-verified against nothing and could never
+  succeed. It now stays with the submission through review, is published as the token that was
+  checked, and is cleared only once the pull request exists. Approval refuses to open a pull
+  request at all when no token is on record, and says why.
+- **The audio `form` field is validated server-side.** It was checked by the form and the ring
+  schema but not by the workflow between them, so an audio entry without it could pass review
+  and fail only on its pull request.
+- **Non-PRO submissions are accepted again.** The relaxed consent rule (Rights required only
+  alongside a stated PRO membership) had shipped in the form but not to n8n, so production
+  rejected every such submission after its source URL had verified.
+- **Pushing a new n8n helper publishes it.** The first push to create a helper, rather than
+  update one, left it unpublished; n8n then refused to publish the workflows calling it and the
+  run stopped partway. `--export` now also refuses to call an unpublished draft current.
+- **Submission emails no longer carry n8n's attribution footer.** It was switched off by hand
+  and came back on every push; the generator now sets it on every email.
+
 ## [1.6.0] - 2026-09-11
 
 The release that opens the site to the public. The app has been reachable only behind the

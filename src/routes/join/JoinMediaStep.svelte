@@ -43,6 +43,15 @@
 	const entry = $derived(form.entry);
 	const generator = $derived(generatorDraftStore.generator);
 
+	// Typed image URLs are asked about once they stop changing: is each one
+	// really an image, or the page it sits on? (`$lib/mediaUrlCheck.js`.) An
+	// effect rather than an input handler, so a draft restored from storage is
+	// checked too, not only a URL being typed now.
+	$effect(() => {
+		form.scheduleMediaChecks();
+	});
+	const CHECKING = 'Checking that this link is an image…';
+
 	/** The generated-page branch caps works at the same three tracks do. */
 	const MAX_WORKS = MAX_TRACKS;
 
@@ -738,6 +747,9 @@
 			<FormField
 				id="f-page-url-{page.uid}"
 				label="Page {i + 1} image"
+				hint={form.mediaCheckPending(`pages.${i}.image_url`)
+					? CHECKING
+					: 'The image file itself, not the page it appears on: right-click the page and choose "Copy image address".'}
 				required
 				error={form.entryErrors[`pages.${i}.image_url`]}
 			>
@@ -787,6 +799,9 @@
 			<FormField
 				id="f-art-image-{artwork.uid}"
 				label="Artwork {i + 1} image"
+				hint={form.mediaCheckPending(`artworks.${i}.image_url`)
+					? CHECKING
+					: 'The image file itself, not the page it appears on: right-click the artwork and choose "Copy image address".'}
 				required
 				error={form.entryErrors[`artworks.${i}.image_url`]}
 			>
@@ -897,7 +912,9 @@
 	<FormField
 		id="f-preview"
 		label="Muted preview clip (optional)"
-		hint="Never plays audio on its own, and never autoplays with sound."
+		hint={form.mediaCheckPending('preview_url')
+			? 'Checking that this link is an image or video…'
+			: 'Never plays audio on its own, and never autoplays with sound.'}
 		error={form.entryErrors.preview_url}
 	>
 		{#snippet children(describedBy)}

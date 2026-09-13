@@ -127,6 +127,11 @@ field; new approvals do not publish it") and in `src/lib/submissionValidation.te
 Resolution belongs to `indienodes-ring`, not here. Noted so the audit is not read as
 having missed it. The two live entries in `ring.json` still carry legacy tokens.
 
+**Resolved 2026-09-12, the other way.** The ring's schema was never relaxed, and its
+`member-health.js` reads `verification_token` to re-check the creator's tag, so the lag surfaced
+as ring PR #30 failing `validate:publish`. Approval publishes the checked token again and refuses
+to open a PR without one.
+
 ### Recommendation
 
 **Keep verification exactly where it is.** It is cheap for the submitter on the common
