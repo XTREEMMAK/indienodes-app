@@ -26,13 +26,18 @@ class FakeAnalyserNode extends FakeAudioNode {
 }
 
 class FakeAudioContext {
+	/** Every element handed to `createMediaElementSource`, across all instances. */
+	static wiredElements = /** @type {HTMLMediaElement[]} */ ([]);
+
 	destination = new FakeAudioNode();
 
 	createAnalyser() {
 		return new FakeAnalyserNode();
 	}
 
-	createMediaElementSource() {
+	/** @param {HTMLMediaElement} element */
+	createMediaElementSource(element) {
+		FakeAudioContext.wiredElements.push(element);
 		return new FakeAudioNode();
 	}
 
@@ -60,6 +65,44 @@ class FakeAudioContext {
 	async close() {}
 }
 
+/**
+ * A short silent WAV as a data: URL. These tracks have to actually load: a URL
+ * that fails, like an unreachable https://example.com file, is now treated as a
+ * host refusing CORS and moved to the unwired element, which is exactly what
+ * these fixtures are not testing. A data: URL loads in CORS mode.
+ * @param {number} samples distinct per fixture, so each URL differs
+ */
+function silentWav(samples) {
+	const bytes = new Uint8Array(44 + samples);
+	const view = new DataView(bytes.buffer);
+	/**
+	 * @param {number} at
+	 * @param {string} text
+	 */
+	function ascii(at, text) {
+		[...text].forEach((ch, i) => view.setUint8(at + i, ch.charCodeAt(0)));
+	}
+	ascii(0, 'RIFF');
+	view.setUint32(4, 36 + samples, true);
+	ascii(8, 'WAVEfmt ');
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true); // PCM
+	view.setUint16(22, 1, true); // mono
+	view.setUint32(24, 8000, true);
+	view.setUint32(28, 8000, true);
+	view.setUint16(32, 1, true);
+	view.setUint16(34, 8, true);
+	ascii(36, 'data');
+	view.setUint32(40, samples, true);
+	bytes.fill(128, 44);
+	return 'data:audio/wav;base64,' + btoa(String.fromCharCode(...bytes));
+}
+
+const FIRST_URL = silentWav(800);
+const SECOND_URL = silentWav(801);
+/** Never loads in the test browser, so it plays the part of a host refusing CORS. */
+const REFUSED_URL = 'https://refuses-cors.example/track.mp3';
+
 /** @type {import('$lib/ring.js').RingEntry} */
 const FIRST_ENTRY = {
 	id: 'audio-first',
@@ -68,7 +111,7 @@ const FIRST_ENTRY = {
 	why: 'Player lifecycle fixture.',
 	source_url: 'https://example.com/first',
 	tags: ['test'],
-	tracks: [{ label: 'First Track', media_url: 'https://example.com/first.mp3' }],
+	tracks: [{ label: 'First Track', media_url: FIRST_URL }],
 	verification_token: 'test'
 };
 
@@ -78,8 +121,27 @@ const SECOND_ENTRY = {
 	id: 'audio-second',
 	creator: 'Second Artist',
 	source_url: 'https://example.com/second',
-	tracks: [{ label: 'Second Track', media_url: 'https://example.com/second.mp3' }]
+	tracks: [{ label: 'Second Track', media_url: SECOND_URL }]
 };
+
+/** @type {import('$lib/ring.js').RingEntry} */
+const REFUSED_ENTRY = {
+	...FIRST_ENTRY,
+	id: 'audio-refused',
+	creator: 'Self-Hosted Artist',
+	source_url: 'https://refuses-cors.example/',
+	tracks: [{ label: 'Refused Track', media_url: REFUSED_URL }]
+};
+
+/** @returns {{ main: HTMLAudioElement, plain: HTMLAudioElement }} */
+function mainElements() {
+	return {
+		main: /** @type {HTMLAudioElement} */ (document.querySelector('[data-main-player-audio]')),
+		plain: /** @type {HTMLAudioElement} */ (
+			document.querySelector('[data-main-player-audio-plain]')
+		)
+	};
+}
 
 const MINI_POSITION_KEY = 'indienode:player-position:v1';
 
@@ -92,6 +154,7 @@ afterEach(() => {
 	audioLevelStore.reset();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
+	FakeAudioContext.wiredElements = [];
 	localStorage.removeItem(MINI_POSITION_KEY);
 });
 
@@ -147,7 +210,7 @@ describe('main audio element lifecycle', () => {
 		expect(original).toBeInstanceOf(HTMLAudioElement);
 
 		audioPlayerStore.addEntry(FIRST_ENTRY, null);
-		await vi.waitFor(() => expect(original?.src).toBe('https://example.com/first.mp3'));
+		await vi.waitFor(() => expect(original?.src).toBe(FIRST_URL));
 
 		audioPlayerStore.clear();
 		await vi.waitFor(() => {
@@ -156,7 +219,7 @@ describe('main audio element lifecycle', () => {
 		});
 
 		audioPlayerStore.addEntry(SECOND_ENTRY, null);
-		await vi.waitFor(() => expect(original?.src).toBe('https://example.com/second.mp3'));
+		await vi.waitFor(() => expect(original?.src).toBe(SECOND_URL));
 		expect(document.querySelector('[data-main-player-audio]')).toBe(original);
 	});
 
@@ -177,6 +240,109 @@ describe('main audio element lifecycle', () => {
 		await vi.waitFor(() => expect(audioPlayerStore.current?.entryId).toBe(SECOND_ENTRY.id));
 		audioPlayerStore.setPlaying(true);
 		await vi.waitFor(() => expect(audioLevelStore.active).toBe(true));
+	});
+});
+
+/**
+ * Waits for a refused track to be tried on the wired element, then makes it
+ * fail there. The fixture host never resolves, so the browser's own error can
+ * beat this to it; either way the track ends up on `plain`.
+ * @param {string} url
+ */
+async function refuseOnMain(url) {
+	const { main, plain } = mainElements();
+	await vi.waitFor(() => expect([main.src, plain.src]).toContain(url));
+	if (main.src === url) main.dispatchEvent(new Event('error'));
+	await vi.waitFor(() => expect(plain.src).toBe(url));
+}
+
+describe('hosts that refuse CORS', () => {
+	it('moves a refused track onto the unwired element and keeps playing', async () => {
+		vi.stubGlobal('AudioContext', FakeAudioContext);
+		vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+		await render(AudioPlayer, { entries: [REFUSED_ENTRY] });
+		const { main, plain } = mainElements();
+
+		audioPlayerStore.addEntry(REFUSED_ENTRY, null);
+		await refuseOnMain(REFUSED_URL);
+
+		// Tried in CORS mode first, then released; the retry never sets it.
+		expect(main.crossOrigin).toBe('anonymous');
+		expect(main.getAttribute('src')).toBeNull();
+		expect(plain.crossOrigin).toBeNull();
+		expect(audioPlayerStore.playing).toBe(true);
+		expect(FakeAudioContext.wiredElements).not.toContain(plain);
+		expect(audioLevelStore.active).toBe(false);
+	});
+
+	it('keeps a refused track audible after an earlier track wired the graph', async () => {
+		// The bug: once createMediaElementSource claimed the element, a refused
+		// host reloaded into that same element played zeros.
+		vi.stubGlobal('AudioContext', FakeAudioContext);
+		vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+		await render(AudioPlayer, { entries: [FIRST_ENTRY, REFUSED_ENTRY, SECOND_ENTRY] });
+		const { main, plain } = mainElements();
+
+		audioPlayerStore.addEntry(FIRST_ENTRY, null);
+		await vi.waitFor(() => expect(audioLevelStore.active).toBe(true));
+		expect(FakeAudioContext.wiredElements).toEqual([main]);
+
+		audioPlayerStore.addEntry(REFUSED_ENTRY, null);
+		audioPlayerStore.next();
+		await refuseOnMain(REFUSED_URL);
+
+		await vi.waitFor(() => {
+			expect(main.getAttribute('src')).toBeNull();
+			expect(audioLevelStore.active).toBe(false);
+		});
+		expect(audioPlayerStore.playing).toBe(true);
+
+		// Back on a host that allows CORS: the original element and its graph
+		// pick up again, with no second source node.
+		audioPlayerStore.addEntry(SECOND_ENTRY, null);
+		audioPlayerStore.next();
+		await vi.waitFor(() => {
+			expect(main.src).toBe(SECOND_URL);
+			expect(plain.getAttribute('src')).toBeNull();
+			expect(audioLevelStore.active).toBe(true);
+		});
+		expect(FakeAudioContext.wiredElements).toEqual([main]);
+	});
+
+	it('sends a host already known to refuse straight to the unwired element', async () => {
+		vi.stubGlobal('AudioContext', FakeAudioContext);
+		vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+		const again = {
+			...REFUSED_ENTRY,
+			id: 'audio-refused-again',
+			tracks: [{ label: 'Refused Again', media_url: 'https://refuses-cors.example/two.mp3' }]
+		};
+		await render(AudioPlayer, { entries: [REFUSED_ENTRY, again] });
+		const { main, plain } = mainElements();
+
+		audioPlayerStore.addEntry(REFUSED_ENTRY, null);
+		await refuseOnMain(REFUSED_URL);
+
+		const setSrc = vi.spyOn(main, 'src', 'set');
+		audioPlayerStore.addEntry(again, null);
+		audioPlayerStore.next();
+		await vi.waitFor(() => expect(plain.src).toBe('https://refuses-cors.example/two.mp3'));
+		expect(setSrc).not.toHaveBeenCalled();
+	});
+
+	it('ignores the pause fired by the element being released', async () => {
+		vi.stubGlobal('AudioContext', FakeAudioContext);
+		vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+		await render(AudioPlayer, { entries: [REFUSED_ENTRY] });
+		const { main } = mainElements();
+
+		audioPlayerStore.addEntry(REFUSED_ENTRY, null);
+		await refuseOnMain(REFUSED_URL);
+
+		main.dispatchEvent(new Event('pause'));
+		main.dispatchEvent(new Event('ended'));
+		expect(audioPlayerStore.playing).toBe(true);
+		expect(audioPlayerStore.current?.entryId).toBe(REFUSED_ENTRY.id);
 	});
 });
 
