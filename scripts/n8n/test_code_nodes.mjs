@@ -1780,7 +1780,7 @@ const getVerdict = (res, kind = 'image') =>
 			{
 				statusCode: 206,
 				headers: Object.assign(ct ? { 'content-type': ct } : {}, extra),
-				body: Buffer.from(bytes, 'hex').toString('utf8')
+				data: Buffer.from(bytes, 'hex').toString('utf8')
 			},
 			kind
 		);
@@ -1826,7 +1826,7 @@ const getVerdict = (res, kind = 'image') =>
 		getVerdict({
 			statusCode: 200,
 			headers: { 'content-type': 'application/octet-stream' },
-			body: '<!doctype html><title>Cover</title>'
+			data: '<!doctype html><title>Cover</title>'
 		}),
 		'html'
 	);
@@ -1838,6 +1838,18 @@ const getVerdict = (res, kind = 'image') =>
 	check(
 		'GET octet-stream MP4 bytes are fine for a preview',
 		sniff('0000001c6674797069736f6d0000020069736f6d', 'application/octet-stream', 'preview'),
+		'ok'
+	);
+	// Captured from execution 48049: pages.kjnet.us's real profile.avif, which
+	// was refused while the sniffing read `res.body` and n8n sent `res.data`.
+	check(
+		'GET real n8n envelope for an octet-stream AVIF is an image',
+		getVerdict({
+			statusCode: 206,
+			statusMessage: 'Partial Content',
+			headers: { 'content-type': 'application/octet-stream' },
+			data: Buffer.from(AVIF_HEAD, 'hex').toString('utf8')
+		}),
 		'ok'
 	);
 	check('GET 403 is unreachable', getVerdict({ statusCode: 403, headers: {} }), 'unreachable');
@@ -1933,9 +1945,16 @@ const getVerdict = (res, kind = 'image') =>
 			const r = await fetch(url, { method, headers, redirect: 'manual' });
 			// `responseFormat: 'text'` is what the helper's HTTP Request nodes ask
 			// for, so a binary body reaches the Code node UTF-8 decoded, U+FFFD and
-			// all -- which is exactly what the byte sniffing has to cope with.
-			const body = Buffer.from(await r.arrayBuffer()).toString('utf8');
-			return { statusCode: r.status, headers: Object.fromEntries(r.headers), body };
+			// all -- which is exactly what the byte sniffing has to cope with. With
+			// `fullResponse` n8n puts that text under `data`, not `body`: the shape
+			// here is copied from a real execution of the helper.
+			const data = Buffer.from(await r.arrayBuffer()).toString('utf8');
+			return {
+				statusCode: r.status,
+				statusMessage: r.statusText,
+				headers: Object.fromEntries(r.headers),
+				data
+			};
 		} catch (e) {
 			return { error: String(e) };
 		}

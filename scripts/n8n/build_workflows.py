@@ -1247,7 +1247,8 @@ if (status >= 200 && status < 300) {
   const declared = mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind);
   if (declared) return verdict(declared);
   if (sniffBlocked(res.headers)) return verdict('not_image');
-  return verdict(sniffMediaVerdict(res.body, kind));
+  // A `responseFormat: 'text'` node puts the body under `data`, not `body`.
+  return verdict(sniffMediaVerdict(res.data, kind));
 }
 return verdict('unreachable');
 """ % {"media_type_js": MEDIA_TYPE_JS}
