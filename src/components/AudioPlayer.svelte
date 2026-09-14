@@ -40,8 +40,46 @@
 	import { flyFade } from '$lib/transitions.js';
 	import MiniPlayerDock from './MiniPlayerDock.svelte';
 
-	/** @type {HTMLAudioElement | undefined} */
+	/**
+	 * The element tracks play through when their host allows CORS. It is the
+	 * only one ever wired into Web Audio, so it is the one that drives the
+	 * reactive background.
+	 * @type {HTMLAudioElement | undefined}
+	 */
 	let audioEl = $state(undefined);
+	/**
+	 * The element tracks play through when their host refuses CORS, and never
+	 * wired into anything. It has to be a second element: once
+	 * `createMediaElementSource` has claimed `audioEl` its sound only reaches
+	 * the speakers through the graph, and a graph fed a resource fetched
+	 * without CORS outputs zeros. Loading a refusing host's track into
+	 * `audioEl` after that point played silence ("MediaElementAudioSource
+	 * outputs zeroes due to CORS access restrictions"), and the graph cannot
+	 * be detached again. See `loadTrack`.
+	 * @type {HTMLAudioElement | undefined}
+	 */
+	let plainEl = $state(undefined);
+	/**
+	 * Which of the two the current track is loaded into. Written before either
+	 * element is touched, so events from the element being released (its
+	 * `pause`, a late `play()` rejection) can be told apart from the element
+	 * that is actually playing.
+	 * @type {'wired' | 'plain'}
+	 */
+	let loadedInto = $state(/** @type {'wired' | 'plain'} */ ('wired'));
+	const activeEl = $derived(
+		/** @type {HTMLAudioElement | undefined} */ (loadedInto === 'plain' ? plainEl : audioEl)
+	);
+
+	/**
+	 * Whether a media event came from the element holding the current track.
+	 * Releasing the other one fires its own `pause` (and can end or error it),
+	 * and none of that is about what the visitor is hearing.
+	 * @param {Event} event
+	 */
+	function isActive(event) {
+		return event.currentTarget === activeEl;
+	}
 	let elapsed = $state(0);
 	let duration = $state(0);
 	let minimized = $state(false);
@@ -252,21 +290,43 @@
 	}
 
 	/**
-	 * Points the element at a track, choosing CORS mode up front.
+	 * Stops an element and drops its resource, keeping the element itself (and,
+	 * for `audioEl`, its Web Audio graph) for the next track.
+	 * @param {HTMLAudioElement} el
+	 */
+	function releaseElement(el) {
+		if (!el.getAttribute('src')) return;
+		el.pause();
+		el.removeAttribute('src');
+		el.load();
+	}
+
+	/**
+	 * Points the right element at a track.
+	 *
+	 * A host not yet known to refuse CORS goes to `audioEl` in CORS mode, which
+	 * is what makes the reactive background available from its first track. A
+	 * host known to refuse goes to `plainEl`, which is never wired, so it stays
+	 * audible whether or not `audioEl`'s graph exists yet.
 	 *
 	 * `crossOrigin` has to be set *before* `src`, because it selects the mode
 	 * the resource is fetched in. Setting it afterwards was the cause of two
 	 * separate bugs: it invalidated the already-loaded resource, so seeking
 	 * restarted the track from zero, and the analyser could never attach to
 	 * the track that was actually playing.
-	 * @param {HTMLAudioElement} el
+	 * @param {HTMLAudioElement} wired
+	 * @param {HTMLAudioElement} plain
 	 * @param {string} url
 	 */
-	function loadTrack(el, url) {
+	function loadTrack(wired, plain, url) {
 		loadedUrl = url;
+		const refused = corsDenied.has(originOf(url));
+		loadedInto = refused ? 'plain' : 'wired';
+		releaseElement(refused ? wired : plain);
+		const el = refused ? plain : wired;
 		// `null` rather than '' removes the attribute, which is the "no CORS"
-		// mode; '' is treated as "anonymous".
-		el.crossOrigin = corsDenied.has(originOf(url)) ? null : 'anonymous';
+		// mode; '' is treated as "anonymous". `plainEl` never has it set.
+		el.crossOrigin = refused ? null : 'anonymous';
 		el.src = url;
 		elapsed = 0;
 		duration = 0;
@@ -274,45 +334,49 @@
 
 	$effect(() => {
 		const track = current;
-		const el = audioEl;
-		if (!el) return;
+		const wired = audioEl;
+		const plain = plainEl;
+		if (!wired || !plain) return;
 		if (!track) {
-			// The player chrome can disappear without replacing this element.
+			// The player chrome can disappear without replacing these elements.
 			// Explicitly release the previous resource at that session boundary,
-			// while preserving the element and its Web Audio graph for the next
-			// queue. Replacing the element would strand volume changes on the old
+			// while preserving the elements and the Web Audio graph for the next
+			// queue. Replacing `audioEl` would strand volume changes on the old
 			// MediaElementAudioSourceNode and GainNode.
 			if (loadedUrl) {
-				el.pause();
-				el.removeAttribute('src');
-				el.load();
+				releaseElement(wired);
+				releaseElement(plain);
 				loadedUrl = '';
 				elapsed = 0;
 				duration = 0;
 			}
 			return;
 		}
-		if (track.url !== loadedUrl) loadTrack(el, track.url);
+		if (track.url !== loadedUrl) loadTrack(wired, plain, track.url);
 	});
 
 	/**
 	 * A host that will not serve the file in CORS mode fails the load
 	 * outright (`MEDIA_ELEMENT_ERROR`, code 4, measured against Bandcamp).
 	 * Rather than probing every host in advance to avoid this, learn it here
-	 * and reload once without CORS. The cost lands only on hosts that refuse,
-	 * only on their first track, and it costs them the reactive background
-	 * rather than their audio.
+	 * and move the track to `plainEl`. The cost lands only on hosts that
+	 * refuse, and it costs them the reactive background rather than their
+	 * audio.
+	 *
+	 * Only `audioEl` reports here. A track that fails on `plainEl` fails
+	 * without CORS too, so there is nothing left to retry.
 	 */
 	function handleMediaError() {
-		const el = audioEl;
-		if (!el || !current) return;
+		const wired = audioEl;
+		const plain = plainEl;
+		if (!wired || !plain || !current || loadedInto !== 'wired') return;
 		const origin = originOf(current.url);
-		if (el.crossOrigin !== 'anonymous' || corsDenied.has(origin)) return;
+		if (corsDenied.has(origin)) return;
 
 		corsDenied.add(origin);
-		const wasPlaying = audioPlayerStore.playing;
-		loadTrack(el, current.url);
-		if (wasPlaying) el.play().catch(() => audioPlayerStore.setPlaying(false));
+		// No explicit play(): moving the track changes `activeEl`, so the
+		// playback effect below re-runs against `plainEl` with the same intent.
+		loadTrack(wired, plain, current.url);
 	}
 
 	// Playback intent is state, not an imperative call, so the store can be
@@ -347,8 +411,11 @@
 	// decides the dependency set forever, and the preview would never release
 	// the main element. That exact trap has already cost this codebase a
 	// silently-disabled drag handler.
+	//
+	// It targets `activeEl`, so moving a track between elements (see
+	// `handleMediaError`) re-runs it against the element the track now lives in.
 	$effect(() => {
-		const el = audioEl;
+		const el = activeEl;
 		const wantPlaying = audioPlayerStore.playing;
 		const track = current;
 		const suspended = previewing;
@@ -363,7 +430,12 @@
 					playbackGain = value;
 					applyMainLevel(el);
 				},
-				() => audioPlayerStore.setPlaying(false)
+				() => {
+					// A CORS refusal rejects `audioEl`'s pending play() just after
+					// the error that moved the track to `plainEl`. That is the old
+					// element failing, not the track, so it must not stop playback.
+					if (untrack(() => activeEl) === el) audioPlayerStore.setPlaying(false);
+				}
 			)
 		);
 	});
@@ -379,18 +451,20 @@
 		// Past three seconds, Previous restarts the track rather than leaving
 		// it, which is what every other transport does and what people expect
 		// from a button in this position.
-		if (audioEl && audioEl.currentTime > 3) {
-			audioEl.currentTime = 0;
+		const el = activeEl;
+		if (el && el.currentTime > 3) {
+			el.currentTime = 0;
 			return;
 		}
 		audioPlayerStore.prev();
-		if (audioEl) audioEl.currentTime = 0;
+		// Read again: going back a track can move playback to the other element.
+		if (activeEl) activeEl.currentTime = 0;
 	}
 
 	/** @param {Event} event */
 	function handleSeek(event) {
 		const value = Number(/** @type {HTMLInputElement} */ (event.currentTarget).value);
-		if (audioEl && Number.isFinite(value)) audioEl.currentTime = value;
+		if (activeEl && Number.isFinite(value)) activeEl.currentTime = value;
 	}
 
 	// Volume is not the queue's business (see audioPlayerStore's own note), but
@@ -431,7 +505,9 @@
 	/** @param {HTMLAudioElement} el */
 	function applyMainLevel(el) {
 		const value = (muted ? 0 : volume) * duckGain * playbackGain;
-		if (isGraphWired && gainNode && audioCtx) {
+		// Only `audioEl` is ever routed through the graph; `plainEl` is always
+		// attenuated directly.
+		if (isGraphWired && el === wiredEl && gainNode && audioCtx) {
 			// Once the element is routed through Web Audio, its own `.volume`
 			// still attenuates everything downstream in the graph — the
 			// analyser included — because a MediaElementAudioSourceNode keeps
@@ -453,7 +529,7 @@
 	}
 
 	$effect(() => {
-		if (audioEl) applyMainLevel(audioEl);
+		if (activeEl) applyMainLevel(activeEl);
 	});
 
 	// Drives the duck in both directions. Reads `duckGain` through `untrack`
@@ -463,7 +539,7 @@
 	// rather than jumping.
 	$effect(() => {
 		const active = previewing;
-		const el = audioEl;
+		const el = activeEl;
 		if (!el) return;
 
 		duckRamp?.cancel();
@@ -764,7 +840,16 @@
 		const el = audioEl;
 		const track = current;
 		const isPlaying = audioPlayerStore.playing;
+		const onPlain = loadedInto === 'plain';
 		if (!el || !track) return;
+		if (onPlain) {
+			// A refusing host's track cannot be analysed. Stop the loop rather
+			// than let it keep reporting silence from the idle graph, which
+			// would read as "active and quiet" instead of "not reacting".
+			cancelAnimationFrame(rafId);
+			audioLevelStore.reset();
+			return;
+		}
 		if (!isPlaying) return;
 		audioCtx?.resume().catch(() => {});
 		ensureAnalysis(el);
@@ -972,12 +1057,25 @@
 	bind:this={audioEl}
 	data-main-player-audio
 	preload="metadata"
-	ontimeupdate={() => (elapsed = audioEl?.currentTime ?? 0)}
-	onloadedmetadata={() => (duration = audioEl?.duration ?? 0)}
+	ontimeupdate={(e) => isActive(e) && (elapsed = audioEl?.currentTime ?? 0)}
+	onloadedmetadata={(e) => isActive(e) && (duration = audioEl?.duration ?? 0)}
 	onerror={handleMediaError}
-	onended={handleTrackEnded}
-	onplay={() => !previewing && audioPlayerStore.setPlaying(true)}
-	onpause={() => !previewing && audioPlayerStore.setPlaying(false)}
+	onended={(e) => isActive(e) && handleTrackEnded()}
+	onplay={(e) => isActive(e) && !previewing && audioPlayerStore.setPlaying(true)}
+	onpause={(e) => isActive(e) && !previewing && audioPlayerStore.setPlaying(false)}
+></audio>
+
+<!-- Tracks from hosts that refuse CORS play here instead; see `plainEl`.
+     Mounted for the same reason as the element above, and never wired. -->
+<audio
+	bind:this={plainEl}
+	data-main-player-audio-plain
+	preload="metadata"
+	ontimeupdate={(e) => isActive(e) && (elapsed = plainEl?.currentTime ?? 0)}
+	onloadedmetadata={(e) => isActive(e) && (duration = plainEl?.duration ?? 0)}
+	onended={(e) => isActive(e) && handleTrackEnded()}
+	onplay={(e) => isActive(e) && !previewing && audioPlayerStore.setPlaying(true)}
+	onpause={(e) => isActive(e) && !previewing && audioPlayerStore.setPlaying(false)}
 ></audio>
 
 <!-- The preview element is playback infrastructure, not player chrome.

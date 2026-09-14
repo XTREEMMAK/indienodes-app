@@ -1064,16 +1064,53 @@ function headerValue(headers, name) {
   return '';
 }
 
+// A content type that says only "these are bytes", which is the server
+// declining to answer rather than an answer of "not an image". nginx carried
+// no `image/avif` in mime.types until 1.25, so a creator whose host is a
+// release or two behind serves a perfectly good cover as octet-stream --
+// which is how https://pages.kjnet.us/.../profile.avif came to be refused.
+const GENERIC_TYPES = ['application/octet-stream', 'binary/octet-stream', 'application/binary'];
+
 // 'ok' | 'html' | 'not_image', or '' when the response carries no content type
-// to judge by. The content type is the whole test: a `.png` in the path is
-// not evidence, and a reader page is served as text/html whatever its URL
-// looks like.
+// worth judging by -- none at all, or one of GENERIC_TYPES. A declared type is
+// still the first test: a `.png` in the path is not evidence, and a reader page
+// is served as text/html whatever its URL looks like.
 function mediaTypeVerdict(contentType, kind) {
   const t = (contentType || '').split(';')[0].trim().toLowerCase();
   if (!t) return '';
   if (t === 'text/html' || t === 'application/xhtml+xml') return 'html';
   if (/^image\/[a-z0-9.+-]+$/.test(t)) return 'ok';
   if (kind === 'preview' && /^video\/[a-z0-9.+-]+$/.test(t)) return 'ok';
+  if (GENERIC_TYPES.indexOf(t) !== -1) return '';
+  return 'not_image';
+}
+
+// `nosniff` makes a browser take the declared type at its word, so bytes
+// declared as anything but an image will not render in an <img> however good
+// they are. Nothing to look at: that link really is broken.
+function sniffBlocked(headers) {
+  return headerValue(headers, 'x-content-type-options').trim().toLowerCase() === 'nosniff';
+}
+
+// What the first bytes say, for the URLs mediaTypeVerdict left at ''. Markers
+// are searched for rather than read at a fixed offset: the body reaches this
+// node as text, so any byte that is not valid UTF-8 becomes one U+FFFD and
+// shifts everything after it. Every format the form accepts carries an ASCII
+// marker in its opening bytes, which survives that decode intact.
+function sniffMediaVerdict(body, kind) {
+  const head = (typeof body === 'string' ? body : '').slice(0, 256);
+  if (!head) return 'not_image';
+  if (/<svg[\s>]/i.test(head)) return 'ok';
+  if (/<(!doctype\s|html[\s>]|\?xml)/i.test(head)) return 'html';
+  // AVIF and HEIF are ISO base media files: a `ftyp` box naming the brand.
+  const brand = (/ftyp([\x20-\x7E]{4})/.exec(head) || [])[1] || '';
+  if (/^(avif|avis|heic|heix|heim|heis|mif1|msf1)/.test(brand)) return 'ok';
+  // PNG's signature, GIF87a/GIF89a, JPEG's APP0/APP1 marker, RIFF....WEBP.
+  if (/PNG\r\n|GIF8[79]a|JFIF|Exif|RIFF[\s\S]{0,8}WEBP/.test(head)) return 'ok';
+  if (kind === 'preview') {
+    if (/^(isom|iso[2-6]|mp4[12]|avc1|M4V |qt  )/.test(brand)) return 'ok';
+    if (head.indexOf('webm') !== -1 || head.indexOf('matroska') !== -1) return 'ok';
+  }
   return 'not_image';
 }
 """.strip()
@@ -1118,9 +1155,12 @@ def wf_media_check(ctx):
     public https URL.
 
     HEAD first; a ranged GET only when HEAD is refused or answers without a
-    content type. The HTTP Request node has no response-size cap, so a server
-    that ignores Range can still send a whole file to that fallback; the short
-    timeout bounds it.
+    content type worth judging by -- no type, or a generic binary one. That GET
+    decides on the declared type where there is one and on the file's opening
+    bytes where there is not, so an AVIF from a host whose mime.types predates
+    `image/avif` is still recognised as the image it is. The HTTP Request node
+    has no response-size cap, so a server that ignores Range can still send a
+    whole file to that fallback; the short timeout bounds it.
     """
     validate_js = r"""
 %(safe_url_js)s
@@ -1182,7 +1222,10 @@ const status = Number(res.statusCode);
 if (status >= 300 && status < 400) return decided('redirect');
 if (status >= 200 && status < 300) {
   const verdict = mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind);
-  return verdict ? decided(verdict) : fallback();
+  if (verdict) return decided(verdict);
+  // No usable type. The bytes can settle it -- unless the server has forbidden
+  // the browser from looking at them too, in which case there is no point.
+  return sniffBlocked(res.headers) ? decided('not_image') : fallback();
 }
 // Plenty of hosts refuse HEAD, or answer it differently from GET.
 if ([400, 403, 405, 406, 501].indexOf(status) !== -1) return fallback();
@@ -1201,7 +1244,11 @@ const status = Number(res.statusCode);
 if (status >= 300 && status < 400) return verdict('redirect');
 // 206 is the answer to the Range header; 200 is a server that ignored it.
 if (status >= 200 && status < 300) {
-  return verdict(mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind) || 'not_image');
+  const declared = mediaTypeVerdict(headerValue(res.headers, 'content-type'), kind);
+  if (declared) return verdict(declared);
+  if (sniffBlocked(res.headers)) return verdict('not_image');
+  // A `responseFormat: 'text'` node puts the body under `data`, not `body`.
+  return verdict(sniffMediaVerdict(res.data, kind));
 }
 return verdict('unreachable');
 """ % {"media_type_js": MEDIA_TYPE_JS}

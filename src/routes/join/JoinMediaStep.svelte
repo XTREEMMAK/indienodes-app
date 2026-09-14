@@ -18,6 +18,8 @@
 	let { canAdvance, onBack, onNext } = $props();
 
 	import FormField from '../../components/FormField.svelte';
+	import TrackPlaybackCheck from '../../components/TrackPlaybackCheck.svelte';
+	import AudioHostingHelp from './AudioHostingHelp.svelte';
 	import ArtworkMetadataFields from '../../components/ArtworkMetadataFields.svelte';
 	import TextSampleEditor from '../../components/TextSampleEditor.svelte';
 	import {
@@ -54,49 +56,6 @@
 
 	/** The generated-page branch caps works at the same three tracks do. */
 	const MAX_WORKS = MAX_TRACKS;
-
-	// Moved here from JoinEntryStep.svelte: this is what a musician is actually
-	// deciding when they reach this step (bundle vs. link out, and if linking
-	// out, to where), not back at the step that only asks what kind of work
-	// this is. The gate is still just `entry.type === 'audio'`.
-	const HOSTING = [
-		{
-			host: 'archive.org',
-			plays: 'Yes',
-			level: 'yes',
-			why: 'Free, permanent, built for this, and sends the cross-origin header. The standing recommendation.'
-		},
-		{
-			host: 'File Garden',
-			plays: 'Yes',
-			level: 'yes',
-			why: 'Direct file links allow cross-origin playback, so tracks can join the queue here.'
-		},
-		{
-			host: 'Your own site',
-			plays: 'Yes',
-			level: 'yes',
-			why: 'As long as the file is served with an Access-Control-Allow-Origin header.'
-		},
-		{
-			host: 'Bandcamp',
-			plays: 'No',
-			level: 'no',
-			why: 'Its direct audio URLs expire within about a day. The embedded player never expires, but cannot tell this site when a track ends, so it cannot take part in a queue.'
-		},
-		{
-			host: 'YouTube',
-			plays: 'No',
-			level: 'no',
-			why: 'Its terms prohibit playing a video’s audio on its own, and its embed brings ads and tracking this project does not put on your visitors.'
-		},
-		{
-			host: 'Spotify, Apple Music, SoundCloud',
-			plays: 'No',
-			level: 'no',
-			why: 'Platform players cannot hand a file to this site. Link out with source_url instead.'
-		}
-	];
 
 	/**
 	 * Whether the no-site "host it separately" choice already has something to
@@ -335,6 +294,24 @@
 			<!-- eslint-disable svelte/no-navigation-without-resolve -- external provider sites -->
 			<div class="hosting-rows">
 				<div class="hosting-row">
+					<img src="/images/hosting/file-garden.png" alt="" width="44" height="44" />
+					<div class="hosting-row-body">
+						<p class="hosting-row-title">File Garden</p>
+						<p class="note">
+							<strong>The easy one.</strong> Free direct file hosting that already allows cross-origin
+							playback, so your tracks drive the reactive background with nothing to set up. Pair it with
+							Neocities or any other host for the page itself.
+						</p>
+					</div>
+					<a
+						class="hosting-row-link"
+						href={FILE_GARDEN_URL}
+						target="_blank"
+						rel="noopener noreferrer"
+						aria-label="Visit File Garden"><span aria-hidden="true">&rarr;</span></a
+					>
+				</div>
+				<div class="hosting-row">
 					<img src="/images/hosting/neocities.png" alt="" width="44" height="44" />
 					<div class="hosting-row-body">
 						<p class="hosting-row-title">Neocities</p>
@@ -349,23 +326,6 @@
 						target="_blank"
 						rel="noopener noreferrer"
 						aria-label="Visit Neocities"><span aria-hidden="true">&rarr;</span></a
-					>
-				</div>
-				<div class="hosting-row">
-					<img src="/images/hosting/file-garden.png" alt="" width="44" height="44" />
-					<div class="hosting-row-body">
-						<p class="hosting-row-title">File Garden</p>
-						<p class="note">
-							Free direct file hosting for your audio. Pair it with Neocities or any other host for
-							the page itself.
-						</p>
-					</div>
-					<a
-						class="hosting-row-link"
-						href={FILE_GARDEN_URL}
-						target="_blank"
-						rel="noopener noreferrer"
-						aria-label="Visit File Garden"><span aria-hidden="true">&rarr;</span></a
 					>
 				</div>
 				<div class="hosting-row">
@@ -439,6 +399,7 @@
 						/>
 					{/snippet}
 				</FormField>
+				<TrackPlaybackCheck url={track.media_url} label="track {i + 1}" />
 				<button type="button" class="clear-button" onclick={() => removeTrack(track.uid)}>
 					Remove track {i + 1}
 				</button>
@@ -718,6 +679,7 @@
 					/>
 				{/snippet}
 			</FormField>
+			<TrackPlaybackCheck url={track.media_url} label="track {i + 1}" />
 			<button type="button" class="clear-button" onclick={() => removeTrack(track.uid)}>
 				Remove track {i + 1}
 			</button>
@@ -952,34 +914,11 @@
 {/if}
 
 {#if entry.type === 'audio'}
-	<details class="help musician-help">
-		<summary>Musicians: what makes a track actually playable here</summary>
-		<p>
-			A track plays here only when its link points at a direct audio file at a host that allows
-			cross-origin requests. That is what lets it join the queue, hand over to the next track when
-			it ends, and drive the animated background.
-		</p>
-		<div class="table-scroll">
-			<table>
-				<thead>
-					<tr>
-						<th scope="col">Where your audio lives</th>
-						<th scope="col">Plays here</th>
-						<th scope="col">Why</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each HOSTING as row (row.host)}
-						<tr>
-							<th scope="row">{row.host}</th>
-							<td><span class="req" data-req={row.level}>{row.plays}</span></td>
-							<td>{row.why}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	</details>
+	<!-- Moved here from JoinEntryStep.svelte: this is what a musician is
+	     actually deciding when they reach this step (bundle vs. link out, and if
+	     linking out, to where), not back at the step that only asks what kind of
+	     work this is. -->
+	<AudioHostingHelp />
 {/if}
 
 <div class="actions">

@@ -20,10 +20,13 @@
  * - No attribute, analyser attached anyway: every frequency bin reads 0,
  *   which is the same silence the visitor would get.
  *
- * So the player probes for CORS support *before* wiring anything up, and
- * leaves the audio path completely untouched when the probe fails. A
- * reactive background is a nice-to-have; audible music is the product. See
- * `docs/decisions.md`.
+ * So the player tries CORS mode first and, for a host that refuses, moves the
+ * track to a second audio element that is never wired into Web Audio (see
+ * `plainEl` in `AudioPlayer.svelte`). It has to be a second element: once one
+ * has been wired, anything it loads without CORS comes out as zeros. Those
+ * tracks simply don't drive this store. A reactive background is a key part
+ * of the experience, and `/join` steers creators to hosts that allow it, but
+ * audible music is the product. See `docs/decisions.md`.
  */
 
 function createAudioLevelStore() {

@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-14
+
+A release about media from creators' own hosts. Tracks from a host that doesn't send a CORS header
+could play as silence, and a real AVIF cover served with a generic binary content type was refused
+as not an image. Both now work, and `/join` tells a musician before they submit whether their host
+will drive the reactive background, with the setup to fix it if not.
+
+### Added
+
+- **"Check this track" on the `/join` media step.** Under each track link, it loads the file the
+  way the player will and says whether the track will drive the reactive background, only play,
+  or not load at all. It runs in the creator's own browser, since CORS is enforced by the browser
+  for this site's origin and no backend request could answer it faithfully.
+- **Hosting guidance for the reactive background.** The musicians' hosting table gains a
+  "Reactive background" column and recommends File Garden, which sends the header with nothing to
+  set up; archive.org, Neocities and GitHub Pages were confirmed to send it too. Self-hosters get
+  copy-paste setups for Apache, nginx, Caddy, and Netlify/Cloudflare Pages, including the two traps
+  hit setting it up for `pages.kjnet.us`: an nginx regex location needs its own `root`, and a CDN
+  keeps serving old copies until purged.
+
+### Fixed
+
+- **Tracks from hosts that refuse CORS could play silently.** Once any track had wired the player
+  into Web Audio, a later track from a host without `Access-Control-Allow-Origin` was reloaded
+  into that same element and came out as silence ("MediaElementAudioSource outputs zeroes due to
+  CORS access restrictions"). Those tracks now play on a second audio element that is never wired.
+  Tracks from hosts that send the header drive the reactive background exactly as before.
+- **Real images served as `application/octet-stream` were refused.** Hosts whose nginx
+  `mime.types` predates `image/avif` serve AVIF covers with a generic binary type, which the media
+  check rejected outright (a `pages.kjnet.us` cover, n8n execution 48049). A generic binary type
+  now defers to the ranged GET, which recognizes AVIF/HEIF, PNG, GIF, JPEG, WebP and SVG (plus
+  MP4/WebM for game previews) by their opening bytes. A `nosniff` header still refuses, since no
+  browser would render it. The first version of this read the response body from the wrong field
+  and still refused the same cover; that was fixed before release.
+
 ## [1.7.0] - 2026-09-12
 
 A release about what the submission pipeline lets through. The first public submissions after

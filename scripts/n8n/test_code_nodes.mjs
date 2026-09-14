@@ -1713,8 +1713,16 @@ const getVerdict = (res, kind = 'image') =>
 		'not_image'
 	);
 	check(
-		'HEAD octet-stream is not an image',
-		headVerdict(ct('application/octet-stream')).verdict,
+		'HEAD octet-stream defers to the bytes',
+		headVerdict(ct('application/octet-stream')).decided,
+		'no'
+	);
+	check(
+		'HEAD octet-stream with nosniff is not an image',
+		headVerdict({
+			statusCode: 200,
+			headers: { 'content-type': 'application/octet-stream', 'x-content-type-options': 'nosniff' }
+		}).verdict,
 		'not_image'
 	);
 	check('HEAD video/mp4 is not an image field', headVerdict(ct('video/mp4')).verdict, 'not_image');
@@ -1760,9 +1768,89 @@ const getVerdict = (res, kind = 'image') =>
 		'html'
 	);
 	check(
-		'GET 200 with no content type is not an image',
+		'GET 200 with no content type and no body is not an image',
 		getVerdict({ statusCode: 200, headers: {} }),
 		'not_image'
+	);
+
+	// A host whose mime.types predates `image/avif` serves a real AVIF as
+	// octet-stream. The declared type says nothing, so the bytes decide.
+	const sniff = (bytes, ct, kind = 'image', extra = {}) =>
+		getVerdict(
+			{
+				statusCode: 206,
+				headers: Object.assign(ct ? { 'content-type': ct } : {}, extra),
+				data: Buffer.from(bytes, 'hex').toString('utf8')
+			},
+			kind
+		);
+	const AVIF_HEAD = '00000020667479706176696600000000617669666d6966316d696166';
+	check(
+		'GET octet-stream AVIF bytes are an image',
+		sniff(AVIF_HEAD, 'application/octet-stream'),
+		'ok'
+	);
+	check('GET AVIF bytes with no declared type are an image', sniff(AVIF_HEAD, ''), 'ok');
+	check(
+		'GET AVIF bytes behind nosniff are still refused',
+		sniff(AVIF_HEAD, 'application/octet-stream', 'image', { 'x-content-type-options': 'nosniff' }),
+		'not_image'
+	);
+	check(
+		'GET octet-stream PNG bytes are an image',
+		sniff('89504e470d0a1a0a0000000d49484452', 'application/octet-stream'),
+		'ok'
+	);
+	check(
+		'GET octet-stream GIF bytes are an image',
+		sniff('4749463839610100010080000000', 'application/octet-stream'),
+		'ok'
+	);
+	check(
+		'GET octet-stream WebP bytes are an image',
+		sniff('52494646241000005745425056503820', 'application/octet-stream'),
+		'ok'
+	);
+	check(
+		'GET octet-stream JPEG bytes are an image',
+		sniff('ffd8ffe000104a46494600010100', 'application/octet-stream'),
+		'ok'
+	);
+	check(
+		'GET octet-stream over a zip is not an image',
+		sniff('504b0304140000000800', 'application/octet-stream'),
+		'not_image'
+	);
+	check(
+		'GET octet-stream over HTML is a web page',
+		getVerdict({
+			statusCode: 200,
+			headers: { 'content-type': 'application/octet-stream' },
+			data: '<!doctype html><title>Cover</title>'
+		}),
+		'html'
+	);
+	check(
+		'GET octet-stream MP4 bytes are not an image field',
+		sniff('0000001c6674797069736f6d0000020069736f6d', 'application/octet-stream'),
+		'not_image'
+	);
+	check(
+		'GET octet-stream MP4 bytes are fine for a preview',
+		sniff('0000001c6674797069736f6d0000020069736f6d', 'application/octet-stream', 'preview'),
+		'ok'
+	);
+	// Captured from execution 48049: pages.kjnet.us's real profile.avif, which
+	// was refused while the sniffing read `res.body` and n8n sent `res.data`.
+	check(
+		'GET real n8n envelope for an octet-stream AVIF is an image',
+		getVerdict({
+			statusCode: 206,
+			statusMessage: 'Partial Content',
+			headers: { 'content-type': 'application/octet-stream' },
+			data: Buffer.from(AVIF_HEAD, 'hex').toString('utf8')
+		}),
+		'ok'
 	);
 	check('GET 403 is unreachable', getVerdict({ statusCode: 403, headers: {} }), 'unreachable');
 	check('GET transport error is unreachable', getVerdict({ error: 'ECONNRESET' }), 'unreachable');
@@ -1798,6 +1886,11 @@ const getVerdict = (res, kind = 'image') =>
 			'1f15c4890000000d49444154789c6360000000000200015e27d1c20000000049454e44ae426082',
 		'hex'
 	);
+	// The first 32 bytes of an AVIF: the `ftyp` box naming the `avif` brand.
+	const AVIF = Buffer.from(
+		'00000020667479706176696600000000617669666d6966316d696166000000ec',
+		'hex'
+	);
 	const server = http.createServer((req, res) => {
 		const path = req.url.split('?')[0];
 		if (path === '/suzu-and-jack/') {
@@ -1821,6 +1914,19 @@ const getVerdict = (res, kind = 'image') =>
 			res.writeHead(ranged ? 206 : 200, { 'content-type': 'image/webp' });
 			return res.end(PNG.subarray(0, 8));
 		}
+		// A host whose mime.types has no `image/avif`: a real AVIF, served as bytes.
+		if (path === '/old-nginx/profile.avif') {
+			res.writeHead(200, { 'content-type': 'application/octet-stream' });
+			return res.end(req.method === 'HEAD' ? undefined : AVIF);
+		}
+		// The same file behind nosniff, which no browser will render as an image.
+		if (path === '/nosniff/profile.avif') {
+			res.writeHead(200, {
+				'content-type': 'application/octet-stream',
+				'x-content-type-options': 'nosniff'
+			});
+			return res.end(req.method === 'HEAD' ? undefined : AVIF);
+		}
 		if (path === '/no-head/reader') {
 			if (req.method === 'HEAD') {
 				res.writeHead(405);
@@ -1837,8 +1943,18 @@ const getVerdict = (res, kind = 'image') =>
 	const envelope = async (method, url, headers = {}) => {
 		try {
 			const r = await fetch(url, { method, headers, redirect: 'manual' });
-			await r.arrayBuffer();
-			return { statusCode: r.status, headers: Object.fromEntries(r.headers) };
+			// `responseFormat: 'text'` is what the helper's HTTP Request nodes ask
+			// for, so a binary body reaches the Code node UTF-8 decoded, U+FFFD and
+			// all -- which is exactly what the byte sniffing has to cope with. With
+			// `fullResponse` n8n puts that text under `data`, not `body`: the shape
+			// here is copied from a real execution of the helper.
+			const data = Buffer.from(await r.arrayBuffer()).toString('utf8');
+			return {
+				statusCode: r.status,
+				statusMessage: r.statusText,
+				headers: Object.fromEntries(r.headers),
+				data
+			};
 		} catch (e) {
 			return { error: String(e) };
 		}
@@ -1875,6 +1991,14 @@ const getVerdict = (res, kind = 'image') =>
 		'real HTTP: a missing image is unreachable',
 		(await probe(`${base}/missing.png`)).verdict,
 		'unreachable'
+	);
+	const avif = await probe(`${base}/old-nginx/profile.avif`, 'thumb_url');
+	check('real HTTP: an AVIF served as octet-stream is accepted', avif.ok, 'yes');
+	check('real HTTP: the octet-stream AVIF verdict', avif.verdict, 'ok');
+	check(
+		'real HTTP: nosniff over octet-stream is refused without a second request',
+		(await probe(`${base}/nosniff/profile.avif`, 'thumb_url')).verdict,
+		'not_image'
 	);
 	server.close();
 }
