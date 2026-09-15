@@ -223,6 +223,13 @@ test('c: ambient plays through the real queue and appends as it goes', async ({ 
 		.click();
 	await expect(rows).toHaveCount(afterAppend - 1);
 	const swipeRow = rows.last();
+	// The sheet itself re-plays its own 240ms slide-in transition every time
+	// it reopens (`transition:slide` in AmbientPlaylistSheet.svelte), and
+	// `boundingBox()` has no actionability wait the way `click()` does -- it
+	// happily measures a row mid-slide. `hover()` performs the same
+	// stability check `click()` does, without side effects, so the box below
+	// is read after the row has actually stopped moving.
+	await swipeRow.hover();
 	const swipeBox = await swipeRow.boundingBox();
 	expect(swipeBox).not.toBeNull();
 	await page.mouse.move(swipeBox.x + swipeBox.width - 8, swipeBox.y + swipeBox.height / 2);

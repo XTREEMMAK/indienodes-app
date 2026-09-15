@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-15
+
+A fix-only follow-up to 1.8.0, which never actually published an image — its CI run failed
+before `build-and-push` ever started.
+
+### Fixed
+
+- **A view-controls test still expected two buttons in Ambient's view dock**; 1.8.0 added a
+  third (the manual fullscreen toggle) without updating it.
+- **A swipe-to-delete test in Ambient's playlist was flaky in a way 1.8.0 made far more
+  likely to hit.** The playlist sheet replays its own slide-in transition every time it
+  reopens, and the test measured the swipe target's position without waiting for that
+  transition to finish — occasionally landing mid-slide. Confirmed as a real regression by
+  comparing failure rates against 1.7.4 before fixing it, rather than assuming pre-existing
+  flakiness.
+
 ## [1.8.0] - 2026-09-15
 
 Field Mode gains per-node rotation control and named, switchable workspaces; Ambient Mode's
