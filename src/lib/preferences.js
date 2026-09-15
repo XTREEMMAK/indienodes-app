@@ -21,6 +21,9 @@ import { ENTRY_TYPES } from './submissionValidation.js';
  *   false excludes that type from both the visual rotation and, for audio,
  *   the sound dock. This is a deliberate, documented exception to Ambient's
  *   usual no-filter rule (see decisions.md).
+ * @property {'field' | 'ambient'} startupMode Which mode the app opens into.
+ *   Field by default, since Ambient plays audio and a visitor should choose
+ *   that rather than have it start under them on first load.
  */
 
 const STORAGE_KEY = STORAGE_KEYS.preferences.key;
@@ -73,7 +76,8 @@ const DEFAULT_PREFERENCES = {
 	// On by default; a listener who wants the listed order has to opt out.
 	randomizeAudioTracks: true,
 	rotationMs: { ...DEFAULT_ROTATION_MS },
-	ambientTypes: { ...DEFAULT_AMBIENT_TYPES }
+	ambientTypes: { ...DEFAULT_AMBIENT_TYPES },
+	startupMode: 'field'
 };
 
 /**
@@ -102,6 +106,7 @@ export function loadPreferences() {
 			randomizeAudioTracks: parsed?.randomizeAudioTracks !== false,
 			rotationMs: sanitizeRotation(parsed?.rotationMs),
 			ambientTypes: sanitizeAmbientTypes(parsed?.ambientTypes),
+			startupMode: parsed?.startupMode === 'ambient' ? 'ambient' : 'field',
 			version: VERSION
 		};
 	} catch {

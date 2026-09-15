@@ -615,14 +615,16 @@
 						index={nodes.findIndex((n) => n.id === node.id)}
 						rotating={canRotate(node) && !editMode}
 						{pageVisible}
-						intervalMs={preferencesStore.rotationFor(node.type)}
+						intervalMs={node.rotationOverrideMs ?? preferencesStore.rotationFor(node.type)}
 						onadvance={() => advance(node.id)}
 						aspect={`${node.w} / ${node.h}`}
 						{editMode}
 						nodeType={node.type}
 						nodeTags={node.tags}
+						nodeRotationOverrideMs={node.rotationOverrideMs}
 						onTypeChange={(type) => layoutStore.setType(node.id, type, ringStore.entries)}
 						onTagsChange={(tags) => layoutStore.setTags(node.id, tags)}
+						onRotationOverrideChange={(ms) => layoutStore.setRotationOverride(node.id, ms)}
 						onRemove={() => layoutStore.remove(node.id)}
 					/>
 				{:else}
@@ -640,8 +642,10 @@
 								nodeId={node.id}
 								nodeType={node.type}
 								nodeTags={node.tags}
+								nodeRotationOverrideMs={node.rotationOverrideMs}
 								onTypeChange={(type) => layoutStore.setType(node.id, type, ringStore.entries)}
 								onTagsChange={(tags) => layoutStore.setTags(node.id, tags)}
+								onRotationOverrideChange={(ms) => layoutStore.setRotationOverride(node.id, ms)}
 								onRemove={() => layoutStore.remove(node.id)}
 							/>
 						{/if}
@@ -676,6 +680,12 @@
 		   their own cell spans, so the container no longer has to constrain
 		   width to keep cards a sensible size. */
 		width: 100%;
+		/* Fills the page's own flex chain (main -> .page-transition) instead
+		   of shrink-wrapping to the grid's content height, so the field's
+		   oncontextmenu handler covers the full viewport below a short
+		   arrangement rather than only the space the placed nodes occupy. */
+		flex: 1;
+		min-height: 100%;
 	}
 
 	.empty-state {

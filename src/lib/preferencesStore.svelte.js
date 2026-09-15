@@ -105,6 +105,14 @@ function createPreferencesStore() {
 		toggleFitToView() {
 			this.setFitToView(!preferences.fitToView);
 		},
+		get startupMode() {
+			return preferences.startupMode;
+		},
+		/** @param {'field' | 'ambient'} mode */
+		setStartupMode(mode) {
+			preferences.startupMode = mode === 'ambient' ? 'ambient' : 'field';
+			savePreferences(preferences);
+		},
 		/** Applies the current theme and starts tracking `prefers-color-scheme`. */
 		init() {
 			applyTheme(preferences.theme);

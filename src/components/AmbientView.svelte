@@ -27,6 +27,7 @@
 	import { hideEntry, likeEntry } from '$lib/entryCuration.js';
 	import { filtersStore } from '$lib/filtersStore.svelte.js';
 	import { hiddenStore } from '$lib/hiddenStore.svelte.js';
+	import { detectNativeShell } from '$lib/installPromptStore.svelte.js';
 	import { journalStore } from '$lib/journalStore.svelte.js';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { coverImageUrl, isVisibleTo, stripHtml } from '$lib/ring.js';
@@ -38,6 +39,11 @@
 
 	let overlayEl = $state(/** @type {HTMLElement | null} */ (null));
 	let playlistEl = $state(/** @type {HTMLElement | null} */ (null));
+	// A Capacitor (or other native-shell) build is already full-bleed by the
+	// OS, so a manual fullscreen toggle would offer nothing there -- see
+	// `detectNativeShell`'s own comment. Computed once: whether this session
+	// is inside a native shell cannot change while it runs.
+	const isNativeShell = detectNativeShell();
 	let candidatePreviewEl = $state(/** @type {HTMLAudioElement | null} */ (null));
 	// The pick ambient offers while nothing is queued. Shown in the dock and
 	// queued only when the visitor presses play (or skips, or takes the
@@ -50,22 +56,26 @@
 	);
 	let visualEntry = $state(/** @type {import('$lib/ring.js').RingEntry | null} */ (null));
 	let sessionOpen = false;
-	let enteredFullscreen = false;
 	let optionsOpen = $state(false);
 	let playlistOpen = $state(false);
 	let interactionsOpen = $state(false);
 	let audioCardVisible = $state(true);
 	// Unobstructed mode: every piece of chrome steps out so the rotating visual
-	// is the whole screen. Distinct from the browser fullscreen this overlay
-	// already requests on entry, which removes the *browser's* furniture but
-	// leaves ours; this removes ours.
+	// is the whole screen.
+	//
+	// Not paired with the browser's own Fullscreen API (deliberately -- see
+	// docs/decisions.md): that API ties Escape to an unpreventable native
+	// exit with its own compositor-level transition, which fought every
+	// attempt to make Escape step out of a submenu without also fading the
+	// whole view, however carefully the timing was managed. The fixed,
+	// full-viewport overlay below (`.ambient-view`) is already this file's
+	// documented fallback for whenever fullscreen fails or is refused, so
+	// simply never requesting it here gets the same visual coverage with
+	// none of that.
 	let immersive = $state(false);
 	let immersiveHint = $state(false);
 	/** @type {ReturnType<typeof setTimeout> | undefined} */
 	let immersiveHintTimer = undefined;
-	// Set while we exit element-fullscreen on purpose, so the fullscreenchange
-	// listener below does not read that exit as the visitor leaving ambient.
-	let suppressFullscreenClose = false;
 	// A game's direct `preview_url` is a muted teaser. Its `trailer_url`, when
 	// present, is the click-to-play YouTube version; otherwise Ambient can still
 	// open the direct preview with controls. Both borrow the audio lane rather
@@ -397,31 +407,59 @@
 		}
 	}
 
+	// Manual, opt-in real fullscreen -- deliberately not the automatic,
+	// tightly-coupled version this file used to request on every open (see
+	// docs/decisions.md and `immersive`'s own comment above for why that was
+	// dropped). Kept fully decoupled from ambient's own open/close and
+	// submenu logic on purpose: a visitor who explicitly asked for
+	// fullscreen already expects the ordinary web convention that Escape
+	// exits it, and trying to make that coordinate with this file's own
+	// Escape handling is exactly the coupling that caused every fade/exit
+	// bug already fixed once. `isFullscreen` only ever drives this button's
+	// own icon; nothing else reads it.
+	let isFullscreen = $state(false);
+
+	function toggleFullscreen() {
+		if (document.fullscreenElement === overlayEl) {
+			document.exitFullscreen?.().catch(() => {});
+			return;
+		}
+		overlayEl?.requestFullscreen?.().catch(() => {
+			// Refused (most commonly iOS/embedded browsers): the fixed,
+			// full-viewport overlay this file already relies on everywhere
+			// else is a complete fallback, so there is nothing further to do.
+		});
+	}
+
+	$effect(() => {
+		if (!open || isNativeShell) return;
+		function handleFullscreenChange() {
+			isFullscreen = document.fullscreenElement === overlayEl;
+		}
+		document.addEventListener('fullscreenchange', handleFullscreenChange);
+		return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+	});
+
 	/**
 	 * Opens the full-screen reader on the current visual.
 	 *
 	 * The reader is mounted at the root layout, not inside this overlay, so it
-	 * is a *sibling* of the element holding browser fullscreen — and a
-	 * fullscreen element renders only itself and its descendants, which would
-	 * leave the reader invisible while ambient held it. Releasing fullscreen
-	 * first is what makes the reader reachable at all; the overlay itself is
-	 * `position: fixed` over the viewport, so ambient stays exactly where it
-	 * was underneath, and the reader offers its own fullscreen control.
+	 * is a *sibling* of whatever element might be holding real fullscreen --
+	 * and a fullscreen element renders only itself and its descendants, which
+	 * would leave the reader invisible if the visitor had switched on the
+	 * manual fullscreen toggle above. Releasing it first is what makes the
+	 * reader reachable in that case; ambient's own overlay is `position:
+	 * fixed` regardless, so ambient stays exactly where it was underneath
+	 * either way.
 	 */
-	async function openVisualViewer() {
+	function openVisualViewer() {
 		if (!visualEntry || !visualReadable) return;
 		const entry = visualEntry;
 		interactionsOpen = false;
 		optionsOpen = false;
 		playlistOpen = false;
-		if (document.fullscreenElement === overlayEl && document.exitFullscreen) {
-			suppressFullscreenClose = true;
-			try {
-				await document.exitFullscreen();
-			} catch {
-				// Refused: the fixed overlay was never depending on it.
-			}
-			suppressFullscreenClose = false;
+		if (document.fullscreenElement === overlayEl) {
+			document.exitFullscreen?.().catch(() => {});
 		}
 		// Opening the reader is the visitor choosing to actually look at the
 		// work, which is what the journal records elsewhere for the same action.
@@ -651,7 +689,7 @@
 		toggleLike(activeAudioEntry);
 	}
 
-	async function close() {
+	function close() {
 		optionsOpen = false;
 		playlistOpen = false;
 		interactionsOpen = false;
@@ -662,12 +700,11 @@
 		clearTimeout(visualTapTimer);
 		clearTimeout(immersiveHintTimer);
 		clearTimeout(nowPlayingTimer);
-		if (document.fullscreenElement === overlayEl && document.exitFullscreen) {
-			try {
-				await document.exitFullscreen();
-			} catch {
-				// The fixed overlay is still a complete fallback if exit is refused.
-			}
+		// The one case a fullscreen exit's native transition is actually
+		// wanted: leaving ambient for the field behind it, not merely closing
+		// a submenu (see the manual toggle's own comment above).
+		if (document.fullscreenElement === overlayEl) {
+			document.exitFullscreen?.().catch(() => {});
 		}
 		onClose?.();
 	}
@@ -675,7 +712,6 @@
 	$effect(() => {
 		if (open && !sessionOpen) {
 			sessionOpen = true;
-			enteredFullscreen = false;
 			visualHistory = [];
 			interactionsOpen = false;
 			audioCardVisible = true;
@@ -694,16 +730,6 @@
 
 			const originalOverflow = document.body.style.overflow;
 			document.body.style.overflow = 'hidden';
-			tick().then(async () => {
-				if (!open || !overlayEl?.requestFullscreen) return;
-				try {
-					await overlayEl.requestFullscreen();
-					enteredFullscreen = true;
-				} catch {
-					// iOS and embedded browsers commonly refuse element fullscreen;
-					// the fixed, full-viewport overlay is the documented fallback.
-				}
-			});
 
 			return () => {
 				document.body.style.overflow = originalOverflow;
@@ -847,18 +873,74 @@
 		});
 	});
 
+	// Escape closes whichever action-bar submenu is open first, and only
+	// exits ambient entirely once none of them are. Without this, Escape did
+	// nothing at all here (no keydown listener previously existed), which
+	// read as broken next to every other popup in the app (ArrangeMenu,
+	// NodeConfig) closing on Escape.
+	//
+	// This used to also have to account for the browser's real Fullscreen
+	// API forcing itself closed on Escape -- unpreventable from JS, tied to
+	// an OS-level transition that can't be suppressed, and not ordered
+	// consistently against this very keydown event. Ambient no longer
+	// requests real fullscreen at all (see `immersive`'s own comment above),
+	// so there is no native exit racing this handler any more: whatever is
+	// open right now, synchronously, is the whole answer.
 	$effect(() => {
 		if (!open) return;
-		function handleFullscreenChange() {
-			if (suppressFullscreenClose) return;
-			// The reader takes fullscreen for itself when opened from here, which
-			// is a handoff, not the visitor leaving ambient.
+		/** @param {KeyboardEvent} event */
+		function handleKeydown(event) {
+			if (event.key !== 'Escape') return;
+			// The comic/text reader owns Escape while it's open on top of
+			// ambient (see ComicViewer.svelte's own handler) -- without this,
+			// both reacted to the same keypress: the reader closed itself,
+			// and this fell through to the checks below right alongside it.
+			// Since `openVisualViewer()` clears every submenu flag before
+			// handing off, that always found nothing open and called
+			// `close()`, so one Escape closed the reader *and* exited ambient
+			// in the same breath.
 			if (comicViewerStore.open) return;
-			if (enteredFullscreen && !document.fullscreenElement) onClose?.();
+			if (optionsOpen) {
+				optionsOpen = false;
+				return;
+			}
+			if (playlistOpen) {
+				playlistOpen = false;
+				return;
+			}
+			if (interactionsOpen) {
+				interactionsOpen = false;
+				return;
+			}
+			close();
 		}
-		document.addEventListener('fullscreenchange', handleFullscreenChange);
-		return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+		document.addEventListener('keydown', handleKeydown);
+		return () => document.removeEventListener('keydown', handleKeydown);
 	});
+
+	// A small local-time clock, shown only on wide displays (see the
+	// `.ambient-clock` media query below) -- on a phone-width screen every
+	// corner is already earning its keep. Ticks every second while open; the
+	// interval is cleared the moment ambient closes rather than left running
+	// against a component that stays mounted the whole app session (see
+	// +layout.svelte).
+	let now = $state(new Date());
+	$effect(() => {
+		if (!open) return;
+		now = new Date();
+		const id = setInterval(() => {
+			now = new Date();
+		}, 1000);
+		return () => clearInterval(id);
+	});
+	const clockTime = $derived(
+		new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(now)
+	);
+	const clockZone = $derived(
+		new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+			.formatToParts(now)
+			.find((part) => part.type === 'timeZoneName')?.value ?? ''
+	);
 </script>
 
 {#if open}
@@ -1190,6 +1272,55 @@
 							/>
 						</svg>
 					</button>
+					{#if !isNativeShell}
+						<!-- Manual, opt-in real fullscreen -- browser/PWA only. A
+						     Capacitor build is already full-bleed by the OS, so
+						     this control would offer nothing there (see
+						     `isNativeShell`'s own comment). -->
+						<button
+							type="button"
+							class="sound-control"
+							class:active={isFullscreen}
+							onclick={toggleFullscreen}
+							aria-pressed={isFullscreen}
+							aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+							title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+						>
+							{#if isFullscreen}
+								<svg
+									viewBox="0 0 24 24"
+									width="20"
+									height="20"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<path
+										d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							{:else}
+								<svg
+									viewBox="0 0 24 24"
+									width="20"
+									height="20"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<path
+										d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							{/if}
+						</button>
+					{/if}
 					<button
 						type="button"
 						class="sound-control"
@@ -1207,6 +1338,19 @@
 						</svg>
 					</button>
 				</section>
+			</div>
+
+			<!-- Wide-display only (see the media query below): a phone-width
+			     screen has no spare corner for a clock, and the dock-row above
+			     it already claims the width a narrower viewport would otherwise
+			     offer. Hidden with the rest of the dock row during
+			     immersive/unobstructed view, same reasoning -- it's chrome, not
+			     the art. -->
+			<div class="ambient-clock glass-panel" aria-hidden="true">
+				<span class="ambient-clock-time">{clockTime}</span>
+				{#if clockZone}
+					<span class="ambient-clock-zone">{clockZone}</span>
+				{/if}
 			</div>
 		{/if}
 	</section>
@@ -1397,6 +1541,46 @@
 		width: min(46rem, calc(100% - 1.5rem));
 		/* Keep centering independent of flyFade's animated transform. */
 		translate: -50% 0;
+	}
+
+	/* The true bottom-right corner, not the dock-row above: that one is
+	   centred (`left: 50%`) and the audio-discovery card that sometimes
+	   shares this corner anchors itself well above this height (see
+	   AmbientDiscoveryCard.svelte's own `bottom` offset), so this small
+	   strip stays clear of both. Hidden below the breakpoint below --
+	   matches the same wide/narrow split used for nav elsewhere in the app
+	   (+layout.svelte, settings). */
+	.ambient-clock {
+		display: none;
+		position: absolute;
+		right: 0.75rem;
+		bottom: max(0.75rem, env(safe-area-inset-bottom));
+		z-index: 4;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.05rem;
+		padding: 0.5rem 0.85rem;
+		border-radius: 1rem;
+	}
+
+	.ambient-clock-time {
+		font-size: 1.1rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+	}
+
+	.ambient-clock-zone {
+		color: var(--text-muted);
+		font-size: 0.7rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	@media (min-width: 64rem) {
+		.ambient-clock {
+			display: flex;
+		}
 	}
 
 	.sound-dock {

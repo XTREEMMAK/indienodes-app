@@ -24,9 +24,19 @@
 
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { tagsForType } from '$lib/nodeChannel.js';
+	import { ROTATION_MIN_MS, ROTATION_MAX_MS } from '$lib/preferences.js';
 
-	/** @type {{ nodeId: string, nodeType: 'audio'|'comic'|'text'|'game'|'art'|'any', nodeTags?: string[], onTypeChange?: (type: any) => void, onTagsChange?: (tags: string[]) => void, onRemove?: () => void }} */
-	let { nodeId, nodeType, nodeTags = [], onTypeChange, onTagsChange, onRemove } = $props();
+	/** @type {{ nodeId: string, nodeType: 'audio'|'comic'|'text'|'game'|'art'|'any', nodeTags?: string[], nodeRotationOverrideMs?: number | null, onTypeChange?: (type: any) => void, onTagsChange?: (tags: string[]) => void, onRotationOverrideChange?: (ms: number | null) => void, onRemove?: () => void }} */
+	let {
+		nodeId,
+		nodeType,
+		nodeTags = [],
+		nodeRotationOverrideMs = null,
+		onTypeChange,
+		onTagsChange,
+		onRotationOverrideChange,
+		onRemove
+	} = $props();
 
 	let open = $state(false);
 	let rootEl = $state(/** @type {HTMLElement | undefined} */ (undefined));
@@ -84,6 +94,24 @@
 		onTypeChange?.(select.value);
 	}
 
+	/** Whether this node currently overrides the global rotation pace. */
+	const rotationOverridden = $derived(nodeRotationOverrideMs !== null);
+
+	function toggleRotationOverride() {
+		onRotationOverrideChange?.(rotationOverridden ? null : ROTATION_MIN_MS);
+	}
+
+	/** @param {Event} event */
+	function handleRotationInput(event) {
+		const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+		onRotationOverrideChange?.(Number(input.value));
+	}
+
+	/** @param {number} ms */
+	function formatSeconds(ms) {
+		return `${Math.round(ms / 1000)}s`;
+	}
+
 	$effect(() => {
 		if (!open) return;
 
@@ -106,7 +134,7 @@
 	});
 </script>
 
-<div class="node-config" bind:this={rootEl}>
+<div class="node-config" class:open bind:this={rootEl}>
 	<button
 		type="button"
 		class="menu-toggle"
@@ -135,6 +163,8 @@
 					<option value="any">Any</option>
 				</select>
 			</label>
+
+			<div class="divider" role="separator"></div>
 
 			{#if availableTags.length > 0}
 				<!-- Boxed off from the rest of the menu on purpose: Shows and
@@ -180,7 +210,35 @@
 						<small class="tag-hint">Showing every tag.</small>
 					{/if}
 				</section>
+
+				<div class="divider" role="separator"></div>
 			{/if}
+
+			<section class="field rotation-field">
+				<label class="rotation-toggle">
+					<input type="checkbox" checked={rotationOverridden} onchange={toggleRotationOverride} />
+					<span class="field-label">Override global rotation</span>
+				</label>
+				{#if rotationOverridden}
+					<div class="rotation-row">
+						<input
+							type="range"
+							class="rotation-range"
+							min={ROTATION_MIN_MS}
+							max={ROTATION_MAX_MS}
+							step="1000"
+							value={nodeRotationOverrideMs}
+							aria-label="This node's rotation pace"
+							oninput={handleRotationInput}
+						/>
+						<span class="rotation-value"
+							>{formatSeconds(nodeRotationOverrideMs ?? ROTATION_MIN_MS)}</span
+						>
+					</div>
+				{/if}
+			</section>
+
+			<div class="divider" role="separator"></div>
 
 			<button
 				type="button"
@@ -206,6 +264,20 @@
 		top: 0.5rem;
 		right: 0.5rem;
 		z-index: 5;
+	}
+
+	/* Raised well past every node's own base z-index (5) while its menu is
+	   open, not just the menu's own z-index: 6 below -- that one only wins
+	   against sibling *content inside this same node*, since `.node-config`
+	   is itself a positioned, z-indexed element and so a stacking context of
+	   its own. Two nodes both sit at the unopened z-index: 5, tied, so the
+	   one later in DOM paints on top regardless of which one's menu is
+	   open -- an open menu that happens to cross over an earlier-painted
+	   neighbour was rendering *under* that neighbour's own toggle button.
+	   Bumping the whole subtree's z-index while open settles that in the
+	   open menu's favor no matter which node it belongs to. */
+	.node-config.open {
+		z-index: 20;
 	}
 
 	.menu-toggle {
@@ -238,13 +310,22 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
-		min-width: 13rem;
-		max-width: 17rem;
+		min-width: 17rem;
+		/* `right: 0` anchors this to the card's own right edge (see
+		   `.node-config` above), so widening only ever grows it leftward
+		   over the card, never off the viewport's right edge. The viewport
+		   clamp below only matters for a card narrower than this. */
+		max-width: min(23rem, calc(100vw - 1rem));
 		padding: 0.7rem;
 		border-radius: var(--radius-md);
 		border: 1px solid var(--glass-border);
 		background: var(--bg-elevated);
 		box-shadow: var(--glass-shadow);
+	}
+
+	.divider {
+		height: 1px;
+		background: var(--border);
 	}
 
 	.field {
@@ -293,6 +374,49 @@
 		color: var(--text);
 		font: inherit;
 		font-size: var(--text-xs);
+	}
+
+	/* Same boxed-off treatment as `.tag-field` above, so the two optional
+	   sections between Shows and Remove read as one visual language. */
+	.rotation-field {
+		gap: 0.4rem;
+		padding: 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--bg);
+	}
+
+	.rotation-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	.rotation-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.rotation-range {
+		flex: 1;
+		/* A flex item's default min-width is `auto`, which for a range input
+		   resolves to its own intrinsic rendered width -- the item refuses to
+		   shrink below that regardless of `flex: 1`, which is what pushed
+		   this row (and the menu around it) wider than the container the
+		   moment the override was checked and this row appeared. Zeroing it
+		   out lets `flex: 1` actually shrink the track to fit. */
+		min-width: 0;
+		accent-color: var(--accent);
+	}
+
+	.rotation-value {
+		min-width: 2.4rem;
+		text-align: right;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		font-weight: 600;
 	}
 
 	/* Reuses the shared `.chip` pill from app.css rather than a second chip

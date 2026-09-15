@@ -59,6 +59,11 @@ export const STORAGE_KEYS = {
 		label: 'Tag filters',
 		exportable: true
 	},
+	fieldPresets: {
+		key: 'indienode:field-presets:v1',
+		label: 'Field presets',
+		exportable: true
+	},
 	volume: {
 		key: 'indienode:volume:v1',
 		label: 'Player volume',

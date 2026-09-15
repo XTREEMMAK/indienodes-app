@@ -22,8 +22,10 @@
 	 *   editMode?: boolean,
 	 *   nodeType?: import('../lib/nodeShape.js').NodeType,
 	 *   nodeTags?: string[],
+	 *   nodeRotationOverrideMs?: number | null,
 	 *   onTypeChange?: (type: import('../lib/nodeShape.js').NodeType) => void,
 	 *   onTagsChange?: (tags: string[]) => void,
+	 *   onRotationOverrideChange?: (ms: number | null) => void,
 	 *   onRemove?: () => void
 	 * }}
 	 */
@@ -39,8 +41,10 @@
 		editMode = false,
 		nodeType = 'any',
 		nodeTags = [],
+		nodeRotationOverrideMs = null,
 		onTypeChange,
 		onTagsChange,
+		onRotationOverrideChange,
 		onRemove
 	} = $props();
 
@@ -155,7 +159,16 @@
 	<FieldNode {entry} {progress} progressPaused={paused} {aspect} {editMode} ambient />
 
 	{#if editMode}
-		<NodeConfig {nodeId} {nodeType} {nodeTags} {onTypeChange} {onTagsChange} {onRemove} />
+		<NodeConfig
+			{nodeId}
+			{nodeType}
+			{nodeTags}
+			{nodeRotationOverrideMs}
+			{onTypeChange}
+			{onTagsChange}
+			{onRotationOverrideChange}
+			{onRemove}
+		/>
 	{/if}
 </div>
 

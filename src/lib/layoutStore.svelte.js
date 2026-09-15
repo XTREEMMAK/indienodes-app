@@ -9,6 +9,7 @@ import {
 } from './nodeShape.js';
 import { columnsForWidth } from './fieldLayout.js';
 import { normalizeTags, pruneTagsForType } from './nodeChannel.js';
+import { ROTATION_MIN_MS, ROTATION_MAX_MS } from './preferences.js';
 
 /**
  * The visitor's arranged field: which nodes exist, where they sit, how big
@@ -30,7 +31,7 @@ import { normalizeTags, pruneTagsForType } from './nodeChannel.js';
 const STORAGE_KEY = STORAGE_KEYS.layout.key;
 
 /** @typedef {import('./nodeShape.js').NodeType} NodeType */
-/** @typedef {{ id: string, type: NodeType, tags: string[], x: number, y: number, w: number, h: number }} FieldNodeConfig */
+/** @typedef {{ id: string, type: NodeType, tags: string[], x: number, y: number, w: number, h: number, rotationOverrideMs?: number | null }} FieldNodeConfig */
 
 export { GRID_COLUMNS } from './nodeShape.js';
 
@@ -100,9 +101,36 @@ export function defaultLayout(columns = GRID_COLUMNS) {
 	// ring actually holds, and a default tag selection would be this app
 	// deciding a visitor's taste for them before they have seen anything.
 	return [
-		{ id: 'n-comic-1', type: 'comic', tags: [], x: columnA, y: 0, w: tall.w, h: tall.h },
-		{ id: 'n-text-1', type: 'text', tags: [], x: columnA, y: tall.h, w: tall.w, h: tall.h },
-		{ id: 'n-audio-1', type: 'audio', tags: [], x: columnB, y: 0, w: square.w, h: square.h },
+		{
+			id: 'n-comic-1',
+			type: 'comic',
+			tags: [],
+			x: columnA,
+			y: 0,
+			w: tall.w,
+			h: tall.h,
+			rotationOverrideMs: null
+		},
+		{
+			id: 'n-text-1',
+			type: 'text',
+			tags: [],
+			x: columnA,
+			y: tall.h,
+			w: tall.w,
+			h: tall.h,
+			rotationOverrideMs: null
+		},
+		{
+			id: 'n-audio-1',
+			type: 'audio',
+			tags: [],
+			x: columnB,
+			y: 0,
+			w: square.w,
+			h: square.h,
+			rotationOverrideMs: null
+		},
 		{
 			id: 'n-game-1',
 			type: 'game',
@@ -110,7 +138,8 @@ export function defaultLayout(columns = GRID_COLUMNS) {
 			x: columnB,
 			y: square.h,
 			w: square.w,
-			h: square.h
+			h: square.h,
+			rotationOverrideMs: null
 		},
 		// Art sits at the foot of the right column rather than being left out:
 		// every other type has a slot here, and a type that never appears on a
@@ -119,7 +148,16 @@ export function defaultLayout(columns = GRID_COLUMNS) {
 		// belongs to the same wide-and-tall family, and putting it here is
 		// also what keeps the two columns uneven — see the note above on why
 		// that matters.
-		{ id: 'n-art-1', type: 'art', tags: [], x: columnB, y: square.h * 2, w: tall.w, h: tall.h }
+		{
+			id: 'n-art-1',
+			type: 'art',
+			tags: [],
+			x: columnB,
+			y: square.h * 2,
+			w: tall.w,
+			h: tall.h,
+			rotationOverrideMs: null
+		}
 	];
 }
 
@@ -154,8 +192,23 @@ function coerceNode(raw) {
 	// A layout written before tags existed simply has no `tags` key, and
 	// `normalizeTags` turns that (and anything else malformed) into "no
 	// restriction" — which is exactly the right reading of a node that
-	// predates the concept.
-	return { id, type, tags: normalizeTags(node.tags), x, y, w: snapped.w, h: snapped.h };
+	// predates the concept. `rotationOverrideMs` is the same story for a
+	// layout written before this field existed: absent reads as null, "use
+	// the global pace," rather than as a broken value.
+	const rotationOverrideMs = Number.isFinite(node.rotationOverrideMs)
+		? Math.min(ROTATION_MAX_MS, Math.max(ROTATION_MIN_MS, Number(node.rotationOverrideMs)))
+		: null;
+
+	return {
+		id,
+		type,
+		tags: normalizeTags(node.tags),
+		x,
+		y,
+		w: snapped.w,
+		h: snapped.h,
+		rotationOverrideMs
+	};
 }
 
 /**
@@ -343,6 +396,23 @@ function createLayoutStore() {
 		},
 
 		/**
+		 * Overrides how long this one node holds an entry before rotating,
+		 * independent of the global per-type pace in Settings. `null` clears
+		 * the override and falls back to that global pace.
+		 * @param {string} id
+		 * @param {number | null} ms
+		 */
+		setRotationOverride(id, ms) {
+			record();
+			const clamped =
+				ms == null ? null : Math.min(ROTATION_MAX_MS, Math.max(ROTATION_MIN_MS, Math.round(ms)));
+			nodes = nodes.map((node) =>
+				node.id === id ? { ...node, rotationOverrideMs: clamped } : node
+			);
+			persist();
+		},
+
+		/**
 		 * Appends a node. Position is left to the caller (or to gridstack's
 		 * auto-placement) rather than guessed here.
 		 * @param {NodeType} type
@@ -367,6 +437,7 @@ function createLayoutStore() {
 				tags: /** @type {string[]} */ ([]),
 				x: at?.x ?? 0,
 				y: at?.y ?? 0,
+				rotationOverrideMs: /** @type {number | null} */ (null),
 				...size
 			};
 			nodes = [...nodes, node];
@@ -412,6 +483,25 @@ function createLayoutStore() {
 		reset() {
 			record();
 			nodes = defaultLayout(viewportColumns());
+			persist();
+		},
+
+		/**
+		 * Replaces the whole arrangement with a previously-saved one — a Field
+		 * preset. Pushes the current arrangement onto undo history first, same
+		 * as every other mutation here, so loading a preset is itself
+		 * undoable. Re-validates every node through `coerceNode`, the same
+		 * defensive pass `load()` runs on anything read from storage, since a
+		 * saved preset is exactly that: a stored snapshot that may predate a
+		 * later schema or ratio-rule change.
+		 * @param {unknown[]} rawNodes
+		 */
+		restore(rawNodes) {
+			const validated = Array.isArray(rawNodes)
+				? rawNodes.map(coerceNode).filter((n) => n !== null)
+				: [];
+			record();
+			nodes = validated;
 			persist();
 		}
 	};
