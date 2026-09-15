@@ -65,6 +65,19 @@ function createFiltersStore() {
 			tags.clear();
 			persist();
 		},
+		/**
+		 * Replaces the whole tag selection at once — used when a Field preset
+		 * restores the global tag state it was saved with. Matches `load()`'s
+		 * own defensive read: anything that isn't a string is dropped rather
+		 * than trusted.
+		 * @param {string[]} newTags
+		 */
+		setTags(newTags) {
+			const clean = Array.isArray(newTags) ? newTags.filter((tag) => typeof tag === 'string') : [];
+			tags.clear();
+			for (const tag of clean) tags.add(tag);
+			persist();
+		},
 		/** @param {import('./ring.js').RingEntry} entry */
 		matches(entry) {
 			return tags.size === 0 || entry.tags.some((tag) => tags.has(tag));

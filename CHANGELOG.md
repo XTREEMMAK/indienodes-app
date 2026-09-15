@@ -8,6 +8,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-15
+
+Field Mode gains per-node rotation control and named, switchable workspaces; Ambient Mode's
+Escape key and fullscreen handling get an actual fix instead of another patch on top of the
+browser's own unpreventable fullscreen-exit behavior.
+
+### Added
+
+- **Field Presets.** Five fixed, local-only slots save and restore a whole arrangement
+  together with the visitor's global tag selection, reachable from the right-click Arrange
+  menu (save/rename/clear/load) or by quick-select buttons (1-5) on the field itself. Loading
+  a preset is undoable, exactly like any other layout change.
+- **Per-node rotation override.** A node's own menu in arrange mode can now set how long it
+  holds an entry before rotating, independent of the global per-type pace in Settings.
+- **Ctrl+Z / Ctrl+Shift+Z** now drive the field's existing undo/redo stack.
+- **Settings > Appearance > Startup mode.** Choose whether the app opens into Field or
+  Ambient; defaults to Field, and Ambient still asks for its one-time audio consent first if
+  it hasn't been given yet.
+- **A manual fullscreen toggle in Ambient**, browser/PWA only (hidden on any future native
+  build), for anyone using Ambient as a passive display — a second monitor, or a phone propped
+  up like a screensaver.
+- **A small local-time clock** in Ambient, bottom-right, on wide displays.
+
+### Fixed
+
+- **Field's right-click menu is reachable below a short arrangement.** The page no longer
+  shrink-wraps to the grid's own height, so the menu opens anywhere in the viewport, not just
+  over placed nodes.
+- **Node resize no longer silently disables itself across ordinary window widths.** A
+  redundant column-count check was blocking it for any arrangement narrower than the full
+  24-column canvas, even when nothing about it actually overflowed.
+- **An open node menu can no longer render behind a neighboring node's own toggle button.**
+- **The rotation-override slider no longer overflows its own menu.**
+- **Ambient's Escape key steps out one level at a time** — closing the open submenu or reader
+  first, and only exiting ambient once nothing is left open — instead of exiting outright.
+  Getting this right required removing ambient's automatic use of the browser's real
+  Fullscreen API: Escape force-exits real fullscreen as unpreventable, native browser
+  behavior, which kept fighting every attempt to make it merely close a submenu without a
+  jarring visual transition. Ambient already treats its fixed, full-viewport overlay as a
+  complete fallback everywhere fullscreen fails; simply not requesting it removes the whole
+  bug class rather than chasing it further.
+
 ## [1.7.4] - 2026-09-15
 
 A fix-only follow-up to 1.7.2's mobile Ambient work, from testing on a real phone rather than at

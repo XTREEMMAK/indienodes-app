@@ -47,8 +47,18 @@ function detectStandalone() {
 /**
  * Inside one of the native shells (platforms/capacitor, platforms/wails),
  * where there is nothing to install: the visitor is already in the app.
+ *
+ * Exported for anything else that needs "is this actually a browser tab or
+ * PWA, as opposed to a native shell" -- Ambient's manual fullscreen toggle
+ * being the first (see AmbientView.svelte): a Capacitor Android build is
+ * already full-bleed by the OS, so the toggle would be a no-op control
+ * offering nothing there. `window.Capacitor` is what Capacitor's own native
+ * runtime injects before any page script runs; this project has not wired
+ * Capacitor in yet, so today that global is simply absent everywhere this
+ * runs, which correctly reads as "not native" (browser and installed PWA
+ * alike) until it actually exists to detect.
  */
-function detectNativeShell() {
+export function detectNativeShell() {
 	if (!browser) return false;
 	const w = /** @type {Window & { Capacitor?: unknown, wails?: unknown, go?: unknown }} */ (window);
 	return Boolean(w.Capacitor || w.wails || w.go);

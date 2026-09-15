@@ -30,6 +30,7 @@
 
 	import { untrack } from 'svelte';
 	import TypeIcon from './TypeIcon.svelte';
+	import { fieldPresetsStore } from '../lib/fieldPresetsStore.svelte.js';
 
 	/** @type {{ x: number, y: number, editMode?: boolean, fitToView?: boolean, onAdd: (type: import('../lib/nodeShape.js').NodeType) => void, onReset: () => void, onExit?: () => void, onEnter?: () => void, onToggleFit?: () => void, onClose: () => void }} */
 	let {
@@ -54,6 +55,40 @@
 		{ id: 'game', label: 'Game' },
 		{ id: 'any', label: 'Any' }
 	];
+
+	// Which preset slot's row is showing its inline name field, for both
+	// saving into an empty slot and renaming a filled one. No native
+	// `prompt()` anywhere in this codebase, so naming is an inline text
+	// input rather than a dialog.
+	let presetEditIndex = $state(/** @type {number | null} */ (null));
+	let presetNameInput = $state('');
+
+	/** @param {number} index */
+	function beginSavePreset(index) {
+		presetEditIndex = index;
+		presetNameInput = `Preset ${index + 1}`;
+	}
+
+	/** @param {number} index */
+	function beginRenamePreset(index) {
+		const slot = fieldPresetsStore.slots[index];
+		presetEditIndex = index;
+		presetNameInput = slot?.name ?? '';
+	}
+
+	/** @param {number} index */
+	function confirmPresetEdit(index) {
+		const slot = fieldPresetsStore.slots[index];
+		if (slot) fieldPresetsStore.rename(index, presetNameInput);
+		else fieldPresetsStore.save(index, presetNameInput);
+		presetEditIndex = null;
+	}
+
+	/** @param {number} index */
+	function loadPreset(index) {
+		fieldPresetsStore.load(index);
+		onClose();
+	}
 
 	let menuEl = $state(/** @type {HTMLElement | undefined} */ (undefined));
 	// The caller's raw coordinate is only ever a starting point, corrected
@@ -143,6 +178,135 @@
 			</svg>
 			<span>Reset layout</span>
 		</button>
+
+		<div class="divider" role="separator"></div>
+		<span class="section-label">Presets</span>
+		<div class="preset-list">
+			{#each fieldPresetsStore.slots as slot, index (index)}
+				{#if presetEditIndex === index}
+					<div class="preset-row preset-edit">
+						<input
+							type="text"
+							class="preset-name-input"
+							bind:value={presetNameInput}
+							placeholder={`Preset ${index + 1}`}
+							aria-label="Preset name"
+							onkeydown={(event) => {
+								if (event.key === 'Enter') confirmPresetEdit(index);
+							}}
+						/>
+						<button
+							type="button"
+							class="icon-button"
+							aria-label="Confirm preset name"
+							onclick={() => confirmPresetEdit(index)}
+						>
+							<svg
+								viewBox="0 0 24 24"
+								width="14"
+								height="14"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2.5"
+								aria-hidden="true"
+							>
+								<path d="M5 12.5l4.5 4.5L19 7" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
+						</button>
+						<button
+							type="button"
+							class="icon-button"
+							aria-label="Cancel"
+							onclick={() => (presetEditIndex = null)}
+						>
+							<svg
+								viewBox="0 0 24 24"
+								width="14"
+								height="14"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								aria-hidden="true"
+							>
+								<path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+							</svg>
+						</button>
+					</div>
+				{:else}
+					<div class="preset-row">
+						<button
+							type="button"
+							class="row-button preset-main"
+							disabled={!slot}
+							onclick={() => loadPreset(index)}
+						>
+							<span>{slot ? slot.name : `Empty — Slot ${index + 1}`}</span>
+						</button>
+						{#if slot}
+							<button
+								type="button"
+								class="icon-button"
+								aria-label="Rename preset"
+								onclick={() => beginRenamePreset(index)}
+							>
+								<svg
+									viewBox="0 0 24 24"
+									width="14"
+									height="14"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<path
+										d="M4 20h4l10-10-4-4L4 16v4Z"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+							<button
+								type="button"
+								class="icon-button"
+								aria-label="Clear preset"
+								onclick={() => fieldPresetsStore.clear(index)}
+							>
+								<svg
+									viewBox="0 0 24 24"
+									width="14"
+									height="14"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+								</svg>
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="icon-button"
+								aria-label="Save current arrangement to this slot"
+								onclick={() => beginSavePreset(index)}
+							>
+								<svg
+									viewBox="0 0 24 24"
+									width="14"
+									height="14"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<path d="M12 5v14M5 12h14" stroke-linecap="round" />
+								</svg>
+							</button>
+						{/if}
+					</div>
+				{/if}
+			{/each}
+		</div>
 
 		{#if onExit}
 			<div class="divider" role="separator"></div>
@@ -253,7 +417,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
-		width: 14rem;
+		/* Slightly wider than the original fixed 14rem, to fit the Presets
+		   section's rename input alongside its two icon buttons without
+		   wrapping. Clamped so it still can't overflow a narrow viewport. */
+		width: min(17rem, calc(100vw - 1rem));
 		padding: 0.9rem;
 		border-radius: var(--radius-md);
 	}
@@ -366,5 +533,70 @@
 
 	.toggle-row[aria-checked='true'] {
 		color: var(--accent);
+	}
+
+	.preset-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.preset-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.preset-main {
+		flex: 1;
+		min-width: 0;
+		font-weight: 500;
+	}
+
+	.preset-main span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.preset-main:disabled {
+		color: var(--text-muted);
+		cursor: default;
+	}
+
+	.preset-main:disabled:hover {
+		color: var(--text-muted);
+	}
+
+	.preset-name-input {
+		flex: 1;
+		min-width: 0;
+		padding: 0.25rem 0.45rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--bg);
+		color: var(--text);
+		font: inherit;
+		font-size: var(--text-sm);
+	}
+
+	.icon-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 1.6rem;
+		height: 1.6rem;
+		padding: 0;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.icon-button:hover {
+		color: var(--accent);
+		background: color-mix(in oklch, var(--accent) 10%, transparent);
 	}
 </style>

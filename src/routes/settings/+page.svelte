@@ -35,7 +35,8 @@
 		{ id: 'theme', label: 'Theme' },
 		{ id: 'background', label: 'Background' },
 		{ id: 'ui-skin', label: 'UI Skin' },
-		{ id: 'node-skin', label: 'Node Skin' }
+		{ id: 'node-skin', label: 'Node Skin' },
+		{ id: 'startup-mode', label: 'Startup mode' }
 	];
 	let activeAppearanceSection = $state('theme');
 
@@ -119,6 +120,21 @@
 		{ id: 'system', label: 'System', description: "Follows your device's setting, live." }
 	];
 
+	/** @type {{ id: 'field' | 'ambient', label: string, description: string }[]} */
+	const STARTUP_MODE_OPTIONS = [
+		{
+			id: 'field',
+			label: 'Field',
+			description: 'Open into the node grid, same as every visit before this setting existed.'
+		},
+		{
+			id: 'ambient',
+			label: 'Ambient',
+			description:
+				"Open straight into Ambient view. Still asks for the one-time audio consent first if you haven't given it yet."
+		}
+	];
+
 	/** @type {{ id: 'none' | 'drifty-stars', label: string, description: string }[]} */
 	const BACKGROUND_OPTIONS = [
 		{
@@ -181,6 +197,9 @@
 			BACKGROUND_OPTIONS.find((option) => option.id === preferencesStore.background)?.label ?? '',
 		'ui-skin': UI_SKINS.find((option) => option.id === skinStore.uiSkin)?.label ?? '',
 		'node-skin': NODE_SKINS.find((option) => option.id === skinStore.nodeSkin)?.label ?? '',
+		'startup-mode':
+			STARTUP_MODE_OPTIONS.find((option) => option.id === preferencesStore.startupMode)?.label ??
+			'',
 		explicit: preferencesStore.showExplicit ? 'Shown' : 'Hidden',
 		'audio-playlist': preferencesStore.randomizeAudioTracks ? 'Shuffled' : 'In order',
 		'entry-types': `${AMBIENT_TYPES.filter((type) => preferencesStore.isAmbientTypeVisible(type.id)).length} of ${AMBIENT_TYPES.length} in Ambient`,
@@ -490,6 +509,29 @@
 															<a href={skinLabHref}>Open the skin laboratory</a>
 														{/if}
 													</p>
+												{:else if activeAppearanceSection === 'startup-mode'}
+													<div class="section-header">
+														<h2>Startup mode</h2>
+														<p class="section-description">Which mode the app opens into.</p>
+													</div>
+													<fieldset>
+														<legend class="sr-only">Startup mode</legend>
+														{#each STARTUP_MODE_OPTIONS as option (option.id)}
+															<label class="option">
+																<input
+																	type="radio"
+																	name="startup-mode"
+																	value={option.id}
+																	checked={preferencesStore.startupMode === option.id}
+																	onchange={() => preferencesStore.setStartupMode(option.id)}
+																/>
+																<span>
+																	<span class="option-label">{option.label}</span>
+																	<span class="option-description">{option.description}</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
 												{/if}
 											</GlassPanel>
 										</div>

@@ -68,6 +68,7 @@ describe('the literal keys are pinned', () => {
 			'indienode:layout:v1': true,
 			'indienode:preferences:v1': true,
 			'indienode:filters:v1': true,
+			'indienode:field-presets:v1': true,
 			'indienode:volume:v1': true,
 			'indienode:skins:v1': true,
 			'indienode:ambient-consent:v1': true,

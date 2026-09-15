@@ -28,6 +28,7 @@
 	import { textViewerStore } from '$lib/textViewerStore.svelte.js';
 	import { editModeStore } from '$lib/editModeStore.svelte.js';
 	import { layoutStore } from '$lib/layoutStore.svelte.js';
+	import { fieldPresetsStore } from '$lib/fieldPresetsStore.svelte.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { SITE_ORIGIN, EARLY_ACCESS } from '$lib/config.js';
@@ -91,6 +92,31 @@
 		ringStore.ensureLoaded();
 	});
 
+	// Global Ctrl+Z/Cmd+Z (and Shift+ for redo) for the arrangement undo
+	// stack the header buttons below already expose. Skipped whenever focus
+	// is on an editable field, so a visitor typing in NodeConfig's tag search
+	// keeps the browser's own text-undo instead of the layout jumping under
+	// them.
+	$effect(() => {
+		if (isEmbedFrame) return;
+		/** @param {KeyboardEvent} event */
+		function handleKeydown(event) {
+			if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return;
+			const target = /** @type {HTMLElement} */ (event.target);
+			const editable =
+				target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+			if (editable) return;
+			event.preventDefault();
+			if (event.shiftKey) {
+				if (layoutStore.canRedo) layoutStore.redo();
+			} else if (layoutStore.canUndo) {
+				layoutStore.undo();
+			}
+		}
+		document.addEventListener('keydown', handleKeydown);
+		return () => document.removeEventListener('keydown', handleKeydown);
+	});
+
 	const isField = $derived(page.url.pathname === resolve('/'));
 	const isLists = $derived(page.url.pathname === resolve('/lists'));
 	const isMembers = $derived(page.url.pathname === resolve('/members'));
@@ -126,7 +152,11 @@
 	// the visitor's first-use acknowledgement that launching it plays audio,
 	// exactly as locked in docs/decisions.md.
 	const AMBIENT_CONSENT_KEY = STORAGE_KEYS.ambientConsent.key;
-	let ambientOpen = $state(false);
+	// Starts true when the visitor's default is Ambient, but that still has
+	// to earn the same audio consent a click on the Ambient button would --
+	// see the onMount below, which downgrades this to the consent dialog
+	// instead of the audio starting unannounced on first load.
+	let ambientOpen = $state(preferencesStore.startupMode === 'ambient');
 	let ambientConsentOpen = $state(false);
 
 	function hasAmbientConsent() {
@@ -136,6 +166,13 @@
 			return false;
 		}
 	}
+
+	onMount(() => {
+		if (ambientOpen && !hasAmbientConsent()) {
+			ambientOpen = false;
+			ambientConsentOpen = true;
+		}
+	});
 
 	function startAmbient() {
 		drawerOpen = false;
@@ -409,6 +446,33 @@
 				{@render ambientMark()}
 				<span>Ambient</span>
 			</button>
+		{/if}
+
+		<!-- Quick preset switching, separate from the corner clusters above and
+	     below: those are already crowded, and this is a distinct action
+	     (jump to a whole different saved arrangement) from anything they do.
+	     Saving/renaming a slot still lives one right-click away in
+	     ArrangeMenu's own Presets section -- this row is deliberately
+	     load-only, so a stray tap can't overwrite a saved workspace. Shown
+	     whether or not arrange mode is on: switching workspaces is as much a
+	     browsing action as an editing one. Empty slots stay visible rather
+	     than being hidden, matching ArrangeMenu's own "Empty" rows, so the
+	     feature is discoverable without opening that menu first. -->
+		{#if isField}
+			<div class="preset-buttons glass-panel" role="group" aria-label="Field presets">
+				{#each fieldPresetsStore.slots as slot, index (index)}
+					<button
+						type="button"
+						class="preset-button"
+						disabled={!slot}
+						title={slot ? slot.name : `Empty preset slot ${index + 1}`}
+						aria-label={slot ? `Load preset: ${slot.name}` : `Preset slot ${index + 1}, empty`}
+						onclick={() => fieldPresetsStore.load(index)}
+					>
+						{index + 1}
+					</button>
+				{/each}
+			</div>
 		{/if}
 
 		<!-- Mobile's top-right cluster, mirroring where the hamburger sits on
@@ -903,6 +967,47 @@
 		color: var(--accent);
 	}
 
+	/* Bottom-left, mirroring `.desktop-tools`' bottom-right: the one corner
+	   nothing else has claimed. Re-anchored above the mobile nav bar in the
+	   narrow breakpoint below rather than hidden, since switching a saved
+	   workspace is exactly as useful one-handed as at a desk. */
+	.preset-buttons {
+		position: fixed;
+		bottom: 1.2rem;
+		left: 1.2rem;
+		z-index: 10;
+		display: flex;
+		gap: 0.35rem;
+		padding: 0.4rem;
+	}
+
+	.preset-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.1rem;
+		height: 2.1rem;
+		border: none;
+		border-radius: 999px;
+		background: none;
+		color: var(--text);
+		font: inherit;
+		font-size: var(--text-sm);
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.preset-button:hover:not(:disabled) {
+		color: var(--accent);
+		background: color-mix(in oklch, var(--accent) 12%, transparent);
+	}
+
+	.preset-button:disabled {
+		color: var(--text-muted);
+		opacity: 0.4;
+		cursor: default;
+	}
+
 	.consent-copy {
 		margin: 0;
 		color: var(--text-muted);
@@ -923,6 +1028,15 @@
        this, that transient offset pokes past the viewport edge and
        triggers a horizontal scrollbar for the ~200ms of the transition. */
 		overflow-x: hidden;
+		/* A flex column so `.page-transition` can stretch to fill this
+		   element's height (see its own `flex: 1` below) instead of
+		   shrink-wrapping to its content -- on the field, that dead space
+		   below a short arrangement sat outside `.field-page`'s hit-box, so
+		   a right-click there fell through to the native menu instead of
+		   the field's own context menu. The outgoing page during `outFade`
+		   is absolutely positioned, so it ignores this entirely. */
+		display: flex;
+		flex-direction: column;
 	}
 
 	/* Padding lives here, not on main. An absolutely positioned child's
@@ -936,6 +1050,13 @@
      floats on mobile too, just without its text. */
 	.page-transition {
 		padding: 5.5rem 1.65rem 1.65rem;
+		/* Fills `main`'s height rather than sizing to content; a route's own
+		   root element still has to opt in with `flex: 1` itself to use the
+		   extra room (see `.field-page` in +page.svelte), so this is a no-op
+		   for every other route. */
+		flex: 1;
+		display: flex;
+		flex-direction: column;
 	}
 
 	/* ---------------------------------------------------- mobile nav bar ---
@@ -1052,6 +1173,19 @@
 
 		.desktop-tools {
 			display: none;
+		}
+
+		/* Lifted above the bottom nav bar rather than hidden -- `main`'s own
+		   padding-bottom (5.5rem, below) is exactly how far that bar reaches,
+		   so anchoring here keeps the same clearance instead of guessing at
+		   the bar's rendered height. Centred rather than left-aligned at this
+		   width: the bar underneath it is centred (justify-content:
+		   space-around), so a left-pinned cluster would look like it belonged
+		   to a different layout than the one right below it. */
+		.preset-buttons {
+			left: 50%;
+			bottom: 5.5rem;
+			transform: translateX(-50%);
 		}
 
 		.mobile-tools {

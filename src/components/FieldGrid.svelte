@@ -874,32 +874,41 @@
 	 * Whether the canvas is currently rendering the arrangement as authored,
 	 * or a layout derived from it.
 	 *
-	 * Two things have to be true. There have to be at least the authored
-	 * number of columns — below that a node wider than the grid is clamped
-	 * and its coordinates stop describing anything. And the arrangement has
-	 * to actually *fit* in the columns there are, which is not implied by the
-	 * first: a node arranged against the right edge of a wide window needs
-	 * more columns than the authored 24, and one lost column (a scrollbar
-	 * appearing, browser chrome, zoom) is enough to overflow it.
+	 * Just one thing has to be true: the arrangement has to actually *fit* in
+	 * the columns there currently are. A node arranged against the right edge
+	 * of a wide window needs more columns than a smaller arrangement would,
+	 * and one lost column (a scrollbar appearing, browser chrome, zoom) is
+	 * enough to overflow it.
 	 *
-	 * That second case used to fall through to the authored path anyway, and
-	 * the damage was not the clamp itself but what followed it. gridstack
+	 * This used to also require `columnCount >= GRID_COLUMNS` outright, on
+	 * the reasoning that below the authored count a node wider than the grid
+	 * gets clamped and its coordinates stop describing anything. That
+	 * reasoning doesn't hold: every type's own `MAX_W` is defined as
+	 * `GRID_COLUMNS` (nodeShape.js), so `node.w` can never exceed it, and
+	 * `node.x + node.w <= columnCount` with `x >= 0` already implies
+	 * `node.w <= columnCount` for every node — the extra clause added nothing
+	 * a correct arrangement wasn't already guaranteeing, while it disabled
+	 * resize (and forced the reflowed layout below) for any arrangement
+	 * smaller than 24 columns wide even when nothing about it overflowed,
+	 * which is the common case: the shipped default only ever needs 14.
+	 *
+	 * The one failure mode worth remembering is the actual overflow case.
+	 * Falling through to the authored path there used to be the bug: gridstack
 	 * clamps the overflowing node leftward onto its neighbour, then resolves
 	 * that overlap the only way its engine can — pushing the neighbour *down*
 	 * — and that push overlaps the next node, and so on. One node overflowing
 	 * by a single column left a hole where the neighbour had been and shoved
 	 * a third node clean off the bottom of the arrangement. Verified: stored
-	 * 25,0 / 19,0 / 19,6 rendered as 24,0 / 19,6 / 19,12.
+	 * 25,0 / 19,0 / 19,6 rendered as 24,0 / 19,6 / 19,12. The remaining check
+	 * below is exactly what still guards against that.
 	 *
 	 * The store is never wrong through any of this — only the render is —
-	 * which is why nudging the displaced node in arrange mode appears to
-	 * "fix" it: the authored answer was still there to reconcile against.
-	 * Deriving the layout instead of letting the engine improvise one keeps
-	 * that recovery from being something the visitor has to perform.
+	 * which is why nudging a displaced node in arrange mode appears to "fix"
+	 * it: the authored answer was still there to reconcile against. Deriving
+	 * the layout instead of letting the engine improvise one keeps that
+	 * recovery from being something the visitor has to perform.
 	 */
-	const showsAuthored = $derived(
-		columnCount >= GRID_COLUMNS && nodes.every((node) => node.x + node.w <= columnCount)
-	);
+	const showsAuthored = $derived(nodes.every((node) => node.x + node.w <= columnCount));
 
 	// The dot grid is a viewport-filling layer, so it needs to be told where the
 	// grid actually is to keep its lattice on real cell boundaries. Written
