@@ -714,20 +714,24 @@ test('a placement made on a narrower canvas survives a trip to a wide one', asyn
 	await expect.poll(() => geometry(page)).toEqual(placed);
 });
 
-test('the mobile stack still reads a drag as a reorder', async ({ page }) => {
-	// At four columns a node authored 16 cells wide does not fit at all, so
-	// there is no arrangement to preserve and sequence is the only thing a drop
-	// can mean. This is the one width that still works that way.
+test('the mobile stack leaves a drag gesture to the page instead of reordering', async ({
+	page
+}) => {
+	// At four columns every card is a full viewport width across, so a card
+	// that could be dragged left no room to scroll: every touch meant to move
+	// the page picked a node up instead. The up/down buttons reorder here (see
+	// mobile-responsive.e2e.js), and the gesture that used to reorder now
+	// moves nothing.
 	await page.setViewportSize({ width: 400, height: 1400 });
 	await page.goto('/');
 	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
 	await page.getByRole('button', { name: 'Arrange field' }).click();
 	await expect.poll(() => columnsNow(page)).toBe(4);
 	expect(await storedOrder(page)).toBeNull();
+	const before = await geometry(page);
 
-	// The first card, dragged down past the second. Grabbed near its top so the
-	// whole gesture stays on screen: at four columns every card is a full
-	// viewport width across and correspondingly tall.
+	// The same gesture the stack used to read as a reorder: the first card,
+	// pulled down past the second.
 	const box = await page.locator('.grid-stack-item[gs-id="n-comic-1"]').boundingBox();
 	if (!box) throw new Error('the comic node has no bounding box');
 	const from = { x: box.x + box.width / 2, y: box.y + box.height * 0.25 };
@@ -737,13 +741,15 @@ test('the mobile stack still reads a drag as a reorder', async ({ page }) => {
 	await page.mouse.move(from.x, from.y + box.height * 0.9, { steps: 25 });
 	await page.mouse.up();
 
-	// Order changed; every node still sits in one full-width column.
-	await expect.poll(() => storedOrder(page)).not.toBeNull();
-	const order = await storedOrder(page);
-	expect(order).toHaveLength(5);
-	expect(order).not.toEqual(['n-comic-1', 'n-text-1', 'n-audio-1', 'n-game-1', 'n-art-1']);
-	const placed = await geometry(page);
-	for (const cell of Object.values(placed)) expect(cell.split(',')[0]).toBe('0');
+	await expect(page.locator('.ui-draggable-dragging')).toHaveCount(0);
+	await page.waitForTimeout(300);
+	expect(await storedOrder(page)).toBeNull();
+	expect(await geometry(page)).toEqual(before);
+
+	// Wider than the stack, dragging is still on.
+	await page.setViewportSize({ width: 1700, height: 1000 });
+	await expect.poll(() => columnsNow(page)).toBeGreaterThan(4);
+	await expect(page.locator('.grid-stack-item.ui-draggable-disabled')).toHaveCount(0);
 });
 
 /**

@@ -1,5 +1,7 @@
 <script>
+	import { tick } from 'svelte';
 	import { fade } from 'svelte/transition';
+	import { MediaQuery } from 'svelte/reactivity';
 	import GlassPanel from '../../components/GlassPanel.svelte';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { reducedMotion } from '$lib/motion.svelte.js';
@@ -48,6 +50,63 @@
 		{ id: 'journal', label: 'Your discovery journal' }
 	];
 	let activeContentSection = $state('explicit');
+
+	// On a phone the sub-tabs become a drill-down list instead of a tab strip.
+	// Eight labels wrapped into a paragraph of links there, with no way to tell
+	// at a glance which was selected or what any of them held. A list of rows,
+	// each saying what its section is currently set to, and one section at a
+	// time behind it with a way back, is how a settings screen reads on a
+	// phone. Wide screens keep the sticky sidebar. The query matches
+	// `.subtabs-layout`'s own breakpoint below.
+	const narrow = new MediaQuery('max-width: 56rem', false);
+	let appearanceDrilled = $state(false);
+	let contentDrilled = $state(false);
+
+	/**
+	 * Opens one section from the phone list and moves focus to its panel, so a
+	 * screen reader lands on what was just opened rather than on a list that
+	 * is no longer there.
+	 * @param {string} tab `'appearance'` or `'content'`
+	 * @param {string} sectionId
+	 */
+	async function drillInto(tab, sectionId) {
+		if (tab === 'appearance') {
+			activeAppearanceSection = sectionId;
+			appearanceDrilled = true;
+		} else {
+			activeContentSection = sectionId;
+			contentDrilled = true;
+		}
+		await tick();
+		document.getElementById(`${tab}-section-panel-${sectionId}`)?.focus({ preventScroll: true });
+	}
+
+	/**
+	 * Back to the phone list, returning focus to the row that was left.
+	 * @param {string} tab `'appearance'` or `'content'`
+	 */
+	async function drillOut(tab) {
+		const sectionId = tab === 'appearance' ? activeAppearanceSection : activeContentSection;
+		if (tab === 'appearance') appearanceDrilled = false;
+		else contentDrilled = false;
+		await tick();
+		document.getElementById(`${tab}-section-row-${sectionId}`)?.focus();
+	}
+
+	/**
+	 * @param {{ id: string, label: string }[]} sections
+	 * @param {string} id
+	 */
+	function sectionLabel(sections, id) {
+		return sections.find((section) => section.id === id)?.label;
+	}
+
+	/** @param {string} id */
+	function selectTab(id) {
+		activeTab = id;
+		appearanceDrilled = false;
+		contentDrilled = false;
+	}
 
 	/** @type {{ id: 'light' | 'dark' | 'system', label: string, description: string }[]} */
 	const THEME_OPTIONS = [
@@ -111,6 +170,24 @@
 		{ id: 'game', label: 'Game', color: 'var(--type-game)' },
 		{ id: 'art', label: 'Art', color: 'var(--type-art)' }
 	];
+
+	// One line per phone-list row saying what the section is set to now, so
+	// the list answers "what have I changed" without opening anything. Empty
+	// where a section has no single current value worth summarising.
+	/** @type {Record<string, string>} */
+	const sectionSummaries = $derived({
+		theme: THEME_OPTIONS.find((option) => option.id === preferencesStore.theme)?.label ?? '',
+		background:
+			BACKGROUND_OPTIONS.find((option) => option.id === preferencesStore.background)?.label ?? '',
+		'ui-skin': UI_SKINS.find((option) => option.id === skinStore.uiSkin)?.label ?? '',
+		'node-skin': NODE_SKINS.find((option) => option.id === skinStore.nodeSkin)?.label ?? '',
+		explicit: preferencesStore.showExplicit ? 'Shown' : 'Hidden',
+		'audio-playlist': preferencesStore.randomizeAudioTracks ? 'Shuffled' : 'In order',
+		'entry-types': `${AMBIENT_TYPES.filter((type) => preferencesStore.isAmbientTypeVisible(type.id)).length} of ${AMBIENT_TYPES.length} in Ambient`,
+		tags: filtersStore.tags.size ? `${filtersStore.tags.size} selected` : 'All',
+		'not-for-me': `${hiddenStore.size} ${hiddenStore.size === 1 ? 'entry' : 'entries'}`,
+		journal: `${journalStore.size} ${journalStore.size === 1 ? 'entry' : 'entries'}`
+	});
 
 	/** @param {number} ms */
 	function formatSeconds(ms) {
@@ -184,6 +261,36 @@
 </svelte:head>
 
 <div class="settings-page">
+	{#snippet sectionList(tab = 'content', sections = CONTENT_SECTIONS, label = '')}
+		<ul class="section-list glass-panel" aria-label={label}>
+			{#each sections as section (section.id)}
+				<li>
+					<button
+						type="button"
+						id="{tab}-section-row-{section.id}"
+						class="section-row"
+						onclick={() => drillInto(tab, section.id)}
+					>
+						<span class="section-row-text">
+							<span class="section-row-label">{section.label}</span>
+							{#if sectionSummaries[section.id]}
+								<span class="section-row-summary">{sectionSummaries[section.id]}</span>
+							{/if}
+						</span>
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/snippet}
+
+	{#snippet backButton(tab = 'content', label = '')}
+		<button type="button" class="section-back" onclick={() => drillOut(tab)}>
+			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6" /></svg>
+			{label}
+		</button>
+	{/snippet}
+
 	<h1>Settings</h1>
 	<p class="lede">
 		Preferences and filters live only in this browser's local storage. Nothing here is sent to a
@@ -200,7 +307,7 @@
 				aria-controls="settings-panel-{tab.id}"
 				class="tab"
 				class:active={activeTab === tab.id}
-				onclick={() => (activeTab = tab.id)}
+				onclick={() => selectTab(tab.id)}
 			>
 				{tab.label}
 			</button>
@@ -218,146 +325,159 @@
 						class="panel-body"
 					>
 						<div class="subtabs-layout">
-							<div
-								class="section-tabs"
-								role="tablist"
-								aria-label="Appearance settings"
-								aria-orientation="vertical"
-							>
-								{#each APPEARANCE_SECTIONS as section (section.id)}
-									<button
-										type="button"
-										role="tab"
-										id="appearance-section-tab-{section.id}"
-										aria-selected={activeAppearanceSection === section.id}
-										aria-controls="appearance-section-panel-{section.id}"
-										class="section-tab"
-										class:active={activeAppearanceSection === section.id}
-										onclick={() => (activeAppearanceSection = section.id)}
-									>
-										{section.label}
-									</button>
-								{/each}
-							</div>
+							{#if narrow.current && !appearanceDrilled}
+								{@render sectionList('appearance', APPEARANCE_SECTIONS, 'Appearance settings')}
+							{:else if narrow.current}
+								{@render backButton('appearance', 'Appearance')}
+							{:else}
+								<div
+									class="section-tabs"
+									role="tablist"
+									aria-label="Appearance settings"
+									aria-orientation="vertical"
+								>
+									{#each APPEARANCE_SECTIONS as section (section.id)}
+										<button
+											type="button"
+											role="tab"
+											id="appearance-section-tab-{section.id}"
+											aria-selected={activeAppearanceSection === section.id}
+											aria-controls="appearance-section-panel-{section.id}"
+											class="section-tab"
+											class:active={activeAppearanceSection === section.id}
+											onclick={() => (activeAppearanceSection = section.id)}
+										>
+											{section.label}
+										</button>
+									{/each}
+								</div>
+							{/if}
 
-							<div class="section-panel-container">
-								{#key activeAppearanceSection}
-									<div
-										role="tabpanel"
-										id="appearance-section-panel-{activeAppearanceSection}"
-										aria-labelledby="appearance-section-tab-{activeAppearanceSection}"
-										class="section-panel"
-										in:flyFade={{ x: 16, duration: 200, delay: 80 }}
-										out:outFade={{ duration: 150 }}
-									>
-										<GlassPanel as="section" class="settings-section">
-											{#if activeAppearanceSection === 'theme'}
-												<div class="section-header">
-													<h2>Theme</h2>
-												</div>
-												<fieldset>
-													<legend class="sr-only">Theme</legend>
-													{#each THEME_OPTIONS as option (option.id)}
-														<label class="option">
-															<input
-																type="radio"
-																name="theme"
-																value={option.id}
-																checked={preferencesStore.theme === option.id}
-																onchange={() => preferencesStore.setTheme(option.id)}
-															/>
-															<span>
-																<span class="option-label">{option.label}</span>
-																<span class="option-description">{option.description}</span>
-															</span>
-														</label>
-													{/each}
-												</fieldset>
-											{:else if activeAppearanceSection === 'background'}
-												<div class="section-header">
-													<h2>Background</h2>
-												</div>
-												{#if reducedMotion.current}
-													<p class="reduced-motion-note">
-														Your system's reduced-motion setting is on. Drifty Stars will show as a
-														single still frame instead of animating, on purpose: it's the same
-														setting that keeps this page's own transitions short.
-													</p>
-												{/if}
-												<fieldset>
-													<legend class="sr-only">Background</legend>
-													{#each BACKGROUND_OPTIONS as option (option.id)}
-														<label class="option">
-															<input
-																type="radio"
-																name="background"
-																value={option.id}
-																checked={preferencesStore.background === option.id}
-																onchange={() => preferencesStore.setBackground(option.id)}
-															/>
-															<span>
-																<span class="option-label">{option.label}</span>
-																<span class="option-description">{option.description}</span>
-															</span>
-														</label>
-													{/each}
-												</fieldset>
-											{:else if activeAppearanceSection === 'ui-skin'}
-												<div class="section-header">
-													<h2>UI Skin</h2>
-													<p class="section-description">
-														The app's own chrome — panels, buttons, backgrounds. Independent of Node
-														Skin below: the two are chosen separately, and a future skin can bundle
-														both without them being locked together.
-													</p>
-												</div>
-												<fieldset>
-													<legend class="sr-only">UI Skin</legend>
-													{#each UI_SKINS as option (option.id)}
-														<label class="option">
-															<input
-																type="radio"
-																name="ui-skin"
-																value={option.id}
-																checked={skinStore.uiSkin === option.id}
-																onchange={() => skinStore.setUiSkin(option.id)}
-															/>
-															<span>
-																<span class="option-label">{option.label}</span>
-																<span class="option-description">{option.description}</span>
-															</span>
-														</label>
-													{/each}
-												</fieldset>
-											{:else if activeAppearanceSection === 'node-skin'}
-												<div class="section-header">
-													<h2>Node Skin</h2>
-													<p class="section-description">
-														How a ring-entry card looks, animates, and sounds. Independent of UI
-														Skin above.
-													</p>
-												</div>
-												<fieldset>
-													<legend class="sr-only">Node Skin</legend>
-													{#each NODE_SKINS as option (option.id)}
-														<label class="option">
-															<input
-																type="radio"
-																name="node-skin"
-																value={option.id}
-																checked={skinStore.nodeSkin === option.id}
-																onchange={() => skinStore.setNodeSkin(option.id)}
-															/>
-															<span>
-																<span class="option-label">{option.label}</span>
-																<span class="option-description">{option.description}</span>
-															</span>
-														</label>
-													{/each}
-												</fieldset>
-												<p class="skin-tools">
-													{#if dev}
-														<!-- /dev/skins is not a SvelteKit route: it is served by the skinLab() dev
+							{#if !narrow.current || appearanceDrilled}
+								<div class="section-panel-container">
+									{#key activeAppearanceSection}
+										<div
+											role={narrow.current ? 'region' : 'tabpanel'}
+											id="appearance-section-panel-{activeAppearanceSection}"
+											aria-labelledby={narrow.current
+												? undefined
+												: `appearance-section-tab-${activeAppearanceSection}`}
+											aria-label={narrow.current
+												? sectionLabel(APPEARANCE_SECTIONS, activeAppearanceSection)
+												: undefined}
+											tabindex="-1"
+											class="section-panel"
+											in:flyFade={{ x: 16, duration: 200, delay: 80 }}
+											out:outFade={{ duration: 150 }}
+										>
+											<GlassPanel as="section" class="settings-section">
+												{#if activeAppearanceSection === 'theme'}
+													<div class="section-header">
+														<h2>Theme</h2>
+													</div>
+													<fieldset>
+														<legend class="sr-only">Theme</legend>
+														{#each THEME_OPTIONS as option (option.id)}
+															<label class="option">
+																<input
+																	type="radio"
+																	name="theme"
+																	value={option.id}
+																	checked={preferencesStore.theme === option.id}
+																	onchange={() => preferencesStore.setTheme(option.id)}
+																/>
+																<span>
+																	<span class="option-label">{option.label}</span>
+																	<span class="option-description">{option.description}</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
+												{:else if activeAppearanceSection === 'background'}
+													<div class="section-header">
+														<h2>Background</h2>
+													</div>
+													{#if reducedMotion.current}
+														<p class="reduced-motion-note">
+															Your system's reduced-motion setting is on. Drifty Stars will show as
+															a single still frame instead of animating, on purpose: it's the same
+															setting that keeps this page's own transitions short.
+														</p>
+													{/if}
+													<fieldset>
+														<legend class="sr-only">Background</legend>
+														{#each BACKGROUND_OPTIONS as option (option.id)}
+															<label class="option">
+																<input
+																	type="radio"
+																	name="background"
+																	value={option.id}
+																	checked={preferencesStore.background === option.id}
+																	onchange={() => preferencesStore.setBackground(option.id)}
+																/>
+																<span>
+																	<span class="option-label">{option.label}</span>
+																	<span class="option-description">{option.description}</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
+												{:else if activeAppearanceSection === 'ui-skin'}
+													<div class="section-header">
+														<h2>UI Skin</h2>
+														<p class="section-description">
+															The app's own chrome — panels, buttons, backgrounds. Independent of
+															Node Skin below: the two are chosen separately, and a future skin can
+															bundle both without them being locked together.
+														</p>
+													</div>
+													<fieldset>
+														<legend class="sr-only">UI Skin</legend>
+														{#each UI_SKINS as option (option.id)}
+															<label class="option">
+																<input
+																	type="radio"
+																	name="ui-skin"
+																	value={option.id}
+																	checked={skinStore.uiSkin === option.id}
+																	onchange={() => skinStore.setUiSkin(option.id)}
+																/>
+																<span>
+																	<span class="option-label">{option.label}</span>
+																	<span class="option-description">{option.description}</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
+												{:else if activeAppearanceSection === 'node-skin'}
+													<div class="section-header">
+														<h2>Node Skin</h2>
+														<p class="section-description">
+															How a ring-entry card looks, animates, and sounds. Independent of UI
+															Skin above.
+														</p>
+													</div>
+													<fieldset>
+														<legend class="sr-only">Node Skin</legend>
+														{#each NODE_SKINS as option (option.id)}
+															<label class="option">
+																<input
+																	type="radio"
+																	name="node-skin"
+																	value={option.id}
+																	checked={skinStore.nodeSkin === option.id}
+																	onchange={() => skinStore.setNodeSkin(option.id)}
+																/>
+																<span>
+																	<span class="option-label">{option.label}</span>
+																	<span class="option-description">{option.description}</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
+													<p class="skin-tools">
+														{#if dev}
+															<!-- /dev/skins is not a SvelteKit route: it is served by the skinLab() dev
 														     middleware in vite.config.js, which mounts src/dev/skin-lab.js from its
 														     own HTML shell. `resolve()` is typed over real routes and rejects it on
 														     a clean checkout. The path is a {@const} inside this block rather than a
@@ -365,16 +485,17 @@
 														     scope, which would survive the dead-code elimination of `{#if dev}` and
 														     leak the developer surface into production builds — scripts/
 														     verify-production-build.js fails the build on exactly that. -->
-														{@const skinLabHref = '/dev/skins'}
-														<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- see above -->
-														<a href={skinLabHref}>Open the skin laboratory</a>
-													{/if}
-												</p>
-											{/if}
-										</GlassPanel>
-									</div>
-								{/key}
-							</div>
+															{@const skinLabHref = '/dev/skins'}
+															<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- see above -->
+															<a href={skinLabHref}>Open the skin laboratory</a>
+														{/if}
+													</p>
+												{/if}
+											</GlassPanel>
+										</div>
+									{/key}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{:else}
@@ -388,339 +509,356 @@
 						     section's content on the right, rather than every section
 						     stacked and visible at once: with seven of them, reaching the
 						     one you actually wanted used to mean scrolling past six
-						     others. Collapses to a horizontal wrapped tab row above the
-						     content below `.subtabs-layout`'s own breakpoint, the same
-						     idea as /join's sidebar collapsing on mobile. Shared with the
-						     Appearance tab's own four sections, hence the generic name. -->
+						     others. On a phone it becomes a drill-down list instead (see
+						     `narrow` in the script). Shared with the Appearance tab's own
+						     four sections, hence the generic name. -->
 						<div class="subtabs-layout">
-							<div
-								class="section-tabs"
-								role="tablist"
-								aria-label="Content settings"
-								aria-orientation="vertical"
-							>
-								{#each CONTENT_SECTIONS as section (section.id)}
-									<button
-										type="button"
-										role="tab"
-										id="content-section-tab-{section.id}"
-										aria-selected={activeContentSection === section.id}
-										aria-controls="content-section-panel-{section.id}"
-										class="section-tab"
-										class:active={activeContentSection === section.id}
-										onclick={() => (activeContentSection = section.id)}
-									>
-										{section.label}
-									</button>
-								{/each}
-							</div>
+							{#if narrow.current && !contentDrilled}
+								{@render sectionList('content', CONTENT_SECTIONS, 'Content settings')}
+							{:else if narrow.current}
+								{@render backButton('content', 'Content')}
+							{:else}
+								<div
+									class="section-tabs"
+									role="tablist"
+									aria-label="Content settings"
+									aria-orientation="vertical"
+								>
+									{#each CONTENT_SECTIONS as section (section.id)}
+										<button
+											type="button"
+											role="tab"
+											id="content-section-tab-{section.id}"
+											aria-selected={activeContentSection === section.id}
+											aria-controls="content-section-panel-{section.id}"
+											class="section-tab"
+											class:active={activeContentSection === section.id}
+											onclick={() => (activeContentSection = section.id)}
+										>
+											{section.label}
+										</button>
+									{/each}
+								</div>
+							{/if}
 
-							<div class="section-panel-container">
-								{#key activeContentSection}
-									<div
-										role="tabpanel"
-										id="content-section-panel-{activeContentSection}"
-										aria-labelledby="content-section-tab-{activeContentSection}"
-										class="section-panel"
-										in:flyFade={{ x: 16, duration: 200, delay: 80 }}
-										out:outFade={{ duration: 150 }}
-									>
-										<GlassPanel as="section" class="settings-section">
-											{#if activeContentSection === 'explicit'}
-												<div class="section-header">
-													<h2>Explicit content</h2>
-													<p class="section-description">
-														Creators declare this on their own entry. Filtered out unless you turn
-														it on, and the setting applies everywhere at once: the field, Members,
-														and your Lists.
-													</p>
-												</div>
-												<label class="option">
-													<input
-														type="checkbox"
-														checked={preferencesStore.showExplicit}
-														onchange={(event) =>
-															preferencesStore.setShowExplicit(event.currentTarget.checked)}
-													/>
-													<span>
-														<span class="option-label">Show explicit content</span>
-														<span class="option-description">
-															Off by default. Entries marked explicit stay hidden until you ask for
-															them.
+							{#if !narrow.current || contentDrilled}
+								<div class="section-panel-container">
+									{#key activeContentSection}
+										<div
+											role={narrow.current ? 'region' : 'tabpanel'}
+											id="content-section-panel-{activeContentSection}"
+											aria-labelledby={narrow.current
+												? undefined
+												: `content-section-tab-${activeContentSection}`}
+											aria-label={narrow.current
+												? sectionLabel(CONTENT_SECTIONS, activeContentSection)
+												: undefined}
+											tabindex="-1"
+											class="section-panel"
+											in:flyFade={{ x: 16, duration: 200, delay: 80 }}
+											out:outFade={{ duration: 150 }}
+										>
+											<GlassPanel as="section" class="settings-section">
+												{#if activeContentSection === 'explicit'}
+													<div class="section-header">
+														<h2>Explicit content</h2>
+														<p class="section-description">
+															Creators declare this on their own entry. Filtered out unless you turn
+															it on, and the setting applies everywhere at once: the field, Members,
+															and your Lists.
+														</p>
+													</div>
+													<label class="option">
+														<input
+															type="checkbox"
+															checked={preferencesStore.showExplicit}
+															onchange={(event) =>
+																preferencesStore.setShowExplicit(event.currentTarget.checked)}
+														/>
+														<span>
+															<span class="option-label">Show explicit content</span>
+															<span class="option-description">
+																Off by default. Entries marked explicit stay hidden until you ask
+																for them.
+															</span>
 														</span>
-													</span>
-												</label>
-											{:else if activeContentSection === 'audio-playlist'}
-												<div class="section-header">
-													<h2>Audio playlist</h2>
-													<p class="section-description">
-														Choose how a node's tracks enter your playlist when you press Play or +
-														Queue. This does not rearrange anything already queued.
-													</p>
-												</div>
-												<label class="option">
-													<input
-														type="checkbox"
-														checked={preferencesStore.randomizeAudioTracks}
-														onchange={(event) =>
-															preferencesStore.setRandomizeAudioTracks(event.currentTarget.checked)}
-													/>
-													<span>
-														<span class="option-label">Randomize tracks within each node</span>
-														<span class="option-description">
-															Each time an audio node is played or added, its tracks are inserted in
-															a new random order. Nodes remain grouped together.
+													</label>
+												{:else if activeContentSection === 'audio-playlist'}
+													<div class="section-header">
+														<h2>Audio playlist</h2>
+														<p class="section-description">
+															Choose how a node's tracks enter your playlist when you press Play or
+															+ Queue. This does not rearrange anything already queued.
+														</p>
+													</div>
+													<label class="option">
+														<input
+															type="checkbox"
+															checked={preferencesStore.randomizeAudioTracks}
+															onchange={(event) =>
+																preferencesStore.setRandomizeAudioTracks(
+																	event.currentTarget.checked
+																)}
+														/>
+														<span>
+															<span class="option-label">Randomize tracks within each node</span>
+															<span class="option-description">
+																Each time an audio node is played or added, its tracks are inserted
+																in a new random order. Nodes remain grouped together.
+															</span>
 														</span>
-													</span>
-												</label>
-											{:else if activeContentSection === 'entry-types'}
-												<div class="section-header">
-													<h2>Entry types</h2>
-													<p class="section-description">
-														Content type is set per node now, not globally. Use
-														<strong>Arrange</strong> on the Field to add a node and choose what it pulls,
-														so you can keep an audio node beside a comic node instead of narrowing everything
-														at once.
-													</p>
-												</div>
+													</label>
+												{:else if activeContentSection === 'entry-types'}
+													<div class="section-header">
+														<h2>Entry types</h2>
+														<p class="section-description">
+															Content type is set per node now, not globally. Use
+															<strong>Arrange</strong> on the Field to add a node and choose what it pulls,
+															so you can keep an audio node beside a comic node instead of narrowing everything
+															at once.
+														</p>
+													</div>
 
-												<div class="section-header">
-													<h3>Ambient View</h3>
-													<p class="section-description">
-														Ambient has no nodes to arrange, so it draws from every type by default.
-														Turn a type off to keep it out of Ambient's rotation on this device —
-														audio also leaves the sound dock — without touching the Field.
-													</p>
-												</div>
-												<fieldset>
-													<legend class="sr-only">Ambient View entry types</legend>
-													{#each AMBIENT_TYPES as type (type.id)}
-														<label class="option">
-															<input
-																type="checkbox"
-																checked={preferencesStore.isAmbientTypeVisible(type.id)}
-																onchange={(event) =>
-																	preferencesStore.setAmbientTypeVisible(
-																		type.id,
-																		event.currentTarget.checked
-																	)}
-															/>
-															<span>
-																<span class="option-label">
+													<div class="section-header">
+														<h3>Ambient View</h3>
+														<p class="section-description">
+															Ambient has no nodes to arrange, so it draws from every type by
+															default. Turn a type off to keep it out of Ambient's rotation on this
+															device — audio also leaves the sound dock — without touching the
+															Field.
+														</p>
+													</div>
+													<fieldset>
+														<legend class="sr-only">Ambient View entry types</legend>
+														{#each AMBIENT_TYPES as type (type.id)}
+															<label class="option">
+																<input
+																	type="checkbox"
+																	checked={preferencesStore.isAmbientTypeVisible(type.id)}
+																	onchange={(event) =>
+																		preferencesStore.setAmbientTypeVisible(
+																			type.id,
+																			event.currentTarget.checked
+																		)}
+																/>
+																<span>
+																	<span class="option-label">
+																		<span
+																			class="type-swatch"
+																			style:background={type.color}
+																			aria-hidden="true"
+																		></span>
+																		{type.label}
+																	</span>
+																</span>
+															</label>
+														{/each}
+													</fieldset>
+												{:else if activeContentSection === 'tags'}
+													<div class="section-header">
+														<h2>Tags</h2>
+														<p class="section-description">
+															Every tag currently used across the ring. Leave all unchecked to see
+															every tag.
+														</p>
+													</div>
+													{#if availableTags.length === 0 && !ringStore.settled}
+														<p class="empty-note">Loading the ring…</p>
+													{:else if availableTags.length === 0}
+														<p class="empty-note">No tags in the ring yet.</p>
+													{:else}
+														<div class="chip-group">
+															{#each availableTags as tag (tag)}
+																<label class="chip" class:checked={filtersStore.tags.has(tag)}>
+																	<input
+																		type="checkbox"
+																		checked={filtersStore.tags.has(tag)}
+																		onchange={() => filtersStore.toggleTag(tag)}
+																	/>
+																	{tag}
+																</label>
+															{/each}
+														</div>
+													{/if}
+
+													<div class="filter-footer">
+														<p class="match-count">
+															{matchCount} of {ringStore.entries.length} entries match these filters.
+														</p>
+														{#if filtersStore.tags.size > 0}
+															<button
+																type="button"
+																class="clear-button"
+																onclick={() => filtersStore.clear()}
+															>
+																Clear filters
+															</button>
+														{/if}
+													</div>
+												{:else if activeContentSection === 'not-for-me'}
+													<div class="section-header">
+														<h2>Not for Me</h2>
+														<p class="section-description">
+															Nodes you marked Not for Me stop rotating into the field on this
+															device. They stay in the ring for everyone else. Restore them one at a
+															time from the <a href={resolve('/lists')}>Not for Me tab on Lists</a>,
+															or clear the whole list at once here.
+														</p>
+													</div>
+													<div class="filter-footer">
+														<p class="match-count">
+															{hiddenStore.size}
+															{hiddenStore.size === 1 ? 'entry' : 'entries'} dismissed on this device.
+														</p>
+														{#if hiddenStore.size > 0}
+															<button
+																type="button"
+																class="clear-button"
+																onclick={() => hiddenStore.clear()}
+															>
+																Clear dismissed
+															</button>
+														{/if}
+													</div>
+												{:else if activeContentSection === 'rotation'}
+													<div class="section-header">
+														<h2>Rotation pace</h2>
+														<p class="section-description">
+															How long a node holds an entry before moving on, per content type.
+															Audio is quick to sample; a comic page has to be read. This changes
+															pacing only: every entry still appears, and you still never choose
+															what comes next.
+														</p>
+													</div>
+													<div class="pace-list">
+														{#each ROTATION_TYPES as type (type.id)}
+															<div class="pace-row">
+																<label class="pace-label" for="pace-{type.id}">
 																	<span
-																		class="type-swatch"
+																		class="pace-swatch"
 																		style:background={type.color}
 																		aria-hidden="true"
 																	></span>
 																	{type.label}
-																</span>
-															</span>
-														</label>
-													{/each}
-												</fieldset>
-											{:else if activeContentSection === 'tags'}
-												<div class="section-header">
-													<h2>Tags</h2>
-													<p class="section-description">
-														Every tag currently used across the ring. Leave all unchecked to see
-														every tag.
-													</p>
-												</div>
-												{#if availableTags.length === 0 && !ringStore.settled}
-													<p class="empty-note">Loading the ring…</p>
-												{:else if availableTags.length === 0}
-													<p class="empty-note">No tags in the ring yet.</p>
-												{:else}
-													<div class="chip-group">
-														{#each availableTags as tag (tag)}
-															<label class="chip" class:checked={filtersStore.tags.has(tag)}>
+																</label>
 																<input
-																	type="checkbox"
-																	checked={filtersStore.tags.has(tag)}
-																	onchange={() => filtersStore.toggleTag(tag)}
+																	id="pace-{type.id}"
+																	type="range"
+																	min={ROTATION_MIN_MS}
+																	max={ROTATION_MAX_MS}
+																	step="1000"
+																	value={preferencesStore.rotationFor(type.id)}
+																	oninput={(event) =>
+																		preferencesStore.setRotation(
+																			type.id,
+																			Number(event.currentTarget.value)
+																		)}
 																/>
-																{tag}
-															</label>
+																<span class="pace-value"
+																	>{formatSeconds(preferencesStore.rotationFor(type.id))}</span
+																>
+															</div>
 														{/each}
 													</div>
-												{/if}
+													<button
+														type="button"
+														class="clear-button"
+														onclick={() => preferencesStore.resetRotation()}
+													>
+														Reset to defaults
+													</button>
+												{:else if activeContentSection === 'your-data'}
+													<div class="section-header">
+														<h2>Your data</h2>
+														<p class="section-description">
+															Everything IndieNodes knows about you is in this browser and nowhere
+															else. You can take all of it with you, or bring it from another
+															device.
+														</p>
+													</div>
 
-												<div class="filter-footer">
-													<p class="match-count">
-														{matchCount} of {ringStore.entries.length} entries match these filters.
-													</p>
-													{#if filtersStore.tags.size > 0}
+													{#if exportItems.length === 0}
+														<p class="empty-note">Nothing stored yet.</p>
+													{:else}
+														<ul class="data-list">
+															{#each exportItems as item (item.key)}
+																<li>
+																	<span>{item.label}</span>
+																	{#if item.count !== null}
+																		<span class="data-count">{item.count}</span>
+																	{/if}
+																</li>
+															{/each}
+														</ul>
+														<p class="empty-note">
+															The discovery journal is a fuller record of what you have looked at
+															than your likes are. It never leaves this browser on its own;
+															downloading it is the one time it can.
+														</p>
+													{/if}
+
+													<div class="data-actions">
 														<button
 															type="button"
-															class="clear-button"
-															onclick={() => filtersStore.clear()}
+															class="data-button"
+															onclick={handleExport}
+															disabled={exportItems.length === 0}
 														>
-															Clear filters
+															Download my data
 														</button>
-													{/if}
-												</div>
-											{:else if activeContentSection === 'not-for-me'}
-												<div class="section-header">
-													<h2>Not for Me</h2>
-													<p class="section-description">
-														Nodes you marked Not for Me stop rotating into the field on this device.
-														They stay in the ring for everyone else. Restore them one at a time from
-														the <a href={resolve('/lists')}>Not for Me tab on Lists</a>, or clear
-														the whole list at once here.
-													</p>
-												</div>
-												<div class="filter-footer">
-													<p class="match-count">
-														{hiddenStore.size}
-														{hiddenStore.size === 1 ? 'entry' : 'entries'} dismissed on this device.
-													</p>
-													{#if hiddenStore.size > 0}
 														<button
 															type="button"
-															class="clear-button"
-															onclick={() => hiddenStore.clear()}
+															class="data-button"
+															onclick={() => fileInput?.click()}
 														>
-															Clear dismissed
+															Import from a file
 														</button>
+														<input
+															bind:this={fileInput}
+															type="file"
+															accept="application/json,.json"
+															class="sr-only"
+															onchange={handleImport}
+														/>
+													</div>
+
+													{#if importMessage}
+														<p class="import-message" class:error={importFailed} role="status">
+															{importMessage}
+														</p>
 													{/if}
-												</div>
-											{:else if activeContentSection === 'rotation'}
-												<div class="section-header">
-													<h2>Rotation pace</h2>
-													<p class="section-description">
-														How long a node holds an entry before moving on, per content type. Audio
-														is quick to sample; a comic page has to be read. This changes pacing
-														only: every entry still appears, and you still never choose what comes
-														next.
+												{:else if activeContentSection === 'journal'}
+													<h2>Your discovery journal</h2>
+													<p class="reduced-motion-note">
+														A local record of what you have opened, liked, and listened through. It
+														never leaves this browser, nothing is sent anywhere, and nothing reads
+														it back to decide what you are shown. It exists so your own history is
+														yours to look at.
 													</p>
-												</div>
-												<div class="pace-list">
-													{#each ROTATION_TYPES as type (type.id)}
-														<div class="pace-row">
-															<label class="pace-label" for="pace-{type.id}">
-																<span
-																	class="pace-swatch"
-																	style:background={type.color}
-																	aria-hidden="true"
-																></span>
-																{type.label}
-															</label>
-															<input
-																id="pace-{type.id}"
-																type="range"
-																min={ROTATION_MIN_MS}
-																max={ROTATION_MAX_MS}
-																step="1000"
-																value={preferencesStore.rotationFor(type.id)}
-																oninput={(event) =>
-																	preferencesStore.setRotation(
-																		type.id,
-																		Number(event.currentTarget.value)
-																	)}
-															/>
-															<span class="pace-value"
-																>{formatSeconds(preferencesStore.rotationFor(type.id))}</span
+													<div class="filter-footer">
+														<p class="match-count">
+															{journalStore.size}
+															{journalStore.size === 1 ? 'entry' : 'entries'} recorded on this device.
+														</p>
+														{#if journalStore.size > 0}
+															<button
+																type="button"
+																class="clear-button"
+																onclick={() => {
+																	journalStore.clear();
+																	dataVersion += 1;
+																}}
 															>
-														</div>
-													{/each}
-												</div>
-												<button
-													type="button"
-													class="clear-button"
-													onclick={() => preferencesStore.resetRotation()}
-												>
-													Reset to defaults
-												</button>
-											{:else if activeContentSection === 'your-data'}
-												<div class="section-header">
-													<h2>Your data</h2>
-													<p class="section-description">
-														Everything IndieNodes knows about you is in this browser and nowhere
-														else. You can take all of it with you, or bring it from another device.
-													</p>
-												</div>
-
-												{#if exportItems.length === 0}
-													<p class="empty-note">Nothing stored yet.</p>
-												{:else}
-													<ul class="data-list">
-														{#each exportItems as item (item.key)}
-															<li>
-																<span>{item.label}</span>
-																{#if item.count !== null}
-																	<span class="data-count">{item.count}</span>
-																{/if}
-															</li>
-														{/each}
-													</ul>
-													<p class="empty-note">
-														The discovery journal is a fuller record of what you have looked at than
-														your likes are. It never leaves this browser on its own; downloading it
-														is the one time it can.
-													</p>
+																Clear journal
+															</button>
+														{/if}
+													</div>
 												{/if}
-
-												<div class="data-actions">
-													<button
-														type="button"
-														class="data-button"
-														onclick={handleExport}
-														disabled={exportItems.length === 0}
-													>
-														Download my data
-													</button>
-													<button
-														type="button"
-														class="data-button"
-														onclick={() => fileInput?.click()}
-													>
-														Import from a file
-													</button>
-													<input
-														bind:this={fileInput}
-														type="file"
-														accept="application/json,.json"
-														class="sr-only"
-														onchange={handleImport}
-													/>
-												</div>
-
-												{#if importMessage}
-													<p class="import-message" class:error={importFailed} role="status">
-														{importMessage}
-													</p>
-												{/if}
-											{:else if activeContentSection === 'journal'}
-												<h2>Your discovery journal</h2>
-												<p class="reduced-motion-note">
-													A local record of what you have opened, liked, and listened through. It
-													never leaves this browser, nothing is sent anywhere, and nothing reads it
-													back to decide what you are shown. It exists so your own history is yours
-													to look at.
-												</p>
-												<div class="filter-footer">
-													<p class="match-count">
-														{journalStore.size}
-														{journalStore.size === 1 ? 'entry' : 'entries'} recorded on this device.
-													</p>
-													{#if journalStore.size > 0}
-														<button
-															type="button"
-															class="clear-button"
-															onclick={() => {
-																journalStore.clear();
-																dataVersion += 1;
-															}}
-														>
-															Clear journal
-														</button>
-													{/if}
-												</div>
-											{/if}
-										</GlassPanel>
-									</div>
-								{/key}
-							</div>
+											</GlassPanel>
+										</div>
+									{/key}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -859,34 +997,116 @@
 		min-height: 20rem;
 	}
 
+	/* Below this width the sidebar is not rendered at all: the phone list and
+	   back button below replace it (see `narrow` in the script, which uses the
+	   same breakpoint). */
 	@media (max-width: 56rem) {
 		.subtabs-layout {
 			grid-template-columns: 1fr;
+			gap: 0.9rem;
 		}
+	}
 
-		.section-tabs {
-			position: static;
-			flex-direction: row;
-			flex-wrap: wrap;
-			gap: 0.3rem 0.6rem;
-			padding-bottom: 0.6rem;
-			border-bottom: 1px solid var(--border);
-		}
+	.section-list {
+		margin: 0;
+		padding: 0.3rem;
+		list-style: none;
+	}
 
-		.section-tab {
-			border-left: none;
-			border-bottom: 2px solid transparent;
-			border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-			padding: 0.4rem 0.2rem 0.6rem;
-		}
+	.section-list li + li {
+		border-top: 1px solid var(--border);
+	}
 
-		.section-tab.active {
-			border-bottom-color: var(--accent);
-		}
+	.section-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		min-height: 3.25rem;
+		padding: 0.6rem 0.75rem;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--text);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.section-row:hover {
+		background: var(--glass-bg);
+	}
+
+	/* Summary under the label rather than beside it: side by side, a phone's
+	   width squeezed labels like "Explicit content" onto two lines. */
+	.section-row-text {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		gap: 0.1rem;
+		min-width: 0;
+	}
+
+	.section-row-label {
+		font-weight: 600;
+	}
+
+	.section-row-summary {
+		overflow: hidden;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.section-row svg,
+	.section-back svg {
+		flex: 0 0 auto;
+		width: 1.1rem;
+		height: 1.1rem;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.section-row svg {
+		color: var(--text-muted);
+	}
+
+	.section-back {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		justify-self: start;
+		min-height: 2.75rem;
+		padding: 0.4rem 0.75rem 0.4rem 0.4rem;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--accent);
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.section-back:hover {
+		background: var(--glass-bg);
+	}
+
+	.section-panel:focus {
+		outline: none;
 	}
 
 	:global(.settings-section) {
 		padding: 2.5rem;
+	}
+
+	@media (max-width: 56rem) {
+		:global(.settings-section) {
+			padding: 1.25rem;
+		}
 	}
 
 	.section-header {

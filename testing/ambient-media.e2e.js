@@ -69,7 +69,13 @@ test('a game visual offers a trailer that borrows the audio lane', async ({ page
 	// Get audio actually sounding first, so "borrowed" is observable.
 	await page.locator('.sound-dock').getByRole('button', { name: 'Play ambient audio' }).click();
 	await expect
-		.poll(() => page.evaluate(() => document.querySelector('[data-preview-player-audio]')?.paused))
+		.poll(() =>
+			page.evaluate(() =>
+				[
+					...document.querySelectorAll('[data-main-player-audio], [data-main-player-audio-plain]')
+				].every((el) => /** @type {HTMLAudioElement} */ (el).paused)
+			)
+		)
 		.toBe(false);
 
 	const trailerBtn = page.getByRole('button', { name: /Play the trailer for/ });
@@ -82,7 +88,13 @@ test('a game visual offers a trailer that borrows the audio lane', async ({ page
 	// the video element itself, because that is the contract under test: one
 	// thing sounds at a time.
 	await expect
-		.poll(() => page.evaluate(() => document.querySelector('[data-preview-player-audio]')?.paused))
+		.poll(() =>
+			page.evaluate(() =>
+				[
+					...document.querySelectorAll('[data-main-player-audio], [data-main-player-audio-plain]')
+				].every((el) => /** @type {HTMLAudioElement} */ (el).paused)
+			)
+		)
 		.toBe(true);
 
 	const frame = page.locator('.trailer-frame');
@@ -91,7 +103,13 @@ test('a game visual offers a trailer that borrows the audio lane', async ({ page
 	await expect(frame).toHaveCount(0);
 
 	await expect
-		.poll(() => page.evaluate(() => document.querySelector('[data-preview-player-audio]')?.paused))
+		.poll(() =>
+			page.evaluate(() =>
+				[
+					...document.querySelectorAll('[data-main-player-audio], [data-main-player-audio-plain]')
+				].every((el) => /** @type {HTMLAudioElement} */ (el).paused)
+			)
+		)
 		.toBe(false);
 });
 

@@ -48,6 +48,17 @@
 		     still prerender into the HTML, so crawlers see no difference. -->
 
 		<script>
+			// Chromium fires beforeinstallprompt once, early, and often before the
+			// app has hydrated enough to listen for it. Held here so
+			// installPromptStore can replay the install dialog later; the
+			// preventDefault stops the browser's own mini-infobar, since the app
+			// makes the offer itself (once).
+			window.addEventListener('beforeinstallprompt', function (event) {
+				event.preventDefault();
+				window.__indienodesInstallEvent = event;
+			});
+		</script>
+		<script>
 			// Resolves and applies the theme before first paint, so there is no
 			// flash of the wrong theme while the app hydrates. Reads the same
 			// storage key and shape as src/lib/preferences.js; kept inline and

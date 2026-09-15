@@ -2198,7 +2198,21 @@
 			background: color-mix(in oklch, var(--bg) 86%, #000 14%);
 		}
 
+		.now-playing .meta {
+			flex: 1;
+		}
+
 		.now-playing .reaction {
+			display: inline-flex;
+		}
+
+		.now-playing .meta + .reaction {
+			margin-left: auto;
+		}
+
+		/* The desktop hover flourish has no useful hover state here and can
+		   linger after a touch focuses one of these newly visible actions. */
+		.reaction-bubble {
 			display: none;
 		}
 

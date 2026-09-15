@@ -423,8 +423,12 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="entry-layer"
-			in:flyFade={{ x: 20, duration: 280, delay: 90 }}
-			out:outFade={{ duration: 180 }}
+			in:flyFade={{
+				x: immersive ? 0 : 20,
+				duration: immersive ? 240 : 280,
+				delay: immersive ? 0 : 90
+			}}
+			out:outFade={{ duration: immersive ? 240 : 180 }}
 			onpointerdown={handlePrimaryPointerDown}
 			onpointermove={handlePrimaryPointerMove}
 			onpointerup={handlePrimaryPointerUp}
@@ -826,10 +830,24 @@
 		border: 0;
 		border-radius: 0;
 		box-shadow: none;
+		/* A stage sized for a grid card reads as a caption on a full screen.
+		   Handed down as properties so skins can scale their reading text
+		   without knowing about ambient at all; `cqmin` follows this node,
+		   which is the whole viewport here. The measure keeps lines from
+		   running edge to edge on a wide desktop. */
+		--text-stage-size: clamp(1.75rem, 1rem + 3.2cqmin, 3rem);
+		--text-stage-measure: 60rem;
 	}
 
 	.node.immersive .content {
 		padding: 5rem 1.25rem 7rem;
+	}
+
+	@media (max-width: 30rem) {
+		.node.immersive .content {
+			padding-bottom: var(--ambient-mobile-meta-bottom, 6.5rem);
+			transition: padding-bottom 220ms ease;
+		}
 	}
 
 	.node[data-type='game'] {

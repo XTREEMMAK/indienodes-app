@@ -1,13 +1,12 @@
 <script>
 	/**
 	 * Ambient view's options sheet: everything the mode can do that is not worth
-	 * a permanent control, plus the visitor's current playlist.
+	 * a permanent control.
 	 *
-	 * The playlist lives here rather than in the dock because the dock speaks
-	 * for what is playing *now*, and a queue is a different question. It reads
-	 * the player store directly for the same reason the action panel reads the
-	 * curation stores: "what is queued" is global state, not something this
-	 * sheet should be handed a copy of.
+	 * Only that. The playlist has its own sheet (AmbientPlaylistSheet) behind
+	 * the dock's playlist button; sharing this one made both buttons open the
+	 * same crowded popup. Unobstructed view is likewise left to the view dock's
+	 * own button beside the one that opens this, rather than repeated here.
 	 *
 	 * Split out of `AmbientView` as the largest remaining block of markup and
 	 * CSS with a single job.
@@ -20,14 +19,12 @@
 	 *   reading?: boolean,
 	 *   visualReadable?: boolean,
 	 *   visualTrailerUrl?: string | null,
-	 *   playlistEl?: HTMLElement | null,
 	 *   onClose: () => void,
 	 *   onToggleAudioCard: () => void,
 	 *   onNextVisual: () => void,
 	 *   onOpenViewer: () => void,
 	 *   onOpenTrailer: () => void,
 	 *   onToggleRead: () => void,
-	 *   onToggleImmersive: () => void,
 	 *   onExit: () => void
 	 * }}
 	 */
@@ -39,20 +36,17 @@
 		reading = false,
 		visualReadable = false,
 		visualTrailerUrl = null,
-		playlistEl = $bindable(null),
 		onClose,
 		onToggleAudioCard,
 		onNextVisual,
 		onOpenViewer,
 		onOpenTrailer,
 		onToggleRead,
-		onToggleImmersive,
 		onExit
 	} = $props();
 
 	import { fade, slide } from 'svelte/transition';
 	import { resolve } from '$app/paths';
-	import { audioPlayerStore } from '$lib/audioPlayerStore.svelte.js';
 </script>
 
 <button
@@ -124,36 +118,6 @@
 			<!-- eslint-enable svelte/no-navigation-without-resolve -->
 		{/if}
 	</div>
-	<section
-		bind:this={playlistEl}
-		class="playlist-section"
-		aria-labelledby="ambient-playlist-heading"
-		tabindex="-1"
-	>
-		<div class="playlist-heading">
-			<h3 id="ambient-playlist-heading">Current playlist</h3>
-			<span>{audioPlayerStore.queue.length}</span>
-		</div>
-		{#if audioPlayerStore.queue.length > 0}
-			<ol>
-				{#each audioPlayerStore.queue as item, index (item.key)}
-					<li class:current={index === audioPlayerStore.index}>
-						<span class="playlist-position">{index + 1}</span>
-						<span class="playlist-copy">
-							<strong>{item.label}</strong>
-							<span>{item.creator}</span>
-						</span>
-						{#if index === audioPlayerStore.index}<span class="current-mark">Current</span>{/if}
-					</li>
-				{/each}
-			</ol>
-		{:else}
-			<p>Your playlist is empty. Ambient previews stay temporary.</p>
-		{/if}
-	</section>
-	<button type="button" class="immersive-option" onclick={onToggleImmersive}
-		>Unobstructed view</button
-	>
 	<button type="button" class="exit-option" onclick={onExit}>Exit ambient view</button>
 </section>
 
@@ -207,7 +171,6 @@
 	.options-heading button,
 	.option-grid button,
 	.option-grid a,
-	.immersive-option,
 	.exit-option {
 		border: 1px solid var(--border);
 		background: var(--bg-elevated);
@@ -244,106 +207,6 @@
 		font-weight: 700;
 		text-align: center;
 		text-decoration: none;
-	}
-
-	.playlist-section {
-		margin-top: 0.8rem;
-		padding-top: 0.8rem;
-		border-top: 1px solid var(--border);
-		outline: none;
-	}
-
-	.playlist-heading {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-
-	.playlist-heading h3 {
-		margin: 0;
-		font-size: var(--text-sm);
-	}
-
-	.playlist-heading > span {
-		display: inline-grid;
-		place-items: center;
-		min-width: 1.55rem;
-		height: 1.55rem;
-		padding-inline: 0.35rem;
-		border-radius: 999px;
-		background: var(--glass-bg);
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-		font-weight: 700;
-	}
-
-	.playlist-section ol {
-		display: grid;
-		gap: 0.3rem;
-		max-height: 11rem;
-		overflow-y: auto;
-		margin: 0.55rem 0 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	.playlist-section li {
-		display: flex;
-		align-items: center;
-		gap: 0.55rem;
-		padding: 0.5rem 0.55rem;
-		border-radius: var(--radius-sm);
-		background: color-mix(in oklch, var(--bg-elevated) 72%, transparent);
-	}
-
-	.playlist-section li.current {
-		background: color-mix(in oklch, var(--accent) 13%, var(--bg-elevated));
-	}
-
-	.playlist-position {
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.playlist-copy {
-		display: flex;
-		min-width: 0;
-		flex: 1;
-		flex-direction: column;
-	}
-
-	.playlist-copy strong,
-	.playlist-copy span {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.playlist-copy strong {
-		font-size: var(--text-xs);
-	}
-
-	.playlist-copy span,
-	.playlist-section > p,
-	.current-mark {
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-	}
-
-	.playlist-section > p {
-		margin: 0.55rem 0 0;
-	}
-
-	.current-mark {
-		flex: 0 0 auto;
-		font-weight: 700;
-	}
-
-	.immersive-option {
-		width: 100%;
-		margin-top: 0.75rem;
 	}
 
 	.exit-option {

@@ -6,10 +6,19 @@
 	import { afterNavigate } from '$app/navigation';
 	import { fade } from 'svelte/transition';
 	import { aboutModalStore } from '$lib/aboutModalStore.svelte.js';
+	import { installPromptStore } from '$lib/installPromptStore.svelte.js';
 	import { flyFade } from '$lib/transitions.js';
 
 	function close() {
 		onClose?.();
+	}
+
+	// The deliberate route to installing, always there while installing is
+	// possible, unlike the banner, which offers once.
+	async function install() {
+		close();
+		const result = await installPromptStore.install();
+		if (result === 'ios') installPromptStore.setStepsOpen(true);
 	}
 
 	afterNavigate(close);
@@ -100,6 +109,27 @@
 			</svg>
 			Contact
 		</a>
+		{#if installPromptStore.available}
+			<button type="button" role="menuitem" onclick={install}>
+				<svg
+					viewBox="0 0 24 24"
+					width="19"
+					height="19"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+					<path
+						d="M12 7.5v7M9 11.5l3 3 3-3M10.5 18.5h3"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+				Install app
+			</button>
+		{/if}
 	</div>
 {/if}
 

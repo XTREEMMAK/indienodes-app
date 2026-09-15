@@ -146,6 +146,19 @@ test('the mobile player replaces the nav and preserves hide versus close', async
 
 	const shelf = page.locator('.player .now-playing');
 	await expect(shelf).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+	const hide = shelf.getByRole('button', { name: /is not for me/ });
+	const like = shelf.getByRole('button', { name: /Add .* to favorites/ });
+	await expect(hide).toBeVisible();
+	await expect(like).toBeVisible();
+	const [shelfBox, metaBox, hideBox, likeBox] = await Promise.all([
+		shelf.boundingBox(),
+		shelf.locator('.meta').boundingBox(),
+		hide.boundingBox(),
+		like.boundingBox()
+	]);
+	expect(hideBox.x).toBeGreaterThan(metaBox.x);
+	expect(likeBox.x).toBeGreaterThan(hideBox.x);
+	expect(shelfBox.x + shelfBox.width - (likeBox.x + likeBox.width)).toBeLessThan(16);
 	const layerGap = await player.evaluate((element) => {
 		const metadata = element.querySelector('.now-playing');
 		const play = element.querySelector('.transport button:nth-child(2)');

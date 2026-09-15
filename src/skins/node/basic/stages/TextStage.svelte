@@ -224,14 +224,16 @@
 	   is, not of how tall the card happens to be. */
 	.excerpt-viewport {
 		position: relative;
-		width: 88%;
+		/* The measure is only set by a host that renders this larger (ambient
+		   view); on a grid card the fallback leaves the width at 88%. */
+		width: min(88%, var(--text-stage-measure, 100%));
 		max-height: 74%;
 		overflow: hidden;
 		mask-image: linear-gradient(to bottom, transparent 0%, #000 8%, #000 92%, transparent 100%);
 	}
 
 	.excerpt {
-		font-size: 1.1rem;
+		font-size: var(--text-stage-size, 1.1rem);
 		line-height: 1.6;
 		text-align: center;
 		color: #f2ede2;

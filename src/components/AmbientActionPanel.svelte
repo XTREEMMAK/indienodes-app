@@ -23,6 +23,7 @@
 	 *   onClose: () => void,
 	 *   onLike: (entry: import('$lib/ring.js').RingEntry) => void,
 	 *   onHide: (entry: import('$lib/ring.js').RingEntry, medium: 'audio' | 'visual') => void,
+	 *   onNextAudio: () => void,
 	 *   onNextVisual: () => void,
 	 *   onOpenViewer: () => void,
 	 *   onOpenTrailer: () => void,
@@ -39,6 +40,7 @@
 		onClose,
 		onLike,
 		onHide,
+		onNextAudio,
 		onNextVisual,
 		onOpenViewer,
 		onOpenTrailer,
@@ -125,6 +127,9 @@
 					</svg>
 				</a>
 				<!-- eslint-enable svelte/no-navigation-without-resolve -->
+				<button type="button" onclick={onNextAudio} aria-label="Next audio" title="Next audio">
+					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6h2v12h-2zM5 6l9 6-9 6z" /></svg>
+				</button>
 			</div>
 		</section>
 	{/if}

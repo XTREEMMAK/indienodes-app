@@ -23,10 +23,10 @@
 	 * - `imageCache` / `SkeletonImage` -> a local `loaded` flag. The ring's
 	 *   own `imagePreloader` already warms images elsewhere; a second caching
 	 *   layer here would be two things owning the same job.
-	 * - `modalHistory` -> deliberately dropped. It pushed a history entry so
-	 *   Android back closed the viewer. This app has no other modal doing
-	 *   that (`Modal` and `NavDrawer` both close on Escape only), and adding
-	 *   history manipulation to one overlay would make it the odd one out.
+	 * - `modalHistory` -> replaced with SvelteKit shallow history. On mobile,
+	 *   opening this full-screen surface adds one same-URL history entry so
+	 *   Android/browser Back closes the viewer before leaving the field. The
+	 *   viewer's own Close and Escape actions consume that entry as well.
 	 * - The original's `imageFitStyle` computed a scale from each page's known
 	 *   width and height. `pages[]` here carries only `image_url` and an
 	 *   optional `caption`, so there are no intrinsic dimensions to read and
@@ -57,6 +57,8 @@
 
 	import { fade } from 'svelte/transition';
 	import { browser } from '$app/environment';
+	import { pushState } from '$app/navigation';
+	import { page as appPage } from '$app/state';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	import { favoritesStore } from '$lib/favoritesStore.svelte.js';
 	import { hiddenStore } from '$lib/hiddenStore.svelte.js';
@@ -110,6 +112,10 @@
 
 	/** @type {HTMLElement | undefined} */
 	let rootEl = $state(undefined);
+
+	const VIEWER_HISTORY_KEY = 'indienodesViewer';
+	let viewerHistorySequence = 0;
+	let viewerHistoryToken = '';
 
 	// Non-reactive gesture bookkeeping. None of it renders, and making it
 	// reactive would only invite an effect to depend on it by accident.
@@ -172,6 +178,24 @@
 		captionExpanded = false;
 		showAllPages = false;
 		overlaysVisible = true;
+	});
+
+	// The viewer is a full-screen navigation layer on phones. A shallow
+	// same-URL entry makes the platform Back action peel off this layer before
+	// it can leave the field (or an Ambient session beneath it).
+	$effect(() => {
+		if (!open) {
+			viewerHistoryToken = '';
+			return;
+		}
+		if (!browser || !window.matchMedia('(max-width: 64rem)').matches || viewerHistoryToken) return;
+
+		viewerHistorySequence += 1;
+		viewerHistoryToken = `${entryId || kind}:${Date.now()}:${viewerHistorySequence}`;
+		pushState('', {
+			...appPage.state,
+			[VIEWER_HISTORY_KEY]: viewerHistoryToken
+		});
 	});
 
 	/**
@@ -626,15 +650,32 @@
 		};
 	});
 
-	function close() {
+	function finishClose() {
 		if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 		cancelMomentum();
 		clearInactivity();
 		onClose();
 	}
+
+	function handlePopstate() {
+		if (!open || !viewerHistoryToken) return;
+		viewerHistoryToken = '';
+		finishClose();
+	}
+
+	function close() {
+		if (browser && viewerHistoryToken) {
+			// Closing in the UI must consume the same shallow entry Back would;
+			// otherwise the next Back press would land on an invisible viewer step.
+			history.back();
+			return;
+		}
+		finishClose();
+	}
 </script>
 
 <svelte:window
+	onpopstate={handlePopstate}
 	onkeydown={handleKeydown}
 	onmousemove={handleMouseMove}
 	onmouseup={handleMouseUp}

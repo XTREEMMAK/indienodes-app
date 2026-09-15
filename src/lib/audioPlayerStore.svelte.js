@@ -27,6 +27,8 @@ import { preferencesStore } from './preferencesStore.svelte.js';
  * @typedef {object} QueueItem
  * @property {string} key stable per queue position, so reordering a list of
  *   duplicates cannot make two items collide in a keyed `{#each}`
+ * @property {string} batchKey stable for every track added by one queue
+ *   action, so playlist UIs can keep a release's track order together
  * @property {string} entryId
  * @property {string} creator the node this track came from; a node is a
  *   creator, not a single work, so this is the item's identity, not a
@@ -42,6 +44,7 @@ import { preferencesStore } from './preferencesStore.svelte.js';
  */
 
 let nextKey = 0;
+let nextBatch = 0;
 
 /**
  * Flattens an entry into its playable tracks. Entries whose tracks have no
@@ -51,12 +54,15 @@ let nextKey = 0;
  * @returns {QueueItem[]}
  */
 function itemsFor(entry, cover) {
+	nextBatch += 1;
+	const batchKey = `batch-${nextBatch}`;
 	return (entry.tracks ?? [])
 		.filter((track) => typeof track.media_url === 'string' && track.media_url.length > 0)
 		.map((track) => {
 			nextKey += 1;
 			return {
 				key: `q-${nextKey}`,
+				batchKey,
 				entryId: entry.id,
 				creator: entry.creator,
 				label: track.label,
@@ -294,20 +300,24 @@ function createAudioPlayerStore() {
 		 *
 		 * If nothing is queued yet this starts playback, since "add" with an
 		 * empty queue and no playback would otherwise silently do nothing
-		 * visible.
+		 * visible. `start: false` opts out of that for a caller that already has
+		 * something else sounding — ambient view saving the preview it is
+		 * playing, where starting the main lane would talk over it.
 		 * @param {RingEntry} entry
 		 * @param {string | null} cover
-		 * @param {{ openQueue?: boolean }} [options]
+		 * @param {{ openQueue?: boolean, start?: boolean }} [options]
 		 */
-		addEntry(entry, cover, { openQueue = true } = {}) {
+		addEntry(entry, cover, { openQueue = true, start = true } = {}) {
 			const items = queueItemsFor(entry, cover);
 			if (items.length === 0) return false;
 			const wasEmpty = queue.length === 0;
 			queue = [...queue, ...items];
 			if (wasEmpty) {
 				index = 0;
-				playing = true;
-				mobilePanelOpen = true;
+				if (start) {
+					playing = true;
+					mobilePanelOpen = true;
+				}
 			}
 			// Clearing this matters: the queue had ended, and it now has
 			// somewhere to go again, so the prompt is stale.

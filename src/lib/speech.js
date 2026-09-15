@@ -151,11 +151,20 @@ export function speak(text, { voice = null, lang = 'en', onDone } = {}) {
 
 	let stopped = false;
 	window.speechSynthesis.cancel();
+	// Mobile engines can leave the shared synthesiser paused after an audio
+	// interruption or background/foreground cycle. Resume is harmless when it
+	// is already active and keeps a user-initiated read from failing silently.
+	window.speechSynthesis.resume?.();
 
 	let index = 0;
+	// Keep a strong reference for the life of each chunk. Some mobile WebViews
+	// garbage-collect an otherwise unreferenced utterance while it is speaking,
+	// which presents as Read aloud starting and then immediately going silent.
+	let activeUtterance = /** @type {SpeechSynthesisUtterance | null} */ (null);
 	function next() {
 		if (stopped) return;
 		if (index >= chunks.length) {
+			activeUtterance = null;
 			onDone?.();
 			return;
 		}
@@ -163,9 +172,17 @@ export function speak(text, { voice = null, lang = 'en', onDone } = {}) {
 		index += 1;
 		utterance.voice = chosen;
 		utterance.lang = chosen.lang || lang;
-		utterance.onend = next;
+		utterance.onend = () => {
+			activeUtterance = null;
+			next();
+		};
 		// A failed chunk should not strand the rest of the passage silent.
-		utterance.onerror = next;
+		utterance.onerror = () => {
+			activeUtterance = null;
+			next();
+		};
+		activeUtterance = utterance;
+		window.speechSynthesis.resume?.();
 		window.speechSynthesis.speak(utterance);
 	}
 	next();
@@ -173,6 +190,7 @@ export function speak(text, { voice = null, lang = 'en', onDone } = {}) {
 	return () => {
 		if (stopped) return;
 		stopped = true;
+		activeUtterance = null;
 		window.speechSynthesis.cancel();
 		onDone?.();
 	};
