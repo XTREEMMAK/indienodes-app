@@ -54,7 +54,9 @@ test('view controls live in their own dock, right of the player', async ({ page 
 	const sound = await page.locator('.sound-dock').boundingBox();
 	const view = await page.locator('.view-dock').boundingBox();
 	expect(view.x).toBeGreaterThanOrEqual(sound.x + sound.width - 1);
-	await expect(page.locator('.view-dock button')).toHaveCount(2);
+	// Unobstructed view, the manual fullscreen toggle (browser/PWA only),
+	// and Options.
+	await expect(page.locator('.view-dock button')).toHaveCount(3);
 	await expect(
 		page.locator('.sound-dock').getByRole('button', { name: 'Ambient options' })
 	).toHaveCount(0);
