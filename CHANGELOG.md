@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-09-15
+
+A fix-only follow-up to the mobile Read Aloud update. It keeps the utterance alive on mobile WebViews
+while making that lifecycle explicit enough for release validation.
+
+### Fixed
+
+- **Read Aloud ignores stale speech events.** The strong utterance reference used for mobile
+  reliability now also guards completion and error callbacks, so an old or duplicate event cannot
+  advance the narration queue twice.
+
 ## [1.7.2] - 2026-09-15
 
 A mobile interaction release for Ambient sessions and the wider app. The playlist now keeps the
