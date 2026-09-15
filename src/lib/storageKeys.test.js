@@ -73,6 +73,7 @@ describe('the literal keys are pinned', () => {
 			'indienode:ambient-consent:v1': true,
 			'indienode:visit-count:v1': true,
 			'indienode:feedback-prompt:v1': true,
+			'indienode:install-prompt:v1': false,
 			'indienode:player-position:v1': false,
 			'indienode:submission-draft:v1': false,
 			'indienode:update-draft:v1': false

@@ -46,9 +46,25 @@ test('ambient mobile surface exposes audio navigation and tap-paused visual acti
 	await page.locator('.options-heading').getByRole('button', { name: 'Close options' }).click();
 	await expect(page.locator('.audio-discovery-card')).toBeVisible();
 
+	// The playlist has its own sheet rather than sharing the options popup.
 	await playlistButton.click();
-	await expect(page.getByRole('heading', { name: 'Current playlist' })).toBeVisible();
-	await expect(page.locator('.playlist-section')).toBeFocused();
+	const playlist = page.locator('.playlist-sheet');
+	await expect(playlist.getByRole('heading', { name: 'Playlist', exact: true })).toBeVisible();
+	await expect(playlist).toBeFocused();
+	await expect(page.locator('.options-sheet')).toHaveCount(0);
+	// Nothing is queued just by opening ambient: its pick waits, silent, until
+	// the visitor presses play.
+	await expect(playlist.getByRole('heading', { name: 'Up first' })).toBeVisible();
+	await expect(playlist.locator('.playlist-section li')).toHaveCount(0);
+	await expect(page.locator('[data-main-player-audio]')).toHaveJSProperty('paused', true);
+	await expect(page.getByRole('button', { name: 'Play ambient audio' })).toBeVisible();
+	await page.getByRole('button', { name: 'Close playlist sheet' }).click();
+	await expect(playlist).toHaveCount(0);
+
+	// And the options button opens only the options.
+	await page.getByRole('button', { name: 'Ambient options' }).click();
+	await expect(page.locator('.options-sheet')).toBeVisible();
+	await expect(page.locator('.playlist-sheet')).toHaveCount(0);
 	await page.locator('.options-heading').getByRole('button', { name: 'Close options' }).click();
 
 	await page.locator('.visual-canvas').dispatchEvent('click');

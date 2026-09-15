@@ -49,7 +49,39 @@ describe('audio queue expansion', () => {
 	});
 });
 
+describe('adding without starting', () => {
+	it('starts an empty queue by default', () => {
+		audioPlayerStore.addEntry(ENTRY, null);
+		expect(audioPlayerStore.playing).toBe(true);
+	});
+
+	it('queues into an empty queue silently when asked not to start', () => {
+		audioPlayerStore.previewEntry(MULTI_TRACK_ENTRY, null);
+		audioPlayerStore.addEntry(ENTRY, null, { openQueue: false, start: false });
+
+		expect(audioPlayerStore.queue.map((item) => item.label)).toEqual(['Test Track']);
+		expect(audioPlayerStore.index).toBe(0);
+		expect(audioPlayerStore.playing).toBe(false);
+		expect(audioPlayerStore.mobilePanelOpen).toBe(false);
+		// The preview that was sounding is left alone.
+		expect(audioPlayerStore.previewItem?.label).toBe('One');
+		expect(audioPlayerStore.previewPlaying).toBe(true);
+		// `clear()` in afterEach resets the queue only.
+		audioPlayerStore.stopPreview();
+	});
+});
+
 describe('audio node track order', () => {
+	it('keeps one insertion batch together and distinguishes later additions', () => {
+		audioPlayerStore.playEntry(MULTI_TRACK_ENTRY, null);
+		const firstBatch = audioPlayerStore.queue[0].batchKey;
+
+		expect(audioPlayerStore.queue.every((item) => item.batchKey === firstBatch)).toBe(true);
+
+		audioPlayerStore.addEntry(ENTRY, null);
+		expect(audioPlayerStore.queue.at(-1)?.batchKey).not.toBe(firstBatch);
+	});
+
 	it('keeps the listed track order by default', () => {
 		audioPlayerStore.playEntry(MULTI_TRACK_ENTRY, null);
 

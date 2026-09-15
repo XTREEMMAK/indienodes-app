@@ -84,6 +84,13 @@ export const STORAGE_KEYS = {
 		label: 'Feedback prompt',
 		exportable: true
 	},
+	installPrompt: {
+		key: 'indienode:install-prompt:v1',
+		label: 'Install prompt',
+		exportable: false,
+		reason:
+			'Whether this device was already offered the home-screen install. Installing is per device, so carrying the answer to a new phone would silently skip the one offer that phone should get.'
+	},
 	playerPosition: {
 		key: 'indienode:player-position:v1',
 		label: 'Minimized player position',

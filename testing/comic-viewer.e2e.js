@@ -6,6 +6,34 @@ import { expect, test } from '@playwright/test';
  * real past bug: resetting used to clear `loaded`, stranding the spinner over
  * an image that was already on screen, reachable three ways.
  */
+
+test('mobile Back closes the shared comic/art viewer before leaving the field', async ({
+	page
+}) => {
+	await page.route('https://example.invalid/**', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'image/svg+xml',
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"><rect width="800" height="1200" fill="#333"/></svg>'
+		})
+	);
+	await page.setViewportSize({ width: 390, height: 844 });
+	// Give the field a real previous route. If the viewer does not intercept
+	// Back, this test will visibly navigate to Members instead of staying here.
+	await page.goto('/members');
+	await page.goto('/');
+	await page.waitForTimeout(900);
+	const fieldUrl = page.url();
+
+	const read = page.getByRole('button', { name: /^Read / }).first();
+	await read.waitFor({ state: 'visible' });
+	await read.click();
+	await expect(page.getByRole('dialog', { name: /comic reader/i })).toBeVisible();
+	await page.goBack();
+	await expect(page.getByRole('dialog', { name: /comic reader/i })).toHaveCount(0);
+	expect(page.url()).toBe(fieldUrl);
+});
+
 test('comic reader zoom, paging and reset still work after the gesture extraction', async ({
 	page
 }) => {

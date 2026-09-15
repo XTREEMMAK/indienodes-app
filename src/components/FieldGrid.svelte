@@ -1236,8 +1236,8 @@
 					// below already exists to prevent. A drag means "put it here
 					// in the reading order" instead; the packing effect
 					// regenerates clean coordinates from that order on the next
-					// tick. This is also what makes touch dragging work as
-					// reordering on a phone.
+					// tick. (The single-column stack never gets here by drag:
+					// move is disabled there and its buttons reorder instead.)
 					const order = deriveOrderFromDom();
 					// Only when the sequence actually differs. A drag that ends where
 					// it started still reports a change (gridstack shuffled the
@@ -1626,10 +1626,14 @@
 		return () => document.body.classList.remove('field-dragging');
 	});
 
-	// Edit mode gates interaction. Move is offered at every width: on the open
-	// canvas a drop is a placement, and on the mobile stack it is read as a
-	// reorder (see the `change` handler), which is what makes touch dragging
-	// work as reordering on a phone instead of needing a separate mechanism.
+	// Edit mode gates interaction. Move is offered everywhere except the mobile
+	// stack: on the open canvas a drop is a placement, and in the re-arranging
+	// tier above the stack it is read as a reorder (see the `change` handler).
+	// On the stack itself the up/down buttons are the reorder mechanism, and a
+	// live drag surface there was worse than redundant: the cards fill the
+	// whole screen, so every touch meant to scroll the page picked one up
+	// instead. With move disabled gridstack drops its touch listeners and the
+	// browser's own scrolling comes back.
 	//
 	// Resize is off wherever the canvas is showing a derived layout rather
 	// than the authored one — so it is available exactly when a size written
@@ -1639,7 +1643,7 @@
 	// that same state; leaving the handles live there would offer a gesture
 	// whose result is discarded.
 	//
-	// `editMode` and `showsAuthored` are read here, before the guard, on
+	// `editMode`, `showsAuthored` and `columnCount` are read here, before the guard, on
 	// purpose: an effect's dependencies for its *next* run come from what it
 	// read on its *last* run, and `grid`/`ready` start false, so the guard
 	// used to return before either was ever read. The very first run past
@@ -1650,7 +1654,7 @@
 	// keeps them tracked regardless of which run first clears the guard.
 	$effect(() => {
 		const authored = showsAuthored;
-		const wantMove = editMode;
+		const wantMove = editMode && columnCount > MIN_W;
 		const wantResize = editMode && authored;
 		if (!grid || !ready) return;
 		grid.enableMove(wantMove);
@@ -2054,7 +2058,7 @@
 
 	/**
 	 * Moves one node through the narrow layout's reading order. This uses the
-	 * same order callback as a completed phone-width drag, so authored desktop
+	 * same order callback as a completed derived-layout drag, so authored desktop
 	 * geometry stays untouched and the responsive layout effect animates the
 	 * cards into their new rows.
 	 * @param {string} id

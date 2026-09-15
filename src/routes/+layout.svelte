@@ -17,6 +17,8 @@
 	import AmbientView from '../components/AmbientView.svelte';
 	import Modal from '../components/Modal.svelte';
 	import MobileMoreMenu from '../components/MobileMoreMenu.svelte';
+	import InstallPrompt from '../components/InstallPrompt.svelte';
+	import { installPromptStore } from '$lib/installPromptStore.svelte.js';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { skinStore } from '../skins/skinStore.svelte.js';
 	import { audioPlayerStore } from '$lib/audioPlayerStore.svelte.js';
@@ -161,7 +163,10 @@
 	// one place makes the effect retrigger itself — which loops forever on any
 	// browser where the session guard cannot be written (a private window, a
 	// full quota). onMount runs once and reads nothing reactive.
-	onMount(() => feedbackStore.countVisit());
+	onMount(() => {
+		feedbackStore.countVisit();
+		installPromptStore.start();
+	});
 
 	// `?debug=rating-test` opens the prompt immediately, skipping the real
 	// ten-visit wait — same `import.meta.env.DEV` + URL-param gate
@@ -683,6 +688,17 @@
 		</nav>
 
 		<MobileMoreMenu open={mobileMoreOpen} onClose={() => (mobileMoreOpen = false)} />
+		<!-- Held back while anything else has the screen: it is an offer, and
+		     arriving on top of a dialog, ambient, or arranging would make it an
+		     interruption instead. -->
+		<InstallPrompt
+			suppressed={ambientOpen ||
+				ambientConsentOpen ||
+				feedbackOpen ||
+				mobileMoreOpen ||
+				editModeStore.active ||
+				audioPlayerStore.mobilePanelOpen}
+		/>
 
 		{#if mobileMenuPos}
 			<ArrangeMenu

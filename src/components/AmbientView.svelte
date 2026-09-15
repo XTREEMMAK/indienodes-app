@@ -19,6 +19,7 @@
 	import AmbientDiscoveryCard from './AmbientDiscoveryCard.svelte';
 	import AmbientActionPanel from './AmbientActionPanel.svelte';
 	import AmbientOptionsSheet from './AmbientOptionsSheet.svelte';
+	import AmbientPlaylistSheet from './AmbientPlaylistSheet.svelte';
 	import { audioPlayerStore } from '$lib/audioPlayerStore.svelte.js';
 	import { audioSettingsStore } from '$lib/audioSettingsStore.svelte.js';
 	import { comicViewerStore } from '$lib/comicViewerStore.svelte.js';
@@ -37,6 +38,10 @@
 	let overlayEl = $state(/** @type {HTMLElement | null} */ (null));
 	let playlistEl = $state(/** @type {HTMLElement | null} */ (null));
 	let candidatePreviewEl = $state(/** @type {HTMLAudioElement | null} */ (null));
+	// The pick ambient offers while nothing is queued. Shown in the dock and
+	// queued only when the visitor presses play (or skips, or takes the
+	// discovery card's suggestion), so merely opening the mode never writes to
+	// their playlist. Once anything is queued the dock follows the queue.
 	let audioEntry = $state(/** @type {import('$lib/ring.js').RingEntry | null} */ (null));
 	let audioCandidate = $state(/** @type {import('$lib/ring.js').RingEntry | null} */ (null));
 	let audioCandidateTrack = $state(
@@ -45,17 +50,9 @@
 	let visualEntry = $state(/** @type {import('$lib/ring.js').RingEntry | null} */ (null));
 	let sessionOpen = false;
 	let enteredFullscreen = false;
-	let ownedPreviewEntryId = '';
 	let optionsOpen = $state(false);
+	let playlistOpen = $state(false);
 	let interactionsOpen = $state(false);
-	// True when the visitor already had a queue going and ambient adopted it
-	// rather than dealing its own audio. Entering used to preview something
-	// random over the top of whatever was playing, which ducked their music to
-	// silence and made this read as a separate player that had thrown away the
-	// queue they built. A queue is an explicit choice; ambient rotating the
-	// *visuals* around it is the feature, so the audio it finds playing is left
-	// alone and this dock drives it directly.
-	let adoptedQueue = $state(false);
 	let audioCardVisible = $state(true);
 	// Unobstructed mode: every piece of chrome steps out so the rotating visual
 	// is the whole screen. Distinct from the browser fullscreen this overlay
@@ -89,17 +86,33 @@
 	let candidatePreviewing = $state(false);
 	let candidateRotationProgress = $state(0);
 	/**
-	 * Which lane a temporary sound silenced, so the right one resumes after.
-	 * Null whenever nothing is borrowed. Shared by every interruption in this
-	 * mode — the discovery audition, a game trailer, and the text reader —
-	 * because "one thing sounds at a time" is a property of the mode, not of
-	 * whichever feature happens to be interrupting.
+	 * Whether a temporary sound paused the queue, so it resumes after. Shared
+	 * by every interruption in this mode — the discovery audition, a game
+	 * trailer, and the text reader — because "one thing sounds at a time" is a
+	 * property of the mode, not of whichever feature happens to be
+	 * interrupting.
 	 */
-	let borrowedLane = /** @type {'queue' | 'preview' | null} */ (null);
+	let borrowedPlayback = false;
 	let soundFlash = $state(0);
 	let visualFlash = $state(0);
 	let visualTapTimer = /** @type {ReturnType<typeof setTimeout> | undefined} */ (undefined);
-	let handledPreviewCompletion = 0;
+	// Set when the queue had already run out before the mode opened, so the
+	// run-out effect does not read an old ending as a new one and start
+	// playing on entry. Cleared as soon as the queue moves again.
+	let staleAtEnd = false;
+	// Visuals already shown this session, newest last, for swiping back.
+	// Plain rather than state: only the swipe handler reads it.
+	/** @type {import('$lib/ring.js').RingEntry[]} */
+	let visualHistory = [];
+	const VISUAL_HISTORY_MAX = 20;
+	/** @type {{ id: number, x: number, y: number } | null} */
+	let swipeStart = null;
+	// A swipe still ends in a click; this tells the tap handler to let it go.
+	let swipeHandled = false;
+	const SWIPE_MIN_PX = 56;
+	// Swipes starting this close to either edge belong to the system (Android's
+	// back gesture), not to the visual.
+	const SWIPE_EDGE_PX = 24;
 	const decks = createDecks();
 
 	const eligible = $derived(
@@ -119,11 +132,17 @@
 	);
 	const visualPool = $derived(eligible.filter((entry) => entry.type !== 'audio'));
 
-	// In adopted mode the dock is a view onto the real queue, so the entry it
-	// describes has to be resolved back from the queue item rather than dealt
-	// here. Queue items carry only `entryId`, which is the id this looks up.
+	// Ambient plays through the real queue, the same one the regular player
+	// drives. It used to audition its picks in the player's one-track preview
+	// lane instead, which is why its playlist never showed what was playing:
+	// a preview never enters the queue. Now the queue is the session — a queue
+	// the visitor brought in plays first, ambient's picks are appended when it
+	// runs out (the regular player's Keep going), and leaving the mode carries
+	// on playing in the regular player.
+	const queueActive = $derived(!audioPlayerStore.isEmpty);
+	// Queue items carry only `entryId`, which is the id this looks up.
 	const queueEntry = $derived(
-		adoptedQueue
+		queueActive
 			? (ringStore.entries.find((entry) => entry.id === audioPlayerStore.current?.entryId) ?? null)
 			: null
 	);
@@ -157,15 +176,13 @@
 				(visualEntry?.artworks ?? []).some((artwork) => Boolean(artwork?.image_url)))
 	);
 
-	/** Whichever audio this dock is currently speaking for, dealt or adopted. */
+	/** Whichever audio this dock is currently speaking for: the queue, or the pending pick. */
 	const activeAudioEntry = $derived(queueEntry ?? audioEntry);
-	const activeAudioPlaying = $derived(
-		adoptedQueue ? audioPlayerStore.playing : audioPlayerStore.previewPlaying
-	);
+	const activeAudioPlaying = $derived(queueActive && audioPlayerStore.playing);
 	const activeAudioLabel = $derived(
-		adoptedQueue
+		queueActive
 			? (audioPlayerStore.current?.label ?? 'Audio')
-			: (audioPlayerStore.previewItem?.label ?? activeAudioEntry?.tracks?.[0]?.label ?? 'Audio')
+			: (audioEntry?.tracks?.find((track) => Boolean(track.media_url))?.label ?? 'Audio')
 	);
 
 	/**
@@ -186,26 +203,84 @@
 		return pool.find((entry) => entry.id === id) ?? (id === null ? null : (pool[0] ?? null));
 	}
 
-	/** @param {{ autoplay?: boolean }} [options] */
-	function advanceAudio({ autoplay = false } = {}) {
-		const next = draw(audioPool, 'audio', audioEntry?.id);
-		audioEntry = next;
+	/** A fresh, silent pick for the dock while nothing is queued. */
+	function dealPendingAudio() {
+		audioEntry = draw(audioPool, 'audio', audioEntry?.id);
+		if (audioEntry && audioCandidate?.id === audioEntry.id) advanceAudioCandidate();
+	}
+
+	/**
+	 * Appends an entry to the queue and plays it, from `trackUrl` when given.
+	 * Appended rather than replacing, the same as the regular player's Keep
+	 * going: the queue is the session, and whatever was already in it stays.
+	 * @param {import('$lib/ring.js').RingEntry} entry
+	 * @param {string} [trackUrl]
+	 */
+	function playInQueue(entry, trackUrl = '') {
+		// Already queued (another track of a node that is playing): go to it
+		// rather than queueing the whole node a second time.
+		const existing = trackUrl
+			? audioPlayerStore.queue.findIndex(
+					(item) => item.entryId === entry.id && item.url === trackUrl
+				)
+			: -1;
+		if (existing >= 0) {
+			audioPlayerStore.jumpTo(existing);
+			return;
+		}
+		const from = audioPlayerStore.queue.length;
+		const added = audioPlayerStore.addEntry(entry, coverImageUrl(entry), {
+			openQueue: false,
+			start: false
+		});
+		if (!added) return;
+		// Found by URL rather than position: the visitor's shuffle preference
+		// may have reordered the entry's tracks on the way in.
+		const offset = audioPlayerStore.queue.slice(from).findIndex((item) => item.url === trackUrl);
+		audioPlayerStore.jumpTo(from + Math.max(0, offset));
+	}
+
+	/** Deals the next audio node onto the end of the queue and plays it. */
+	function continueWithNewAudio() {
+		// A pool of one has nothing else to deal, and the draw says so with
+		// null; ambient goes round that one node again rather than falling
+		// silent.
+		const next =
+			draw(audioPool, 'audio', audioPlayerStore.current?.entryId ?? audioEntry?.id) ??
+			audioPool[0] ??
+			null;
 		if (!next) return;
-		// Ambient is sounding its own pick now, so it stops speaking for the
-		// queue. The queue is only ducked underneath, never cleared, and comes
-		// back when this mode closes.
-		adoptedQueue = false;
-		ownedPreviewEntryId = next.id;
-		audioPlayerStore.previewEntry(next, coverImageUrl(next), { autoplay });
+		audioEntry = next;
+		playInQueue(next);
 		if (audioCandidate?.id === next.id) advanceAudioCandidate();
+	}
+
+	/**
+	 * The dock's skip: the next track in the queue, or a new node once the
+	 * queue has nothing after this one. With nothing queued yet it only swaps
+	 * the pending pick, which stays silent like the one it replaces.
+	 */
+	function skipAudio() {
+		if (candidatePreviewing) stopCandidatePreview({ resume: false });
+		if (!queueActive) {
+			dealPendingAudio();
+		} else if (audioPlayerStore.index < audioPlayerStore.queue.length - 1) {
+			audioPlayerStore.next();
+		} else {
+			continueWithNewAudio();
+		}
 	}
 
 	function advanceAudioCandidate() {
 		stopCandidatePreview();
 		const alternatives = audioPool.filter((entry) => entry.id !== activeAudioEntry?.id);
 		const nextEntry = draw(alternatives, 'candidate', audioCandidate?.id) ?? activeAudioEntry;
-		const currentPreview = audioPlayerStore.previewItem;
-		const currentUrl = nextEntry?.id === currentPreview?.entryId ? (currentPreview?.url ?? '') : '';
+		// The track the dock is showing, queued or pending, so the card never
+		// suggests the very thing already in front of the visitor.
+		const shownUrl = queueActive
+			? audioPlayerStore.current?.url
+			: audioEntry?.tracks?.find((track) => Boolean(track.media_url))?.media_url;
+		const currentUrl = nextEntry?.id === activeAudioEntry?.id ? (shownUrl ?? '') : '';
 		const tracks = (nextEntry?.tracks ?? []).filter(
 			(track) => Boolean(track.media_url) && track.media_url !== currentUrl
 		);
@@ -219,39 +294,21 @@
 	}
 
 	/**
-	 * Silences whichever audio lane is currently sounding, remembering which so
-	 * `returnSilence` can put exactly that one back. Safe to call when nothing
-	 * is playing, and safe to call twice: a second borrow does not overwrite
-	 * the first lane's claim with "nothing".
+	 * Pauses the queue for a temporary sound, remembering to resume it. Safe to
+	 * call when nothing is playing, and safe to call twice.
 	 */
 	function borrowSilence() {
-		if (borrowedLane) return;
-		if (adoptedQueue && audioPlayerStore.playing) {
-			borrowedLane = 'queue';
-			audioPlayerStore.toggle();
-		} else if (audioPlayerStore.previewPlaying) {
-			borrowedLane = 'preview';
-			audioPlayerStore.togglePreview();
-		}
+		if (borrowedPlayback || !audioPlayerStore.playing) return;
+		borrowedPlayback = true;
+		audioPlayerStore.setPlaying(false);
 	}
 
-	/**
-	 * Resumes the lane `borrowSilence` paused, if it is still the lane it was.
-	 * The preview check matters: ambient may have moved on to a different
-	 * track while the borrowed sound was playing, and resuming then would be
-	 * restarting something the visitor already left behind.
-	 */
+	/** Resumes the queue `borrowSilence` paused, if there is still one to resume. */
 	function returnSilence() {
-		if (borrowedLane === 'queue') {
-			if (!audioPlayerStore.playing) audioPlayerStore.toggle();
-		} else if (
-			borrowedLane === 'preview' &&
-			audioPlayerStore.previewItem?.entryId === ownedPreviewEntryId &&
-			!audioPlayerStore.previewPlaying
-		) {
-			audioPlayerStore.togglePreview();
+		if (borrowedPlayback && !audioPlayerStore.isEmpty && !audioPlayerStore.playing) {
+			audioPlayerStore.setPlaying(true);
 		}
-		borrowedLane = null;
+		borrowedPlayback = false;
 	}
 
 	/** @param {{ resume?: boolean }} [options] */
@@ -263,11 +320,11 @@
 		}
 		candidatePreviewing = false;
 		if (resume) returnSilence();
-		else borrowedLane = null;
+		else borrowedPlayback = false;
 	}
 
-	// The discovery card's one-off preview is a third sounding element beside
-	// the player's main and preview lanes, so it has to honour the same output
+	// The discovery card's one-off preview is a sounding element beside the
+	// player's own, so it has to honour the same output
 	// level they do; without this it played every audition at full volume, and
 	// went on sounding while the player was muted.
 	$effect(() => {
@@ -298,26 +355,19 @@
 	function replaceAudioWithCandidate() {
 		if (!audioCandidate || !audioCandidateTrack) return;
 		const replacement = audioCandidate;
-		const trackIndex =
-			replacement.tracks?.findIndex(
-				(track) => track.media_url === audioCandidateTrack?.media_url
-			) ?? -1;
+		const trackUrl = audioCandidateTrack.media_url;
 		stopCandidatePreview({ resume: false });
+		// An explicit "play this instead": queued after whatever is there and
+		// started, from the very track the card was offering.
 		audioEntry = replacement;
-		// Same as advanceAudio: an explicit "play this instead" hands the sound
-		// to ambient, ducking the adopted queue rather than discarding it.
-		adoptedQueue = false;
-		ownedPreviewEntryId = replacement.id;
-		audioPlayerStore.previewEntry(replacement, coverImageUrl(replacement), {
-			autoplay: true,
-			trackIndex: trackIndex >= 0 ? trackIndex : 0
-		});
+		playInQueue(replacement, trackUrl);
 		advanceAudioCandidate();
 	}
 
 	function toggleImmersive() {
 		immersive = !immersive;
 		optionsOpen = false;
+		playlistOpen = false;
 		interactionsOpen = false;
 		clearTimeout(immersiveHintTimer);
 		if (immersive) {
@@ -346,6 +396,7 @@
 		const entry = visualEntry;
 		interactionsOpen = false;
 		optionsOpen = false;
+		playlistOpen = false;
 		if (document.fullscreenElement === overlayEl && document.exitFullscreen) {
 			suppressFullscreenClose = true;
 			try {
@@ -365,10 +416,25 @@
 	// first read means "not yet" rather than "none available".
 	$effect(() => {
 		if (!open || !speechSupported()) return;
-		const resolve = () => (readingVoice = pickVoice(document.documentElement.lang || 'en'));
+		let attempts = 0;
+		let retryTimer = /** @type {ReturnType<typeof setTimeout> | undefined} */ (undefined);
+		const resolve = () => {
+			readingVoice = pickVoice(document.documentElement.lang || 'en');
+			clearTimeout(retryTimer);
+			// Mobile Safari and some WebViews populate voices late without firing
+			// voiceschanged. Poll briefly as a fallback, still accepting only the
+			// local voices pickVoice permits.
+			if (!readingVoice && attempts < 12) {
+				attempts += 1;
+				retryTimer = setTimeout(resolve, 250);
+			}
+		};
 		resolve();
 		window.speechSynthesis.addEventListener('voiceschanged', resolve);
-		return () => window.speechSynthesis.removeEventListener('voiceschanged', resolve);
+		return () => {
+			clearTimeout(retryTimer);
+			window.speechSynthesis.removeEventListener('voiceschanged', resolve);
+		};
 	});
 
 	function stopTextReading() {
@@ -385,6 +451,7 @@
 		if (!canRead) return;
 		interactionsOpen = false;
 		optionsOpen = false;
+		playlistOpen = false;
 		stopCandidatePreview({ resume: false });
 		// Two voices at once is unusable, so the reader borrows the lane the
 		// same way an audition or a trailer does.
@@ -404,6 +471,7 @@
 		if (!visualTrailerUrl) return;
 		interactionsOpen = false;
 		optionsOpen = false;
+		playlistOpen = false;
 		stopCandidatePreview({ resume: false });
 		borrowSilence();
 		trailerOpen = true;
@@ -425,27 +493,74 @@
 		audioCardVisible = false;
 	}
 
-	async function openPlaylist() {
+	async function togglePlaylist() {
+		if (playlistOpen) {
+			playlistOpen = false;
+			return;
+		}
 		interactionsOpen = false;
-		optionsOpen = true;
+		optionsOpen = false;
+		playlistOpen = true;
 		await tick();
-		playlistEl?.scrollIntoView({ block: 'nearest' });
 		playlistEl?.focus({ preventScroll: true });
 	}
 
+	function toggleOptions() {
+		playlistOpen = false;
+		optionsOpen = !optionsOpen;
+	}
+
 	function advanceVisual() {
-		visualEntry = draw(visualPool, 'visual', visualEntry?.id);
+		const next = draw(visualPool, 'visual', visualEntry?.id);
+		if (visualEntry && next && next.id !== visualEntry.id) {
+			visualHistory = [...visualHistory, visualEntry].slice(-VISUAL_HISTORY_MAX);
+		}
+		visualEntry = next;
+	}
+
+	/** Back to the visual before this one, skipping any since dismissed. */
+	function previousVisual() {
+		while (visualHistory.length > 0) {
+			const previous = visualHistory[visualHistory.length - 1];
+			visualHistory = visualHistory.slice(0, -1);
+			if (visualPool.some((entry) => entry.id === previous.id)) {
+				visualEntry = previous;
+				return;
+			}
+		}
+	}
+
+	/** @param {PointerEvent} event */
+	function handleVisualPointerDown(event) {
+		swipeHandled = false;
+		swipeStart = null;
+		if (!event.isPrimary || isActionTarget(event.target)) return;
+		if (event.clientX < SWIPE_EDGE_PX || event.clientX > window.innerWidth - SWIPE_EDGE_PX) return;
+		swipeStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+	}
+
+	/**
+	 * Swipe left for the next visual, right for the one before. Mostly
+	 * horizontal only, so a sloppy vertical drag is not read as either.
+	 * @param {PointerEvent} event
+	 */
+	function handleVisualPointerUp(event) {
+		const start = swipeStart;
+		swipeStart = null;
+		if (!start || start.id !== event.pointerId || immersive) return;
+		const dx = event.clientX - start.x;
+		const dy = event.clientY - start.y;
+		if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+		swipeHandled = true;
+		if (dx < 0) advanceVisual();
+		else previousVisual();
 	}
 
 	function toggleAudio() {
 		if (candidatePreviewing) stopCandidatePreview({ resume: false });
-		if (adoptedQueue) {
-			audioPlayerStore.toggle();
-		} else if (audioPlayerStore.previewItem?.entryId === ownedPreviewEntryId) {
-			audioPlayerStore.togglePreview();
-		} else {
-			advanceAudio({ autoplay: true });
-		}
+		if (queueActive) audioPlayerStore.toggle();
+		else if (audioEntry) playInQueue(audioEntry);
+		else continueWithNewAudio();
 	}
 
 	/** @param {import('$lib/ring.js').RingEntry} entry */
@@ -465,8 +580,11 @@
 		// visitor still decides whether it should play.
 		if (medium === 'audio') {
 			if (audioCandidate?.id === entry.id) advanceAudioCandidate();
-			if (audioPlayerStore.previewItem?.entryId === entry.id) audioPlayerStore.stopPreview();
-			advanceAudio();
+			// `hideEntry` already dropped the node's tracks and moved the queue
+			// on; an ending reached that way is the run-out effect's to handle.
+			// With nothing left queued, offer a fresh pick in its place.
+			if (!audioPlayerStore.isEmpty) return;
+			dealPendingAudio();
 		} else {
 			advanceVisual();
 		}
@@ -479,6 +597,10 @@
 
 	/** @param {MouseEvent} event */
 	function handleVisualTap(event) {
+		if (swipeHandled) {
+			swipeHandled = false;
+			return;
+		}
 		if (isActionTarget(event.target)) return;
 		if (immersive) {
 			// The only way back, and the reason entering states it explicitly.
@@ -514,6 +636,7 @@
 
 	async function close() {
 		optionsOpen = false;
+		playlistOpen = false;
 		interactionsOpen = false;
 		immersive = false;
 		immersiveHint = false;
@@ -536,17 +659,18 @@
 		if (open && !sessionOpen) {
 			sessionOpen = true;
 			enteredFullscreen = false;
+			visualHistory = [];
 			interactionsOpen = false;
 			audioCardVisible = true;
 			immersive = false;
 			nowPlayingToast = null;
 			lastAnnouncedTrack = '';
-			handledPreviewCompletion = audioPlayerStore.previewCompletion.sequence;
 			decks.reset();
 			untrack(() => {
-				// Adopt whatever was already playing instead of dealing over it.
-				adoptedQueue = !audioPlayerStore.isEmpty;
-				if (!adoptedQueue) advanceAudio();
+				// A queue the visitor brought in is what plays; only an empty one
+				// gets a pick of ambient's own, and that stays silent until asked.
+				staleAtEnd = audioPlayerStore.atEnd;
+				if (audioPlayerStore.isEmpty) dealPendingAudio();
 				advanceAudioCandidate();
 				advanceVisual();
 			});
@@ -571,11 +695,9 @@
 
 		if (!open && sessionOpen) {
 			sessionOpen = false;
-			if (audioPlayerStore.previewItem?.entryId === ownedPreviewEntryId) {
-				audioPlayerStore.stopPreview();
-			}
-			ownedPreviewEntryId = '';
-			adoptedQueue = false;
+			// The queue is left exactly as it is, playing or not: it carries on
+			// in the regular player.
+			visualHistory = [];
 			immersive = false;
 			immersiveHint = false;
 			trailerOpen = false;
@@ -589,6 +711,7 @@
 			audioCandidateTrack = null;
 			visualEntry = null;
 			optionsOpen = false;
+			playlistOpen = false;
 			interactionsOpen = false;
 			clearTimeout(visualTapTimer);
 		}
@@ -598,7 +721,7 @@
 	// as soon as its pool becomes available without restarting the other one.
 	$effect(() => {
 		const pool = audioPool;
-		if (open && !adoptedQueue && !audioEntry && pool.length > 0) untrack(() => advanceAudio());
+		if (open && !queueActive && !audioEntry && pool.length > 0) untrack(() => dealPendingAudio());
 	});
 
 	$effect(() => {
@@ -611,15 +734,27 @@
 		if (open && !visualEntry && pool.length > 0) untrack(() => advanceVisual());
 	});
 
-	// Audio advances from the media element's real `ended` event, never from a
-	// content-rotation timer. A long track therefore gets its full runtime.
+	// The card must not go on suggesting the track that has just started
+	// playing — which happens whenever a play or skip lands on it, including
+	// the visitor's shuffle preference reordering a node on its way in.
 	$effect(() => {
-		const completion = audioPlayerStore.previewCompletion;
-		if (!open || completion.sequence <= handledPreviewCompletion) return;
-		handledPreviewCompletion = completion.sequence;
-		if (completion.entryId === ownedPreviewEntryId) {
-			untrack(() => advanceAudio({ autoplay: true }));
+		const current = queueActive ? audioPlayerStore.current : null;
+		if (!open || !current || !audioCandidateTrack) return;
+		if (audioCandidate?.id === current.entryId && audioCandidateTrack.media_url === current.url) {
+			untrack(() => advanceAudioCandidate());
 		}
+	});
+
+	// When the queue runs out, the next node is dealt onto its end and played:
+	// the regular player's Keep going, without the question, because ambient
+	// is already a standing request to keep going. The run-out comes from the
+	// media element's real `ended` event, never a content-rotation timer, so a
+	// long track still gets its full runtime.
+	$effect(() => {
+		const ended = audioPlayerStore.atEnd;
+		if (!ended) staleAtEnd = false;
+		if (!open || !ended || staleAtEnd) return;
+		untrack(() => continueWithNewAudio());
 	});
 
 	$effect(() => {
@@ -657,7 +792,7 @@
 	});
 
 	$effect(() => {
-		if (optionsOpen) interactionsOpen = false;
+		if (optionsOpen || playlistOpen) interactionsOpen = false;
 	});
 
 	// A track change is the one event in this mode with nothing on screen to
@@ -688,7 +823,7 @@
 				id: nowPlayingSeq,
 				label,
 				creator: entry.creator,
-				cover: (adoptedQueue ? audioPlayerStore.current?.cover : null) ?? coverImageUrl(entry)
+				cover: (queueActive ? audioPlayerStore.current?.cover : null) ?? coverImageUrl(entry)
 			};
 			clearTimeout(nowPlayingTimer);
 			nowPlayingTimer = setTimeout(() => (nowPlayingToast = null), 4200);
@@ -714,6 +849,9 @@
 		bind:this={overlayEl}
 		class="ambient-view"
 		aria-label="Ambient view"
+		style:--ambient-mobile-meta-bottom={immersive
+			? 'max(1rem, env(safe-area-inset-bottom))'
+			: '6.5rem'}
 		in:fade={{ duration: 180 }}
 		out:flyFade={{ y: 32, duration: 280 }}
 	>
@@ -722,9 +860,13 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="visual-canvas"
+			onpointerdown={handleVisualPointerDown}
+			onpointerup={handleVisualPointerUp}
+			onpointercancel={() => (swipeStart = null)}
+			ondragstart={(event) => event.preventDefault()}
 			onclick={handleVisualTap}
 			ondblclick={handleVisualDoubleTap}
-			title="Tap for actions. Double tap to like."
+			title="Tap for actions. Double tap to like. Swipe for the next or previous visual."
 		>
 			{#if visualEntry}
 				<FieldNode entry={visualEntry} showCurateControls={false} showActions={false} immersive />
@@ -777,6 +919,7 @@
 				onClose={() => (interactionsOpen = false)}
 				onLike={toggleLike}
 				onHide={toggleHide}
+				onNextAudio={skipAudio}
 				onNextVisual={advanceVisual}
 				onOpenViewer={openVisualViewer}
 				onOpenTrailer={openTrailer}
@@ -793,15 +936,23 @@
 				{reading}
 				{visualReadable}
 				{visualTrailerUrl}
-				bind:playlistEl
 				onClose={() => (optionsOpen = false)}
 				onToggleAudioCard={() => (audioCardVisible ? hideAudioCard() : (audioCardVisible = true))}
 				onNextVisual={advanceVisual}
 				onOpenViewer={openVisualViewer}
 				onOpenTrailer={openTrailer}
 				onToggleRead={toggleReadText}
-				onToggleImmersive={toggleImmersive}
 				onExit={close}
+			/>
+		{/if}
+
+		{#if playlistOpen}
+			<AmbientPlaylistSheet
+				pendingEntry={queueActive ? null : audioEntry}
+				pendingLabel={activeAudioLabel}
+				bind:listEl={playlistEl}
+				onPlayPending={toggleAudio}
+				onClose={() => (playlistOpen = false)}
 			/>
 		{/if}
 
@@ -920,7 +1071,7 @@
 					{#if activeAudioEntry}
 						{@const dockEntry = activeAudioEntry}
 						{@const dockCover =
-							(adoptedQueue ? audioPlayerStore.current?.cover : null) ?? coverImageUrl(dockEntry)}
+							(queueActive ? audioPlayerStore.current?.cover : null) ?? coverImageUrl(dockEntry)}
 						{#if dockCover}
 							<img src={dockCover} alt="" decoding="async" referrerpolicy="no-referrer" />
 						{/if}
@@ -955,7 +1106,20 @@
 						<button
 							type="button"
 							class="sound-control"
-							onclick={openPlaylist}
+							onclick={skipAudio}
+							aria-label="Next audio track"
+							title="Next track"
+						>
+							<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"
+								><path d="M5 5.5l10 6.5-10 6.5zM16.5 5.5h2.5v13h-2.5z" /></svg
+							>
+						</button>
+						<button
+							type="button"
+							class="sound-control"
+							class:active={playlistOpen}
+							onclick={togglePlaylist}
+							aria-expanded={playlistOpen}
 							aria-label={`Open current playlist, ${audioPlayerStore.queue.length} tracks`}
 						>
 							<svg
@@ -1013,7 +1177,7 @@
 						type="button"
 						class="sound-control"
 						class:active={optionsOpen}
-						onclick={() => (optionsOpen = !optionsOpen)}
+						onclick={toggleOptions}
 						aria-expanded={optionsOpen}
 						aria-label="Ambient options"
 					>
@@ -1043,7 +1207,10 @@
 	.visual-canvas {
 		position: absolute;
 		inset: 0;
-		touch-action: manipulation;
+		/* pan-y rather than manipulation: a horizontal swipe has to reach the
+		   pointer handlers instead of being claimed as a browser pan. Still
+		   rules out double-tap zoom, which double-tap-to-like depends on. */
+		touch-action: pan-y;
 	}
 
 	.visual-tap-flash {
@@ -1393,10 +1560,42 @@
 		background: color-mix(in oklch, var(--bg) 62%, transparent);
 		color: var(--text-muted);
 		font-size: var(--text-xs);
+		line-height: 1.25;
+		text-align: center;
 		pointer-events: none;
 	}
 
 	@media (max-width: 30rem) {
+		.now-playing-toast {
+			gap: 0.6rem;
+			max-width: calc(100% - 1.25rem);
+			padding: 0.55rem 0.85rem 0.55rem 0.55rem;
+		}
+
+		.now-playing-toast img {
+			width: 2.25rem;
+			height: 2.25rem;
+		}
+
+		.now-playing-toast div {
+			line-height: 1.15;
+		}
+
+		.now-playing-toast span:first-child,
+		.now-playing-toast span:last-child {
+			font-size: 0.68rem;
+		}
+
+		.now-playing-toast strong {
+			font-size: 0.8rem;
+		}
+
+		.immersive-hint {
+			max-width: calc(100% - 2rem);
+			padding: 0.5rem 0.9rem;
+			font-size: 0.72rem;
+		}
+
 		.dock-row {
 			gap: 0.35rem;
 		}

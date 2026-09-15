@@ -22,6 +22,7 @@ function entry(overrides) {
 function played(overrides) {
 	return {
 		key: 'q-1',
+		batchKey: 'batch-1',
 		entryId: 'played-entry',
 		creator: 'Played',
 		label: 'T',

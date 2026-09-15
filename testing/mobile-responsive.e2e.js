@@ -55,6 +55,26 @@ test('mobile modal and submission routes use the compact type scale', async ({ p
 	await expect(page.locator('.join-page')).toHaveCSS('font-size', '22.4px');
 });
 
+test('mobile arrange mode leaves touches to scroll instead of dragging nodes', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
+	const nodes = page.locator('.grid-stack-item');
+	const readOrder = () =>
+		nodes.evaluateAll((items) => items.map((item) => item.getAttribute('gs-id')));
+	const before = await readOrder();
+	expect(before.length).toBeGreaterThan(1);
+
+	await page.getByRole('button', { name: 'Arrange field' }).click();
+	await expect(page.locator('.mobile-reorder')).toHaveCount(before.length);
+	// The up/down buttons are the reorder mechanism here, so no card is a drag
+	// surface: gridstack marks every item disabled and drops its touch handlers.
+	await expect(nodes.first()).toHaveClass(/ui-draggable-disabled/);
+	await expect(page.locator('.grid-stack-item:not(.ui-draggable-disabled)')).toHaveCount(0);
+
+	// The gesture itself is covered in field-drag-stability.e2e.js.
+	expect(await readOrder()).toEqual(before);
+});
+
 test('mobile arrange buttons reorder nodes and persist the sequence', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.locator('.grid-stack.gs-visible')).toBeVisible();
@@ -89,4 +109,28 @@ test('mobile arrange buttons reorder nodes and persist the sequence', async ({ p
 			})
 		)
 		.toEqual(expected);
+});
+
+test('mobile settings open sections from a drill-down list and back', async ({ page }) => {
+	await page.goto('/settings', { waitUntil: 'networkidle' });
+	await page.getByRole('tab', { name: 'Content', exact: true }).click();
+
+	// No wrapped strip of sub-tabs: one row per section, each saying what it
+	// is set to.
+	await expect(page.locator('.section-tabs')).toHaveCount(0);
+	const list = page.getByRole('list', { name: 'Content settings' });
+	await expect(list).toBeVisible();
+	await expect(list.getByRole('button')).toHaveCount(8);
+	await expect(list.getByRole('button', { name: /^Explicit content/ })).toContainText('Hidden');
+	await expect(list.getByRole('button', { name: /^Tags/ })).toContainText('All');
+
+	await list.getByRole('button', { name: /^Tags/ }).click();
+	const panel = page.getByRole('region', { name: 'Tags' });
+	await expect(panel.getByRole('heading', { name: 'Tags' })).toBeVisible();
+	await expect(panel).toBeFocused();
+	await expect(list).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Content', exact: true }).click();
+	await expect(page.getByRole('list', { name: 'Content settings' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /^Tags/ })).toBeFocused();
 });
