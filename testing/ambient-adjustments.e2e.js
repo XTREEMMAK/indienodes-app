@@ -250,6 +250,19 @@ test('c: ambient plays through the real queue and appends as it goes', async ({ 
 
 test('c: the toast still appears while unobstructed, where the dock cannot', async ({ page }) => {
 	await routeAudio(page);
+	// Fixed track order: the fixture's only audio entry carries two tracks,
+	// and the visitor's own shuffle preference (on by default) reorders them
+	// on every deal. Left random, the queue-run-out below has a genuine
+	// coin-flip chance of re-dealing the same label that is already showing
+	// -- correctly not a new announcement, since nothing audible changed --
+	// which made this assertion flaky for a reason that had nothing to do
+	// with what it is testing (a track change with the dock hidden).
+	await page.addInitScript(() =>
+		localStorage.setItem(
+			'indienode:preferences:v1',
+			JSON.stringify({ randomizeAudioTracks: false })
+		)
+	);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/');
 	await enterAmbient(page);
@@ -370,4 +383,26 @@ test('e: the tap panel offers next audio beside next visual', async ({ page }) =
 	await expect(panel.getByRole('button', { name: 'Next visual' })).toBeVisible();
 	await panel.getByRole('button', { name: 'Next audio' }).click();
 	await expect(page.locator('.sound-meta strong')).not.toHaveText(firstTrack);
+});
+
+test('f: the playlist delete button stays on screen at phone width', async ({ page }) => {
+	await routeAudio(page);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/');
+	await page.getByRole('button', { name: 'Ambient', exact: true }).click();
+	await page.getByRole('button', { name: 'Enter ambient view' }).click();
+	await expect(page.getByRole('region', { name: 'Ambient view' })).toBeVisible();
+	await page.getByRole('button', { name: 'Hide audio discovery card' }).click();
+	await page.getByRole('button', { name: 'Play ambient audio' }).click();
+	await page.getByRole('button', { name: /Open current playlist/ }).click();
+
+	// A long creator/label pair, at nowrap, used to refuse to shrink and push
+	// the delete button off the right edge of the sheet -- reachable by a
+	// mouse click (which can act on an off-screen element) but not by a real
+	// finger on a real phone. `toBeInViewport` is the check that catches it;
+	// `toBeVisible` alone does not, since the element is still attached,
+	// unhidden, and has a non-zero size.
+	const removeButtons = page.getByRole('button', { name: /^Remove .* from playlist$/ });
+	await expect(removeButtons.first()).toBeInViewport();
+	await removeButtons.first().click();
 });
