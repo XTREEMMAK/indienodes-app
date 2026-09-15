@@ -172,15 +172,17 @@ export function speak(text, { voice = null, lang = 'en', onDone } = {}) {
 		index += 1;
 		utterance.voice = chosen;
 		utterance.lang = chosen.lang || lang;
-		utterance.onend = () => {
+
+		function finishUtterance() {
+			// Ignore a stale or duplicate event after another chunk took over.
+			if (activeUtterance !== utterance) return;
 			activeUtterance = null;
 			next();
-		};
+		}
+
+		utterance.onend = finishUtterance;
 		// A failed chunk should not strand the rest of the passage silent.
-		utterance.onerror = () => {
-			activeUtterance = null;
-			next();
-		};
+		utterance.onerror = finishUtterance;
 		activeUtterance = utterance;
 		window.speechSynthesis.resume?.();
 		window.speechSynthesis.speak(utterance);
