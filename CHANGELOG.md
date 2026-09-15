@@ -8,6 +8,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-09-15
+
+A mobile interaction release for Ambient sessions and the wider app. The playlist now keeps the
+current session useful as it grows, mobile controls fit and move with the view, and full-screen
+media behaves like a navigation layer. It also makes the existing web app deliberately installable
+from supported phones and turns narrow-screen settings into a focused section-by-section flow.
+
+### Added
+
+- **A dedicated Ambient playlist sheet.** It lists the real player queue with newest additions at
+  the top, keeps the playing row in view, centers the session count, and lets a listener remove an
+  entry with either a left swipe or its delete button.
+- **A restrained mobile install path.** On the second visit, an eligible phone gets one install
+  offer; Chromium opens its native prompt and iOS shows the Share → Add to Home Screen steps. The
+  More menu keeps a deliberate Install app action available after the one-time banner is gone.
+
+### Changed
+
+- **Ambient's mobile chrome fits the space it owns.** The tap-for-controls and Now Playing labels
+  fit their bubbles, unobstructed metadata settles closer to the viewport bottom, and it animates
+  upward as playback controls return. Text nodes also use the immersive viewport instead of their
+  old card scale.
+- **Narrow-screen settings use a section drill-down.** The desktop settings surface remains intact,
+  while phones can enter and leave one focused category without carrying the full page at once.
+- **Single-column field editing preserves native scrolling.** Touch dragging is disabled where
+  cards fill the phone width; the existing up/down actions remain the unambiguous reorder control.
+- **Field Mode's open audio player keeps reactions together.** Like and Not for Me sit at the far
+  right of the mobile Now Playing row.
+
+### Fixed
+
+- **Ambient transitions no longer blink the visual layer on mobile.** Swipe-to-next and ordinary
+  entry changes keep the immersive stage continuous.
+- **Read Aloud starts reliably in mobile browsers.** Speech voice readiness is handled without
+  leaving narration waiting indefinitely for a voice-list event.
+- **Mobile Back closes full-screen art and comic views first.** The viewer now owns a shallow
+  same-URL history entry, so browser and Android Back dismiss it before navigating away.
+
 ## [1.7.1] - 2026-09-14
 
 A release about media from creators' own hosts. Tracks from a host that doesn't send a CORS header
