@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-09-15
+
+A fix-only follow-up to 1.7.2's mobile Ambient work, from testing on a real phone rather than at
+desktop width or through a mouse click.
+
+### Fixed
+
+- **The playlist's delete button is reachable on a phone.** A track row's label refused to shrink
+  below its full, unbroken width, pushing the delete control past the right edge of the sheet. It
+  stayed clickable with a mouse, which is why this passed every existing test; a finger on a real
+  screen could not reach it.
+- **The "Tap anywhere to show controls" hint no longer prints through the caption underneath it.**
+  Unobstructed mode settles the creator/description text into the same bottom corner the hint used
+  to occupy on its own; the hint now sits at the screen's centre, which nothing else claims while
+  immersive.
+- **The playlist's session count reads as centred at two digits.** It was sized from this app's
+  type scale, cramped enough inside its own circle to look off-centre; resized and centred the way
+  the ordinary player's own queue-count badge already does.
+- **Swiping to the next visual entry no longer risks a blink.** Ambient did not preload a cover
+  before swapping to it, unlike the field view's own rotation; a swipe gives no advance notice at
+  all, which made it the likeliest case to land on an undecoded image.
+
 ## [1.7.3] - 2026-09-15
 
 A fix-only follow-up to the mobile Read Aloud update. It keeps the utterance alive on mobile WebViews

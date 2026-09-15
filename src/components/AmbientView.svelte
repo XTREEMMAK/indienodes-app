@@ -32,6 +32,7 @@
 	import { coverImageUrl, isVisibleTo, stripHtml } from '$lib/ring.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { flyFade } from '$lib/transitions.js';
+	import { preload } from '$lib/imagePreloader.js';
 	import { pickVoice, speak, speechSupported } from '$lib/speech.js';
 	import { youtubeEmbedUrl } from '$lib/videoPreview.js';
 
@@ -131,6 +132,22 @@
 		)
 	);
 	const visualPool = $derived(eligible.filter((entry) => entry.type !== 'audio'));
+
+	// Warms every pool member's cover ahead of being shown, the same reason
+	// the field view's own rotation warms its queued-next entry: landing a
+	// swap on an already-decoded image is what makes it a crossfade instead of
+	// a beat of bare background before the photo pops in. The field view can
+	// warm exactly one entry ahead because its own deck-and-queue pattern
+	// knows what is coming next; ambient's deck has no such peek, and a swipe
+	// picks a direction with no advance notice at all, so the whole pool is
+	// warmed instead. `preload` de-dupes already-warmed URLs and caps
+	// concurrency itself, so a pool much larger than a session will ever
+	// swipe through costs nothing beyond the (bounded, low-priority) network
+	// requests already worth making.
+	$effect(() => {
+		if (!open) return;
+		for (const entry of visualPool) preload(coverImageUrl(entry));
+	});
 
 	// Ambient plays through the real queue, the same one the regular player
 	// drives. It used to audition its picks in the player's one-track preview
@@ -1546,16 +1563,24 @@
 		font-size: var(--text-xs);
 	}
 
-	/* Centred over the visual rather than beside a control, because in
-	   unobstructed mode there is no control left for it to sit beside. */
+	/* Dead centre, not anchored to an edge. It used to sit near the bottom
+	   because that is where the controls it stands in for live -- but the
+	   metadata band (creator name, description) settles into that same
+	   corner in this same mode (see FieldNode's own
+	   `--ambient-mobile-meta-bottom`), and a caption of any real length
+	   pushed up into a fixed bottom offset and printed straight through this
+	   pill's translucent background. The screen centre is unclaimed by
+	   anything else while immersive -- the dock, discovery card, and
+	   interaction panel are all hidden, and the toast/read-control that use
+	   the top-centre slot are each rare enough here not to matter. */
 	.immersive-hint {
 		position: absolute;
-		bottom: max(2.5rem, env(safe-area-inset-bottom));
+		top: 50%;
 		left: 50%;
 		z-index: 6;
 		margin: 0;
 		padding: 0.55rem 1.2rem;
-		transform: translateX(-50%);
+		transform: translate(-50%, -50%);
 		border-radius: 999px;
 		background: color-mix(in oklch, var(--bg) 62%, transparent);
 		color: var(--text-muted);

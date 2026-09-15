@@ -308,6 +308,14 @@
 		flex: 1;
 	}
 
+	/* A number in a circle, not a heading: --text-xs (1.35rem, this app's
+	   type scale bottoms out there) filled almost the entire 1.55rem badge
+	   and made a second digit look cramped against the rim. A literal size
+	   below the scale, matching the small transport labels' own escape from
+	   the same token, plus a line-height equal to the badge's height rather
+	   than `1` -- the box-height centering AudioPlayer's own queue-count
+	   badge already relies on, more reliably centered across engines than
+	   leaving a font's ascent/descent split to align:center alone. */
 	.count {
 		display: inline-flex;
 		align-items: center;
@@ -319,10 +327,11 @@
 		border-radius: 999px;
 		background: var(--glass-bg);
 		color: var(--text-muted);
-		font-size: var(--text-xs);
+		font-size: 0.85rem;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
-		line-height: 1;
+		line-height: 1.55rem;
+		text-align: center;
 	}
 
 	.current-mark {
@@ -344,14 +353,22 @@
 
 	.track-list li {
 		display: flex;
+		min-width: 0;
 		align-items: stretch;
 		gap: 0.25rem;
 		touch-action: pan-y;
 	}
 
+	/* min-width: 0 on both this and the `<li>` above: a flex item's automatic
+	   minimum size is its content's, not zero, and a <button> holding
+	   nowrap text is exactly the case that bites -- without it, the label's
+	   full unbroken width refused to shrink and pushed the delete button
+	   past the edge of the sheet instead of leaving `.track-copy`'s own
+	   ellipsis (which already sets `min-width: 0`) any room to apply. */
 	.track-row {
 		display: flex;
 		width: 100%;
+		min-width: 0;
 		border: 0;
 		color: var(--text);
 		font: inherit;
