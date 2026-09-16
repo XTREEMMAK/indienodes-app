@@ -457,9 +457,18 @@
 	     whether or not arrange mode is on: switching workspaces is as much a
 	     browsing action as an editing one. Empty slots stay visible rather
 	     than being hidden, matching ArrangeMenu's own "Empty" rows, so the
-	     feature is discoverable without opening that menu first. -->
+	     feature is discoverable without opening that menu first.
+	     On the narrow mobile layout this row would otherwise float
+	     permanently above the bottom tab bar, so it defaults to hidden there
+	     (see `.mobile-hidden` below, scoped to that breakpoint only) and is
+	     reachable again from the mobile "More" menu's own toggle. -->
 		{#if isField}
-			<div class="preset-buttons glass-panel" role="group" aria-label="Field presets">
+			<div
+				class="preset-buttons glass-panel"
+				class:mobile-hidden={!preferencesStore.showMobilePresetBar}
+				role="group"
+				aria-label="Field presets"
+			>
 				{#each fieldPresetsStore.slots as slot, index (index)}
 					<button
 						type="button"
@@ -1186,6 +1195,13 @@
 			left: 50%;
 			bottom: 5.5rem;
 			transform: translateX(-50%);
+		}
+
+		/* Off by default at this breakpoint (see the toggle in
+		   MobileMoreMenu) -- scoped inside this media query only, so it never
+		   touches the always-shown desktop row above it. */
+		.preset-buttons.mobile-hidden {
+			display: none;
 		}
 
 		.mobile-tools {

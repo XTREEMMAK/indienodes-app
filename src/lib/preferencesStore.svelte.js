@@ -113,6 +113,13 @@ function createPreferencesStore() {
 			preferences.startupMode = mode === 'ambient' ? 'ambient' : 'field';
 			savePreferences(preferences);
 		},
+		get showMobilePresetBar() {
+			return preferences.showMobilePresetBar;
+		},
+		toggleMobilePresetBar() {
+			preferences.showMobilePresetBar = !preferences.showMobilePresetBar;
+			savePreferences(preferences);
+		},
 		/** Applies the current theme and starts tracking `prefers-color-scheme`. */
 		init() {
 			applyTheme(preferences.theme);
