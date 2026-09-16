@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-09-16
+
+### Changed
+
+- **The Field preset row no longer floats above the mobile bottom tab bar by default.**
+  Presets are a lighter habit one-handed than at a desk, so the row now starts hidden on the
+  narrow mobile layout and is reachable again from a "Show Presets" toggle in the mobile More
+  menu. Desktop's always-visible row is unchanged.
+
 ## [1.8.1] - 2026-09-15
 
 A fix-only follow-up to 1.8.0, which never actually published an image — its CI run failed
