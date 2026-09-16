@@ -3,11 +3,18 @@
 	let { open = false, onClose } = $props();
 
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { afterNavigate } from '$app/navigation';
 	import { fade } from 'svelte/transition';
 	import { aboutModalStore } from '$lib/aboutModalStore.svelte.js';
 	import { installPromptStore } from '$lib/installPromptStore.svelte.js';
+	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { flyFade } from '$lib/transitions.js';
+
+	// Presets only exist on the Field route, so the toggle for showing their
+	// row on this narrow layout (see +layout.svelte's `.preset-buttons`) is
+	// meaningless -- and would dead-end -- anywhere else.
+	const isField = $derived(page.url.pathname === resolve('/'));
 
 	function close() {
 		onClose?.();
@@ -40,6 +47,47 @@
 		onkeydown={(event) => event.key === 'Escape' && close()}
 		transition:flyFade={{ y: 16, duration: 180 }}
 	>
+		{#if isField}
+			<button
+				type="button"
+				role="menuitemcheckbox"
+				aria-checked={preferencesStore.showMobilePresetBar}
+				onclick={() => {
+					preferencesStore.toggleMobilePresetBar();
+					close();
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="19"
+					height="19"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<rect x="3" y="10" width="5" height="5" rx="1.2" />
+					<rect x="9.5" y="10" width="5" height="5" rx="1.2" />
+					<rect x="16" y="10" width="5" height="5" rx="1.2" />
+				</svg>
+				<span class="toggle-label">Show Presets</span>
+				{#if preferencesStore.showMobilePresetBar}
+					<svg
+						class="toggle-check"
+						viewBox="0 0 24 24"
+						width="16"
+						height="16"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						aria-hidden="true"
+					>
+						<path d="M5 12.5l4.5 4.5L19 7" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+				{/if}
+			</button>
+			<div class="menu-divider" role="separator"></div>
+		{/if}
 		<a href={resolve('/widget')} role="menuitem">
 			<svg
 				viewBox="0 0 24 24"
@@ -177,5 +225,20 @@
 	.more-menu button:focus-visible {
 		background: var(--glass-bg);
 		color: var(--accent);
+	}
+
+	.toggle-label {
+		flex: 1;
+	}
+
+	.toggle-check {
+		flex-shrink: 0;
+		color: var(--accent);
+	}
+
+	.menu-divider {
+		height: 1px;
+		margin: 0.3rem 0.2rem;
+		background: var(--border);
 	}
 </style>

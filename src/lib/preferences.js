@@ -24,6 +24,12 @@ import { ENTRY_TYPES } from './submissionValidation.js';
  * @property {'field' | 'ambient'} startupMode Which mode the app opens into.
  *   Field by default, since Ambient plays audio and a visitor should choose
  *   that rather than have it start under them on first load.
+ * @property {boolean} showMobilePresetBar Whether the Field preset-switching
+ *   row is visible on the narrow mobile layout, where it would otherwise
+ *   float above the bottom tab bar. Off by default -- presets are a desktop
+ *   habit-forming feature first, and a permanent floating row is a bigger
+ *   cost one-handed than at a desk -- but reachable from the mobile "More"
+ *   menu for anyone who wants it back.
  */
 
 const STORAGE_KEY = STORAGE_KEYS.preferences.key;
@@ -77,7 +83,8 @@ const DEFAULT_PREFERENCES = {
 	randomizeAudioTracks: true,
 	rotationMs: { ...DEFAULT_ROTATION_MS },
 	ambientTypes: { ...DEFAULT_AMBIENT_TYPES },
-	startupMode: 'field'
+	startupMode: 'field',
+	showMobilePresetBar: false
 };
 
 /**
@@ -107,6 +114,7 @@ export function loadPreferences() {
 			rotationMs: sanitizeRotation(parsed?.rotationMs),
 			ambientTypes: sanitizeAmbientTypes(parsed?.ambientTypes),
 			startupMode: parsed?.startupMode === 'ambient' ? 'ambient' : 'field',
+			showMobilePresetBar: parsed?.showMobilePresetBar === true,
 			version: VERSION
 		};
 	} catch {
