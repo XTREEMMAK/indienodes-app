@@ -471,7 +471,13 @@ export function createUpdateStore() {
 			if (stepId === 'identify') return Boolean(nodeId.trim());
 			if (stepId === 'verify') return verified;
 			if (stepId === 'edit') {
-				return Object.keys(entryErrors).length === 0;
+				// The adult-content disclosure is asked on this step, beside the
+				// explicit checkbox; made-by-people and rights are asked on review.
+				return (
+					Object.keys(entryErrors).length === 0 &&
+					!attestationErrors.adult_content &&
+					!attestationErrors.adult_content_confirmation
+				);
 			}
 			// Removal is complete only once armed. The whole step exists to be
 			// the deliberate act, so it cannot be walked past unticked.

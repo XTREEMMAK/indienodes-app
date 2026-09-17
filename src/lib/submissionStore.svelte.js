@@ -434,16 +434,26 @@ export function createSubmissionStore() {
 	 */
 	const stepFields = {
 		ownership: ['has_own_site'],
-		entry: ['creator', 'type', 'form', 'why', 'source_url', 'thumb_url', 'tags'],
+		entry: [
+			'creator',
+			'type',
+			'form',
+			'why',
+			'source_url',
+			'thumb_url',
+			'tags',
+			// Review-only, but asked on this step beside the explicit checkbox.
+			'adult_content',
+			'adult_content_confirmation'
+		],
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
 		consent: [
 			'email',
 			'pro_membership',
 			'pro_membership_name',
 			'ai_attestation',
-			'rights_confirmation',
-			'adult_content',
-			'adult_content_confirmation'
+			// Given by the one Rights and EULA checkbox, alongside eula_agreement.
+			'rights_confirmation'
 		]
 	};
 

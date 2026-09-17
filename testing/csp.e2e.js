@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { answerAdultContent } from './helpers.js';
 
 // Caddy sets these headers in production; the preview server this suite runs
 // against does not, since it is plain `vite preview` with no Caddy in front
@@ -112,6 +113,7 @@ test.describe('the main-app Content-Security-Policy', () => {
 		await page.goto('/join', { waitUntil: 'networkidle' });
 		await page.getByRole('button', { name: 'Start', exact: true }).click();
 		await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
+		await answerAdultContent(page);
 		await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 		await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 		await expect(page.getByRole('heading', { name: 'Build your page' })).toBeVisible();
@@ -170,6 +172,7 @@ test.describe('the main-app Content-Security-Policy', () => {
 		await page.locator('#f-source').fill('https://example.com');
 		await page.locator('#f-tags').fill('test');
 		await page.locator('#f-tags').press('Enter');
+		await answerAdultContent(page);
 		await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 		await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 

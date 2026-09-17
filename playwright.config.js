@@ -32,7 +32,8 @@ export default defineConfig({
 				'**/join-verify.e2e.js',
 				'**/join-success.e2e.js',
 				'**/update-verify.e2e.js',
-				'**/join-consent-gate.e2e.js'
+				'**/join-consent-gate.e2e.js',
+				'**/contact-resend-cooldown.e2e.js'
 			]
 		}
 	],

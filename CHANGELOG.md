@@ -61,8 +61,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     confirmation after "Yes".
   - `/update` asks the same set before any change can be sent, so an update cannot bypass
     them.
-  - The rights box is now shown to everyone and required. It used to appear only alongside a
-    stated PRO membership.
+  - Both adult-content questions now sit in one section on the entry and edit steps, under a
+    single definition of what counts as adult content, with each in its own panel and a line
+    saying which is about the site and which is about the featured works. `/update` gained that
+    definition, which had only ever appeared on `/join`.
+  - Rights are part of the one "Rights and EULA" checkbox on `/join`, which already affirmed
+    holding full rights, instead of a second checkbox saying the same thing a line above it.
+    `/update`, which has no EULA box, asks for rights on its own.
   - The form lists what is still missing in plain words. Answers are never stored locally.
   - `/update`'s narrower "rights, for what you just added" box is replaced by the shared rights
     attestation.
@@ -86,6 +91,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`npm run build` now fails if these regress:** if the embed frame goes over budget, or if any
   page preloads the text editor or Ambient View.
 - **CI now runs the n8n Code-node test suite**, including the SSRF and Turnstile checks.
+- **`/contact`'s "Send another message" now has a 20s cooldown after each send.** Verified live
+  that the real defenses against a fast bot (Turnstile, plus the edge rate limit on
+  `n8n.kjnet.us`) already refuse a burst after the fourth request regardless of interval; this is
+  a UX addition for a real visitor sending several messages in a row, so they see a countdown
+  instead of an unexplained "Too many requests" a few sends in.
 
 ## [1.8.2] - 2026-09-16
 

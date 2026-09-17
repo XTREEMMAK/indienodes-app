@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * Covers the media step of `/join` for a submitter who already has a site.
@@ -34,6 +35,7 @@ test('the own-site media step adds, fills and removes track rows', async ({ page
 	await page.locator('#f-tags').press('Enter');
 	await expect(page.locator('.tag-list button.chip.checked')).toHaveCount(1);
 
+	await answerAdultContent(page);
 	const entryContinue = page.getByRole('button', { name: 'Continue', exact: true }).last();
 	// Music/spoken is required for audio; everything else on this step is
 	// already filled in, so this isolates the form field as the reason.

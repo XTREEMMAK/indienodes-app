@@ -718,6 +718,16 @@ curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS https://n8n.kjnet.us/webhook
 # expect: 204 or 200 even while limited, because preflights are never counted
 ```
 
+Re-verified live 2026-09-17 against the deployed config above: 200 200 200 200 429 429, exactly as
+expected.
+
+**A client-side cooldown on `/contact`'s "Send another message" is not part of this defense.**
+It exists (`src/routes/(app)/contact/+page.svelte`, `RESEND_COOLDOWN_SECONDS`) purely so a real
+visitor sending a few quick messages doesn't burn through their own IP's budget above and land on
+the generic 429 with no warning — a script posting straight to the webhook never runs that page's
+JS at all, so it has no effect on the threat this section actually defends against. That threat
+(a burst of requests, however fast) is what the curl test above already covers.
+
 ---
 
 ## 7. Private review notification

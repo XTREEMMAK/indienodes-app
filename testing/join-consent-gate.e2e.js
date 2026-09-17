@@ -1,17 +1,18 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * The Consent step's gate.
+ * The two places the content rules are answered.
  *
- * Continue (and later Submit) needs the general EULA and every content-rule
- * attestation: made by people, rights, and an answer to the adult-content
- * question, plus its confirmation after a "Yes". Rights apply to everyone;
- * they used to appear only alongside a stated PRO relationship.
+ * The adult-content disclosure is asked on the entry step, beside the
+ * `explicit` checkbox it is easily confused with, and blocks Continue there.
+ * The consent step asks the rest: made by people, and one Rights and EULA
+ * checkbox (the rights statement is folded into it rather than repeated a
+ * line above).
  *
  * Also pins an older bug: the "Terms of Use" and "Privacy Notice" links both
  * pointed at the bare `/terms` URL.
  */
-test('consent step requires the EULA and every content-rule attestation before Continue', async ({
+test('the entry step blocks on the adult-content disclosure, and the consent step on the rest', async ({
 	page
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'join-mock-dev');
@@ -30,7 +31,37 @@ test('consent step requires the EULA and every content-rule attestation before C
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');
 	await page.locator('#f-tags').press('Enter');
-	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
+
+	// The disclosure is asked here, next to the explicit checkbox, and holds
+	// this step until it is answered.
+	const entryContinue = page.getByRole('button', { name: 'Continue', exact: true }).last();
+	const adultYes = page.getByRole('radio', { name: 'Yes', exact: true });
+	const adultNo = page.getByRole('radio', { name: 'No', exact: true });
+	const adultConfirm = page.getByRole('checkbox', { name: /behind a clear content warning/ });
+	await expect(
+		page.getByRole('checkbox', { name: /This Node features adult content/ })
+	).toBeVisible();
+	await expect(adultYes).not.toBeChecked();
+	await expect(adultNo).not.toBeChecked();
+	await expect(adultConfirm).toHaveCount(0);
+	await expect(entryContinue).toBeDisabled();
+
+	await adultYes.check();
+	await expect(adultConfirm).toBeVisible();
+	await expect(entryContinue, 'a "yes" needs its confirmation').toBeDisabled();
+	await adultConfirm.check();
+	await expect(entryContinue).toBeEnabled();
+
+	// Back to "no": the confirmation is gone and cleared, and "no" is complete.
+	await adultNo.check();
+	await expect(adultConfirm).toHaveCount(0);
+	await expect(entryContinue).toBeEnabled();
+	await adultYes.check();
+	await expect(adultConfirm).not.toBeChecked();
+	await expect(entryContinue).toBeDisabled();
+	await adultNo.check();
+
+	await entryContinue.click();
 
 	await expect(page.getByRole('heading', { name: 'Your text samples' })).toBeVisible();
 	const editor = page.locator('[contenteditable="true"]').first();
@@ -45,68 +76,36 @@ test('consent step requires the EULA and every content-rule attestation before C
 
 	await expect(page.getByRole('heading', { name: 'Rights and contact' })).toBeVisible();
 	const continueBtn = page.getByRole('button', { name: 'Continue', exact: true }).last();
-	const eula = page.getByRole('checkbox', { name: /By submitting, you affirm/ });
+	const rightsAndEula = page.getByRole('checkbox', { name: /I hold the rights to the works/ });
 	const madeByPeople = page.getByRole('checkbox', { name: /were made by people/ });
-	const rights = page.getByRole('checkbox', { name: /I hold the rights to the works/ });
-	const adultYes = page.getByRole('radio', { name: 'Yes', exact: true });
-	const adultNo = page.getByRole('radio', { name: 'No', exact: true });
-	const adultConfirm = page.getByRole('checkbox', { name: /behind a clear content warning/ });
 	const stillNeeded = page.locator('.still-needed');
 
 	await page.locator('#f-email').fill('consent-test@example.com');
 	await page.locator('#f-pro').selectOption('Not a member');
 
-	// Nothing answered yet: every attestation is listed, and neither adult
-	// answer is chosen for the visitor.
-	await expect(adultYes).not.toBeChecked();
-	await expect(adultNo).not.toBeChecked();
-	await expect(adultConfirm).toHaveCount(0);
+	// The disclosure is not asked again here.
+	await expect(page.getByRole('radio', { name: 'Yes', exact: true })).toHaveCount(0);
+	// Rights are stated once, inside the one checkbox that also carries the EULA.
+	await expect(rightsAndEula).toHaveAccessibleName(/donation-only basis/);
+	await expect(page.getByRole('checkbox', { name: /By submitting, you affirm/ })).toHaveCount(0);
+
 	await expect(stillNeeded).toContainText(
 		'Please confirm your featured works were made by people.'
 	);
-	await expect(stillNeeded).toContainText(
-		'Please confirm you hold the rights to the works you are featuring.'
-	);
-	await expect(stillNeeded).toContainText(
-		'Please say whether your website includes adult content.'
-	);
+	await expect(continueBtn).toBeDisabled();
 
-	// The EULA alone is no longer enough, and neither is anything short of all.
-	await eula.check();
+	// Each of the two still gates on its own.
+	await madeByPeople.check();
+	await expect(stillNeeded).toHaveCount(0);
+	await expect(continueBtn).toBeDisabled();
+	await rightsAndEula.check();
+	await expect(continueBtn).toBeEnabled();
+	await madeByPeople.uncheck();
 	await expect(continueBtn).toBeDisabled();
 	await madeByPeople.check();
+	await rightsAndEula.uncheck();
 	await expect(continueBtn).toBeDisabled();
-	await rights.check();
-	await expect(continueBtn).toBeDisabled();
-
-	// "Yes" brings its own required confirmation.
-	await adultYes.check();
-	await expect(adultConfirm).toBeVisible();
-	await expect(stillNeeded).toContainText(
-		'Please confirm your adult content sits behind a content warning.'
-	);
-	await expect(continueBtn).toBeDisabled();
-	await adultConfirm.check();
-	await expect(continueBtn).toBeEnabled();
-	await expect(stillNeeded).toHaveCount(0);
-
-	// Back to "No": the confirmation is hidden and cleared, and "No" is a
-	// complete answer on its own.
-	await adultNo.check();
-	await expect(adultConfirm).toHaveCount(0);
-	await expect(continueBtn).toBeEnabled();
-	await adultYes.check();
-	await expect(adultConfirm).not.toBeChecked();
-	await expect(continueBtn).toBeDisabled();
-	await adultNo.check();
-
-	// Each piece still gates on its own.
-	await rights.uncheck();
-	await expect(continueBtn).toBeDisabled();
-	await rights.check();
-	await eula.uncheck();
-	await expect(continueBtn).toBeDisabled();
-	await eula.check();
+	await rightsAndEula.check();
 	await expect(continueBtn).toBeEnabled();
 
 	const links = await page

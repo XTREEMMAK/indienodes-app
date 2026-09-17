@@ -63,11 +63,13 @@ async function answerWebhook(page) {
  */
 const lastOf = (sent, action) => sent.filter((body) => body.action === action).at(-1);
 
-/** @param {import('@playwright/test').Page} page */
-async function attest(page, adult = 'yes') {
-	await page.getByRole('checkbox', { name: /were made by people/ }).check();
-	await page.getByRole('checkbox', { name: /I hold the rights to the works/ }).check();
-	if (adult === 'yes') {
+/**
+ * The site-level disclosure, asked beside the explicit checkbox on /join's
+ * entry step and /update's edit step.
+ * @param {import('@playwright/test').Page} page
+ */
+async function discloseAdultContent(page, answer = 'yes') {
+	if (answer === 'yes') {
 		await page.getByRole('radio', { name: 'Yes', exact: true }).check();
 		await page.getByRole('checkbox', { name: /behind a clear content warning/ }).check();
 	} else {
@@ -94,6 +96,7 @@ test('a new submission sends every attestation in its review block', async ({ pa
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');
 	await page.locator('#f-tags').press('Enter');
+	await discloseAdultContent(page, 'yes');
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
@@ -104,12 +107,11 @@ test('a new submission sends every attestation in its review block', async ({ pa
 
 	await page.locator('#f-email').fill('payload@example.com');
 	await page.locator('#f-pro').selectOption('BMI');
-	// Music with a stated PRO keeps the disclosure sentence on the rights box.
-	await expect(
-		page.getByRole('checkbox', { name: /I hold the rights to the works/ })
-	).toHaveAccessibleName(/PRO membership does not prevent me/);
-	await attest(page, 'yes');
-	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).check();
+	// Music with a stated PRO keeps the PRO sentence inside the combined box.
+	const rightsAndEula = page.getByRole('checkbox', { name: /I hold the rights to the works/ });
+	await expect(rightsAndEula).toHaveAccessibleName(/PRO membership does not prevent me/);
+	await page.getByRole('checkbox', { name: /were made by people/ }).check();
+	await rightsAndEula.check();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.getByRole('button', { name: 'Submit my entry' }).click();
@@ -152,20 +154,28 @@ test('a change request sends the attestations too, and cannot be sent without th
 	// edit step asks for a shorter one before it will continue. Changing it is
 	// also what makes this a real change request.
 	await page.locator('#f-why').fill('A short EP, updated through the attestation flow.');
-	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
+
+	// The disclosure is asked on this step, beside the explicit checkbox, and
+	// holds it until answered.
+	const editContinue = page.getByRole('button', { name: 'Continue', exact: true }).last();
+	await expect(editContinue).toBeDisabled();
+	await discloseAdultContent(page, 'yes');
+	const confirm = page.getByRole('checkbox', { name: /behind a clear content warning/ });
+	await expect(confirm).toBeVisible();
+	await page.getByRole('radio', { name: 'No', exact: true }).check();
+	await expect(confirm, 'switching back to "no" clears it').toHaveCount(0);
+	await expect(editContinue).toBeEnabled();
+	await editContinue.click();
 	await expect(page.getByRole('heading', { name: 'Review and send' })).toBeVisible();
 
 	const send = page.getByRole('button', { name: 'Send request' });
 	await page.locator('#f-email').fill('update@example.com');
 	await expect(send, 'an email alone is not enough').toBeDisabled();
 
-	await page.getByRole('radio', { name: 'Yes', exact: true }).check();
-	const confirm = page.getByRole('checkbox', { name: /behind a clear content warning/ });
-	await expect(confirm).toBeVisible();
-	await page.getByRole('radio', { name: 'No', exact: true }).check();
-	await expect(confirm).toHaveCount(0);
-
-	await attest(page, 'no');
+	// This flow has no EULA box, so rights are their own checkbox here.
+	await page.getByRole('checkbox', { name: /were made by people/ }).check();
+	await expect(send).toBeDisabled();
+	await page.getByRole('checkbox', { name: /I hold the rights to the works/ }).check();
 	await expect(send).toBeEnabled();
 	await send.click();
 	await expect(page.getByText('ref-update')).toBeVisible();

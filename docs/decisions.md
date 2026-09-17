@@ -2325,11 +2325,33 @@ writing, and games, matching the five supported Node types.
 already kept: `/update`'s remove intent re-verifies control and opens a removal PR once a
 reviewer approves (EULA §5.5, §15.2).
 
-**Where the attestations live, and why they are not persisted.** A shared
-`ContentAttestations` component renders them on `/join`'s consent step and `/update`'s review
-step, so an update cannot bypass them. `validateAttestations` in `submissionValidation.js` is
-the one client rule, and Finalize mirrors it. They stay in memory like the other consent
-fields: a consent that restores itself from storage has not been given.
+**Where the attestations live, and why they are not persisted.** `validateAttestations` in
+`submissionValidation.js` is the one client rule, and Finalize mirrors it. They stay in memory
+like the other consent fields: a consent that restores itself from storage has not been given.
+
+Each question is asked where it makes sense rather than all in one block, because the first
+arrangement read as redundant to the person filling it in, twice over:
+
+- **Both adult-content questions live in one section** (`AdultContentSection.svelte`, on
+  `/join`'s entry step and `/update`'s edit step), under the one definition of what counts as
+  adult content. They are genuinely different questions, the site versus the works featured on
+  the Node, but a step apart they read as the same question asked twice, and the answer to one
+  is no help in answering the other. Two further corrections came out of reading it back:
+  the definition list ("Check this for" / "Leave unchecked for") was written as instructions
+  for the checkbox, so it now reads as a definition governing both ("Adult content" / "Not
+  adult content"); and the required question inside the checkbox's own panel read as optional
+  by association, so it has its own panel, its own required marker, and an accent border when
+  unanswered. The entry step gates on it, and the disclosure is still review-only data that
+  never reaches `ring.json`. `/update` gained the definition in the process: it had only ever
+  existed on `/join`.
+- **Rights are folded into the General EULA checkbox on `/join`** rather than sitting in their
+  own box directly above it. That box already affirmed holding full rights, so the two said the
+  same thing a line apart, and a second checkbox for it is not a second consent. The combined
+  statement carries the content rules' wording about what is not eligible, plus the EULA's own
+  donation-only waiver, and ticking it sets `rights_confirmation` and `eula_agreement` together.
+  The reviewer sees one "Rights and EULA agreed" row for a new submission, and the backend
+  keeps both fields. `/update` has no EULA box to fold into, so it asks for rights on its own
+  through `ContentAttestations`'s `includeRights`.
 
 **Server enforcement ships in two phases** (`CONTENT_ATTESTATIONS_REQUIRED`), because staging
 and production share one n8n instance and the production app only sends the fields after a

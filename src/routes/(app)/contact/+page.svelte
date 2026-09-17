@@ -16,6 +16,7 @@
 	import { hasBackend, useMock, send } from '$lib/contactApi.js';
 	import { createAntiBot } from '$lib/antiBot.svelte.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
+	import { onDestroy } from 'svelte';
 
 	const antiBot = createAntiBot();
 
@@ -70,6 +71,35 @@ What changed, looks unsafe, or no longer matches the approved entry:
 	let pending = $state('idle');
 	/** @type {import('$lib/submissionError.js').WebhookError | null} */
 	let error = $state(null);
+	/**
+	 * How long "Send another message" stays disabled after a send.
+	 *
+	 * Not a bot defense -- a script posting straight to the webhook never
+	 * runs this code at all, and the real defenses (Cloudflare Turnstile,
+	 * plus the edge rate limit on n8n.kjnet.us) already stop that case
+	 * outright: verified live, a burst of requests gets a 429 after the
+	 * fourth. This exists so a real visitor sending a few quick messages
+	 * doesn't burn through that same budget and land on a confusing "Too
+	 * many requests" error with no warning. 20s matches the edge limiter's
+	 * steady drain rate (3 requests/minute, so roughly one slot free every
+	 * ~20s once its burst allowance is used).
+	 */
+	const RESEND_COOLDOWN_SECONDS = 20;
+	let cooldownRemaining = $state(0);
+	/** @type {ReturnType<typeof setInterval> | undefined} */
+	let cooldownTimer;
+
+	function startCooldown() {
+		clearInterval(cooldownTimer);
+		cooldownRemaining = RESEND_COOLDOWN_SECONDS;
+		cooldownTimer = setInterval(() => {
+			cooldownRemaining -= 1;
+			if (cooldownRemaining <= 0) clearInterval(cooldownTimer);
+		}, 1000);
+	}
+
+	onDestroy(() => clearInterval(cooldownTimer));
+
 	let reference = $state('');
 
 	/** @param {string} value */
@@ -116,6 +146,7 @@ What changed, looks unsafe, or no longer matches the approved entry:
 				...(turnstileToken ? { turnstile_token: turnstileToken } : {})
 			});
 			reference = result.reference;
+			startCooldown();
 		} catch (e) {
 			error = /** @type {any} */ (e);
 			turnstileEl?.reset();
@@ -125,6 +156,8 @@ What changed, looks unsafe, or no longer matches the approved entry:
 	}
 
 	function reset() {
+		clearInterval(cooldownTimer);
+		cooldownRemaining = 0;
 		name = '';
 		email = '';
 		message = '';
@@ -178,8 +211,15 @@ What changed, looks unsafe, or no longer matches the approved entry:
 				<span class="reference-label">Your reference</span>
 				<code class="reference-code">{reference}</code>
 			</p>
-			<button type="button" class="btn btn-primary submit-again-button" onclick={reset}>
-				Send another message
+			<button
+				type="button"
+				class="btn btn-primary submit-again-button"
+				disabled={cooldownRemaining > 0}
+				onclick={reset}
+			>
+				{cooldownRemaining > 0
+					? `Send another message (${cooldownRemaining}s)`
+					: 'Send another message'}
 			</button>
 		</GlassPanel>
 	{:else}

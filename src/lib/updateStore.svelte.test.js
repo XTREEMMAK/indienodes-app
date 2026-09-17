@@ -231,16 +231,23 @@ describe('content-rule attestations on a change request', () => {
 		expect(store.adultContentConfirmation).toBe(false);
 	});
 
-	it('no longer gate the edit step, which only checks the entry itself', () => {
+	it('gate the edit step on the adult-content answer only, which is asked there', () => {
 		const store = freshStore();
 		store.nodeId = 'audio-ashzone-xeno';
 		store.lookup(RING);
 		store.entry.form = 'music';
 		expect(store.entryErrors).toEqual({});
-		// Nothing attested yet, and the edit step is still complete: the
-		// attestations are asked on the review step, for every change.
-		expect(store.attestationsGiven).toBe(false);
+
+		// The disclosure sits beside the explicit checkbox on this step.
+		expect(store.isStepComplete('edit')).toBe(false);
+		store.adultContent = 'yes';
+		expect(store.isStepComplete('edit'), 'a "yes" still needs its confirmation').toBe(false);
+		store.adultContentConfirmation = true;
 		expect(store.isStepComplete('edit')).toBe(true);
+
+		// Made by people and rights are asked on the review step, so they do
+		// not hold the edit step up.
+		expect(store.attestationsGiven).toBe(false);
 	});
 
 	it('are cleared by reset', () => {

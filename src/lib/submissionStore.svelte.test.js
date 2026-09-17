@@ -228,6 +228,16 @@ describe('reset', () => {
 });
 
 describe("isStepComplete('entry') cover ownership", () => {
+	/**
+	 * The adult-content disclosure is asked on this step now, beside the
+	 * explicit checkbox, so it has to be answered before the step is complete
+	 * for any other reason. Its own rules are covered further down.
+	 * @param {ReturnType<typeof freshStore>} store
+	 */
+	function answerAdultContent(store) {
+		store.review.adult_content = 'no';
+	}
+
 	const validEntry = {
 		creator: 'Pocket Studio',
 		type: 'game',
@@ -239,6 +249,7 @@ describe("isStepComplete('entry') cover ownership", () => {
 
 	it('requires an own-site game cover on the Entry step', async () => {
 		const store = freshStore(validEntry);
+		answerAdultContent(store);
 		expect(store.isStepComplete('entry')).toBe(false);
 
 		store.entry.thumb_url = 'https://example.com/cover.png';
@@ -258,6 +269,7 @@ describe("isStepComplete('entry') cover ownership", () => {
 			source_url: '',
 			thumb_url: ''
 		});
+		answerAdultContent(store);
 		expect(store.isStepComplete('entry')).toBe(true);
 	});
 
@@ -270,6 +282,7 @@ describe("isStepComplete('entry') cover ownership", () => {
 			source_url: 'https://example.com/driftwood',
 			tags: ['ambient']
 		});
+		answerAdultContent(store);
 		expect(store.isStepComplete('entry')).toBe(false);
 
 		store.entry.form = 'music';
@@ -339,9 +352,15 @@ describe("isStepComplete('consent')", () => {
 		store.review.pro_membership = 'Not a member';
 	}
 
-	/** @param {ReturnType<typeof freshStore>} store */
+	/**
+	 * Everything the consent step itself asks for. The adult-content answer is
+	 * given a step earlier, on the entry step, but still counts toward
+	 * `consentGiven`, which is the Submit gate.
+	 * @param {ReturnType<typeof freshStore>} store
+	 */
 	function attestAll(store) {
 		store.review.ai_attestation = true;
+		// Given by the one Rights and EULA checkbox on this step.
 		store.review.rights_confirmation = true;
 		store.review.adult_content = 'no';
 	}
@@ -378,26 +397,64 @@ describe("isStepComplete('consent')", () => {
 		expect(store.stepErrors('consent')).toHaveProperty('rights_confirmation');
 	});
 
-	it('needs the confirmation after a "yes" to adult content, and not after a "no"', () => {
-		const store = freshStore();
-		fillContactFields(store);
-		attestAll(store);
-		store.review.eula_agreement = true;
-
-		store.review.adult_content = 'yes';
-		expect(store.isStepComplete('consent')).toBe(false);
-		expect(store.stepErrors('consent')).toEqual({
-			adult_content_confirmation: 'Please confirm your adult content sits behind a content warning.'
-		});
-
-		store.review.adult_content_confirmation = true;
-		expect(store.isStepComplete('consent')).toBe(true);
-	});
-
 	it('still requires the contact fields themselves (email, pro_membership)', () => {
 		const store = freshStore();
 		attestAll(store);
 		store.review.eula_agreement = true;
 		expect(store.isStepComplete('consent')).toBe(false);
+	});
+});
+
+describe('the adult-content disclosure, asked on the entry step', () => {
+	/** @param {ReturnType<typeof freshStore>} store */
+	function validGameEntry(store) {
+		Object.assign(store.entry, {
+			creator: 'Pocket Studio',
+			type: 'text',
+			why: 'Tiny stories for long train rides.',
+			has_own_site: 'yes',
+			source_url: 'https://example.com/stories',
+			tags: ['fiction']
+		});
+	}
+
+	it('blocks the entry step until it is answered', () => {
+		const store = freshStore();
+		validGameEntry(store);
+		expect(store.stepErrors('entry')).toHaveProperty('adult_content');
+		expect(store.isStepComplete('entry')).toBe(false);
+
+		store.review.adult_content = 'no';
+		expect(store.isStepComplete('entry')).toBe(true);
+	});
+
+	it('needs the confirmation after a "yes", and nothing more after a "no"', () => {
+		const store = freshStore();
+		validGameEntry(store);
+
+		store.review.adult_content = 'yes';
+		expect(store.stepErrors('entry')).toEqual({
+			adult_content_confirmation: 'Please confirm your adult content sits behind a content warning.'
+		});
+
+		store.review.adult_content_confirmation = true;
+		expect(store.isStepComplete('entry')).toBe(true);
+	});
+
+	it("is no longer one of the consent step's own fields", () => {
+		const store = freshStore();
+		store.review.email = 'creator@example.com';
+		store.review.pro_membership = 'Not a member';
+		store.review.ai_attestation = true;
+		store.review.rights_confirmation = true;
+		store.review.eula_agreement = true;
+
+		// Unanswered, and the consent step reports nothing about it: the entry
+		// step owns that error. Submit still waits for it through
+		// `consentGiven`, which is what stops an unanswered disclosure from
+		// reaching the backend if someone jumps steps.
+		expect(store.review.adult_content).toBe('');
+		expect(store.stepErrors('consent')).toEqual({});
+		expect(store.consentGiven).toBe(false);
 	});
 });

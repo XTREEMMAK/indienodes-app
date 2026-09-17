@@ -16,6 +16,7 @@
 	let { canAdvance, onBack, onNext } = $props();
 
 	import FormField from '../../../components/FormField.svelte';
+	import AdultContentSection from '../../../components/AdultContentSection.svelte';
 	import FieldNode from '../../../components/FieldNode.svelte';
 	import CoverPositionControls from '../../../components/CoverPositionControls.svelte';
 	import { submissionStore as form } from '$lib/submissionStore.svelte.js';
@@ -33,6 +34,9 @@
 	import { ALLOWED_RATIOS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
 
 	const entry = $derived(form.entry);
+	// The adult-content disclosure is review-only data (never in ring.json) but
+	// is collected here, beside the explicit checkbox it belongs with.
+	const review = $derived(form.review);
 
 	// The cover URL gets the same image check as the media step's URLs; see
 	// JoinMediaStep.svelte for why this is an effect.
@@ -405,39 +409,14 @@
 			</ul>
 		{/if}
 
-		<div class="explicit-panel">
-			<label class="option">
-				<input type="checkbox" bind:checked={entry.explicit} onchange={() => form.touch()} />
-				<span>
-					<span class="option-label">This Node features adult content</span>
-					<span class="option-description">
-						Explicit Nodes are hidden from the field, Members, Lists, and the widget until a visitor
-						turns explicit content on in Settings.
-					</span>
-				</span>
-			</label>
-
-			<div class="explicit-examples">
-				<div>
-					<p class="explicit-examples-title">Check this for</p>
-					<ul>
-						<li>Explicit sexual content or nudity</li>
-						<li>Graphic violence, gore, or fetish content</li>
-						<li>Substance use depicted explicitly as a central theme</li>
-						<li>Explicit language throughout, not occasional</li>
-					</ul>
-				</div>
-				<div>
-					<p class="explicit-examples-title">Leave unchecked for</p>
-					<ul>
-						<li>Occasional strong language</li>
-						<li>Suggestive humor or romance without explicit depiction</li>
-						<li>Violence typical of an M-rated game or a thriller novel</li>
-						<li>Dark or mature themes handled without graphic depiction</li>
-					</ul>
-				</div>
-			</div>
-		</div>
+		<AdultContentSection
+			bind:explicit={entry.explicit}
+			bind:adultContent={review.adult_content}
+			bind:adultContentConfirmation={review.adult_content_confirmation}
+			missing={form.stepErrors('entry')}
+			idPrefix="join"
+			onchange={() => form.touch()}
+		/>
 	</section>
 	{#if entry.type}
 		<section class="node-preview-panel" aria-labelledby="node-preview-title">
@@ -648,47 +627,6 @@
 		list-style: none;
 	}
 
-	.explicit-panel {
-		margin: 1rem 0 2rem;
-		max-width: 62ch;
-		padding: 1.1rem 1.3rem;
-		border: 1px solid rgb(234 179 8 / 0.5);
-		border-radius: var(--radius-sm);
-		background: rgb(234 179 8 / 0.1);
-	}
-
-	.explicit-panel .option {
-		margin: 0;
-	}
-
-	.explicit-examples {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem 1.5rem;
-		margin-top: 1rem;
-		padding-top: 1rem;
-		border-top: 1px solid rgb(234 179 8 / 0.35);
-	}
-
-	.explicit-examples-title {
-		margin: 0 0 0.4rem;
-		color: var(--text);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
-	.explicit-examples ul {
-		margin: 0;
-		padding-left: 1.1rem;
-		list-style: disc;
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-	}
 	@media (max-width: 64rem) {
 		.entry-builder {
 			grid-template-columns: 1fr;
@@ -701,11 +639,6 @@
 	@media (prefers-reduced-motion: reduce) {
 		.node-preview-card {
 			transition: none;
-		}
-	}
-	@media (max-width: 32rem) {
-		.explicit-examples {
-			grid-template-columns: 1fr;
 		}
 	}
 </style>

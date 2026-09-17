@@ -3,80 +3,71 @@ import { render } from 'vitest-browser-svelte';
 import ContentAttestations from './ContentAttestations.svelte';
 
 /**
- * The shared attestation block on /join and /update. The rules it enforces
- * live in submissionValidation.js; these pin the part only the component
- * owns: no default adult answer, and a confirmation that exists only after
- * "Yes" and is cleared when the answer goes back to "No".
+ * The attestations about the featured works, on /join's consent step and
+ * /update's review step. The rules live in submissionValidation.js; this
+ * covers what the component decides: which boxes it renders, and that each
+ * change is reported.
+ *
+ * `includeRights` is the difference between the two flows. /join folds the
+ * rights statement into its one Rights and EULA checkbox, so it does not ask
+ * again here; /update has no EULA box and asks for rights on its own.
  */
 
-// The component holds its own state here (no bound props): plain getters and
-// setters are not reactive, and the real bound path, with `$state` in the
-// forms, is covered end to end by testing/content-attestations.e2e.js.
-function renderOwn() {
+function renderOwn(/** @type {Record<string, any>} */ props = {}) {
 	const onchange = vi.fn();
-	const screen = render(ContentAttestations, { onchange });
+	const screen = render(ContentAttestations, { onchange, ...props });
 	return { screen, onchange };
 }
 
 describe('ContentAttestations', () => {
-	it('starts with no adult-content answer and no confirmation', async () => {
+	it('always asks whether the featured work was made by people', async () => {
+		const { screen, onchange } = renderOwn();
+		const ai = screen.getByRole('checkbox', { name: /were made by people/ });
+		await ai.click();
+		await expect.element(ai).toBeChecked();
+		expect(onchange).toHaveBeenCalledTimes(1);
+	});
+
+	it('omits the rights box unless asked for it (/join folds it into the EULA)', () => {
 		const { screen } = renderOwn();
-		await expect.element(screen.getByRole('radio', { name: 'Yes' })).not.toBeChecked();
-		await expect.element(screen.getByRole('radio', { name: 'No' })).not.toBeChecked();
 		expect(
-			screen.getByRole('checkbox', { name: /behind a clear content warning/ }).elements()
+			screen.getByRole('checkbox', { name: /I hold the rights to the works/ }).elements()
 		).toHaveLength(0);
 	});
 
-	it('shows the confirmation after "Yes" and hides and clears it after "No"', async () => {
-		const { screen, onchange } = renderOwn();
-		const confirm = screen.getByRole('checkbox', { name: /behind a clear content warning/ });
-
-		await screen.getByRole('radio', { name: 'Yes' }).click();
-		await expect.element(confirm).toBeVisible();
-		await confirm.click();
-		await expect.element(confirm).toBeChecked();
-
-		await screen.getByRole('radio', { name: 'No' }).click();
-		await expect.element(screen.getByRole('radio', { name: 'No' })).toBeChecked();
-		await expect.poll(() => confirm.elements().length).toBe(0);
-
-		// Back to "Yes": the earlier confirmation did not survive the "No".
-		await screen.getByRole('radio', { name: 'Yes' }).click();
-		await expect.element(confirm).toBeVisible();
-		await expect.element(confirm).not.toBeChecked();
-		expect(onchange).toHaveBeenCalled();
-	});
-
-	it('toggles the made-by-people and rights checkboxes and reports each change', async () => {
-		const { screen, onchange } = renderOwn();
-		const ai = screen.getByRole('checkbox', { name: /were made by people/ });
+	it('asks for rights on its own when includeRights is set (/update)', async () => {
+		const { screen } = renderOwn({ includeRights: true });
 		const rights = screen.getByRole('checkbox', { name: /I hold the rights to the works/ });
-		await ai.click();
 		await rights.click();
-		await expect.element(ai).toBeChecked();
 		await expect.element(rights).toBeChecked();
-		expect(onchange).toHaveBeenCalledTimes(2);
-	});
-
-	it('lists what is still missing, in plain words, and nothing once complete', async () => {
-		const missing = { ai_attestation: 'Please confirm your featured works were made by people.' };
-		const screen = render(ContentAttestations, { missing });
-		await expect
-			.element(screen.getByRole('status'))
-			.toHaveTextContent('Please confirm your featured works were made by people.');
-
-		const done = render(ContentAttestations, { missing: {}, idPrefix: 'done' });
-		expect(done.container.querySelector('.still-needed')).toBeNull();
 	});
 
 	it('adds the PRO sentence to the rights box only when asked', async () => {
-		const music = render(ContentAttestations, { showMusicProSentence: true, idPrefix: 'music' });
+		const music = render(ContentAttestations, { includeRights: true, showMusicProSentence: true });
 		await expect
 			.element(music.getByRole('checkbox', { name: /PRO membership does not prevent me/ }))
 			.toBeVisible();
 
-		const other = render(ContentAttestations, { idPrefix: 'other' });
+		const other = render(ContentAttestations, { includeRights: true });
 		expect(other.container.textContent).not.toContain('PRO membership');
+	});
+
+	it('lists what is still missing, and nothing once complete', async () => {
+		const screen = render(ContentAttestations, {
+			missing: { ai_attestation: 'Please confirm your featured works were made by people.' }
+		});
+		await expect
+			.element(screen.getByRole('status'))
+			.toHaveTextContent('Please confirm your featured works were made by people.');
+
+		const done = render(ContentAttestations, { missing: {} });
+		expect(done.container.querySelector('.still-needed')).toBeNull();
+	});
+
+	it('never shows a missing-rights message while the rights box is hidden', () => {
+		const screen = render(ContentAttestations, {
+			missing: { rights_confirmation: 'Please confirm you hold the rights.' }
+		});
+		expect(screen.container.textContent).not.toContain('Please confirm you hold the rights.');
 	});
 });

@@ -83,6 +83,19 @@
 	const review = $derived(form.review);
 	/** What the consent step still needs from the content-rule attestations. */
 	const attestationsMissing = $derived(validateAttestations(review));
+
+	/**
+	 * The one checkbox on the consent step affirms both: the rights statement it
+	 * renders, and the EULA it summarises. Two fields rather than one because
+	 * the reviewer checklist and the backend each ask about rights on its own,
+	 * and because /update collects rights with no EULA to fold it into.
+	 * @param {boolean} checked
+	 */
+	function agreeToEula(checked) {
+		review.eula_agreement = checked;
+		review.rights_confirmation = checked;
+		form.touch();
+	}
 	const generator = $derived(generatorDraftStore.generator);
 
 	/** Labelled as provisional in the UI: the real one is assigned at approval. */
@@ -1922,41 +1935,50 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 								</FormField>
 							{/if}
 
-							<!-- Every content-rule attestation, shared with /update so an update
-						     cannot skip one (see ContentAttestations.svelte). Rendered in
-						     full rather than behind a link: a checkbox under the text it
-						     confirms is closer to consent than one beside a link. They gate
-						     Continue and Submit through `consentGiven`, and stay in memory
-						     only, like the EULA box below. The PRO sentence is scoped to
-						     music, where PRO membership means something. -->
+							<!-- Made by people, shared with /update so an update cannot skip it
+						     (see ContentAttestations.svelte). Rendered in full rather than
+						     behind a link: a checkbox under the text it confirms is closer
+						     to consent than one beside a link. Rights are not asked here:
+						     the EULA box below already affirms holding full rights, and
+						     asking the same thing twice a line apart is not two consents.
+						     The adult-content disclosure sits beside the explicit checkbox
+						     it belongs with, back on the entry step. -->
 							<ContentAttestations
 								bind:aiAttestation={review.ai_attestation}
-								bind:rightsConfirmation={review.rights_confirmation}
-								bind:adultContent={review.adult_content}
-								bind:adultContentConfirmation={review.adult_content_confirmation}
 								missing={attestationsMissing}
-								showMusicProSentence={entry.type === 'audio' && entry.form === 'music'}
-								idPrefix="join"
 								onchange={() => form.touch()}
 							/>
 
-							<!-- The one consent that actually gates submission (see
-					     `consentGiven` in submissionValidation.js), so it stays short
-					     enough to read in full inline rather than living only behind
-					     the "Read the full EULA" link — the full legal text is still
-					     one click away via the modal below, for anyone who wants it. -->
-							<h3>General EULA</h3>
+							<!-- The consent that gates submission (see `consentGiven` in
+					     submissionValidation.js), so it stays short enough to read in
+					     full inline rather than living only behind the "Read the full
+					     EULA" link: the full legal text is one click away in the modal
+					     below, for anyone who wants it.
+					     
+					     It carries the rights statement too, rather than a separate
+					     checkbox above it saying the same thing in other words. The
+					     sentence naming what is not eligible as a featured work is the
+					     content rules' wording; the compensation waiver is the EULA's.
+					     One act, both affirmed: `agreeToEula` sets both fields, which
+					     is what the reviewer and the backend each read. -->
+							<h3>Rights and EULA</h3>
 							<label class="option consent">
 								<input
 									type="checkbox"
-									bind:checked={review.eula_agreement}
-									onchange={() => form.touch()}
+									checked={review.eula_agreement}
+									onchange={(event) => agreeToEula(event.currentTarget.checked)}
 								/>
 								<span class="option-description consent-text">
-									By submitting, you affirm you hold full rights to what you're submitting, and you
-									agree that IndieNodes operates on a donation-only basis: it collects no revenue
-									from your work, and you waive any claim to compensation from IndieNodes on that
-									basis.
+									I hold the rights to the works I am featuring. None of them are covers, uncleared
+									samples, fan work using characters I do not own, or performances owned by a
+									client.
+									{#if entry.type === 'audio' && entry.form === 'music'}
+										I understand that PRO membership does not prevent me from submitting, but I am
+										disclosing it accurately above.
+									{/if}
+									By submitting, you also agree that IndieNodes operates on a donation-only basis: it
+									collects no revenue from your work, and you waive any claim to compensation from IndieNodes
+									on that basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
 									</button>. By submitting, you also agree to the

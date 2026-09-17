@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * `/update` used to collapse three distinct verify-failure reasons
@@ -138,6 +139,7 @@ test('update review keeps exact data inside the shared scroll container', async 
 	// The stubbed node predates `form`, so the pre-migration audio member has
 	// none yet and the step re-asks for it before Continue is enabled.
 	await page.locator('#f-form').selectOption('music');
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Review and send' })).toBeVisible();
 

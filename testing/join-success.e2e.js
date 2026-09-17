@@ -18,6 +18,7 @@ test('join success shows confirmation and live embed previews', async ({ page },
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');
 	await page.locator('#f-tags').press('Enter');
+	await page.getByRole('radio', { name: 'No', exact: true }).check();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
@@ -28,12 +29,11 @@ test('join success shows confirmation and live embed previews', async ({ page },
 
 	await page.locator('#f-email').fill('preview@example.com');
 	await page.locator('#f-pro').selectOption('Not a member');
-	// Every content-rule attestation plus the EULA gates Continue; the gate
-	// itself is covered in join-consent-gate.e2e.js.
+	// Made by people, then the one Rights and EULA checkbox. The adult-content
+	// disclosure was answered back on the entry step; the whole gate is covered
+	// in join-consent-gate.e2e.js.
 	await page.getByRole('checkbox', { name: /were made by people/ }).check();
 	await page.getByRole('checkbox', { name: /I hold the rights to the works/ }).check();
-	await page.getByRole('radio', { name: 'No', exact: true }).check();
-	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).check();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.setViewportSize({ width: 390, height: 844 });

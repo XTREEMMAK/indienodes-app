@@ -2827,6 +2827,13 @@ const thumb = entry.thumb_url
 const attest = (v) => v === true ? 'Yes' : (v === false ? 'No' : 'Not recorded');
 const adultAnswer = review.adult_content === 'yes' ? 'Yes'
   : (review.adult_content === 'no' ? 'No' : 'Not recorded');
+// On /join the rights statement and the EULA are one checkbox, so they are one
+// row rather than two that can never disagree. /update has no EULA to fold in
+// and asks for rights on its own.
+const rightsRow = review.mode === 'update'
+  ? '<tr><th scope="row">Rights confirmed</th><td>' + attest(review.rights_confirmation) + '</td></tr>'
+  : '<tr><th scope="row">Rights and EULA agreed</th><td>' +
+    attest(review.rights_confirmation === true && review.eula_agreement === true) + '</td></tr>';
 const membership = review.pro_membership
   ? esc(review.pro_membership) +
     (review.pro_membership_name ? ' (' + esc(review.pro_membership_name) + ')' : '')
@@ -2890,11 +2897,10 @@ const reviewContent = isRemoval
         <tbody>
           <tr><th scope="row">Email</th><td>${esc(review.email)}</td></tr>
           <tr><th scope="row">Made by people confirmed</th><td>${attest(review.ai_attestation)}</td></tr>
-          <tr><th scope="row">Rights confirmed</th><td>${attest(review.rights_confirmation)}</td></tr>
+          ${rightsRow}
           <tr><th scope="row">Adult content on site</th><td>${adultAnswer}</td></tr>
           ${review.adult_content === 'yes' ? `<tr><th scope="row">Adult content confirmation</th><td>${attest(review.adult_content_confirmation)}</td></tr>` : ''}
           <tr><th scope="row">Marked explicit</th><td>${entry.explicit === true ? 'Yes' : 'No'}</td></tr>
-          <tr><th scope="row">EULA agreed</th><td>${yn(review.eula_agreement)}</td></tr>
           <tr><th scope="row">PRO membership</th><td>${membership}</td></tr>
         </tbody>
       </table>

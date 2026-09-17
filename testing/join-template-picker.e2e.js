@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 const draft = {
 	creator: 'Test Artist',
@@ -40,6 +41,7 @@ test('the editor holds settings and preview together, and covers the page chrome
 		)
 	});
 	await expect(page.locator('.node-preview-card img.backdrop')).toHaveAttribute('src', /^blob:/);
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();

@@ -1395,6 +1395,12 @@ check(
 	html.includes('<th scope="row">Made by people confirmed</th><td>Not recorded</td>'),
 	true
 );
+check(
+	'a new submission shows rights and the EULA as the one act they are',
+	html.includes('<th scope="row">Rights and EULA agreed</th>') &&
+		!html.includes('<th scope="row">EULA agreed</th>'),
+	true
+);
 const attestedHtml = prun({
 	...evil,
 	entry: JSON.stringify({
@@ -1416,6 +1422,7 @@ const attestedHtml = prun({
 check(
 	'review page shows the attestation answers',
 	attestedHtml.includes('<th scope="row">Made by people confirmed</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Rights and EULA agreed</th><td>Yes</td>') &&
 		attestedHtml.includes('<th scope="row">Adult content on site</th><td>Yes</td>') &&
 		attestedHtml.includes('<th scope="row">Adult content confirmation</th><td>Yes</td>') &&
 		attestedHtml.includes('<th scope="row">Marked explicit</th><td>Yes</td>'),

@@ -27,6 +27,7 @@
 	import Honeypot from '../../../components/Honeypot.svelte';
 	import Turnstile from '../../../components/Turnstile.svelte';
 	import ContentAttestations from '../../../components/ContentAttestations.svelte';
+	import AdultContentSection from '../../../components/AdultContentSection.svelte';
 	import ExactDataDisclosure from '../../../components/ExactDataDisclosure.svelte';
 	import FieldNode from '../../../components/FieldNode.svelte';
 	import { ringStore } from '$lib/ringStore.svelte.js';
@@ -665,20 +666,14 @@
 								</ul>
 							{/if}
 
-							<label class="option">
-								<input
-									type="checkbox"
-									bind:checked={entry.explicit}
-									onchange={() => form.touch()}
-								/>
-								<span>
-									<span class="option-label">This Node features adult content</span>
-									<span class="option-description">
-										Explicit Nodes are hidden from the field, Members, Lists, and the widget until a
-										visitor turns explicit content on in Settings.
-									</span>
-								</span>
-							</label>
+							<AdultContentSection
+								bind:explicit={entry.explicit}
+								bind:adultContent={form.adultContent}
+								bind:adultContentConfirmation={form.adultContentConfirmation}
+								missing={form.attestationErrors}
+								idPrefix="update"
+								onchange={() => form.touch()}
+							/>
 
 							{#if entry.type === 'audio'}
 								<FormField
@@ -1073,17 +1068,17 @@
 								{/snippet}
 							</FormField>
 
-							<!-- The same content-rule attestations a new submission gives,
-							     asked on every change request so an update cannot swap in
-							     work that skipped them. -->
+							<!-- The same attestations a new submission gives, asked on every
+							     change request so an update cannot swap in work that skipped
+							     them. Rights are their own checkbox here: unlike /join, this
+							     flow has no EULA box to fold them into. The adult-content
+							     disclosure was asked on the edit step, beside the explicit
+							     checkbox. -->
 							<ContentAttestations
 								bind:aiAttestation={form.aiAttestation}
 								bind:rightsConfirmation={form.rightsConfirmation}
-								bind:adultContent={form.adultContent}
-								bind:adultContentConfirmation={form.adultContentConfirmation}
+								includeRights
 								missing={form.attestationErrors}
-								showMusicProSentence={false}
-								idPrefix="update"
 								onchange={() => form.touch()}
 							/>
 
