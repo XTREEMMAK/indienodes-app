@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * Typed fields reach the preview when you are done with them, not while you
@@ -45,6 +46,7 @@ async function openEditor(page) {
 	await page.getByRole('button', { name: 'Start', exact: true }).click();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your entry' })).toBeVisible();
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();

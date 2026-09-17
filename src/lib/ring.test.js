@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadRing, ringEntries } from './ring.js';
 
 /**
@@ -143,6 +143,105 @@ describe('loadRing', () => {
 		await expect(loadRing(respondWith([hugeEntry], { contentLength: undefined }))).rejects.toThrow(
 			'too large'
 		);
+	});
+
+	it('times out a body that stalls after headers, and then tries the fallback', async () => {
+		vi.useFakeTimers();
+		try {
+			/** @type {string[]} */
+			const requested = [];
+			const fetchFn = /** @type {typeof fetch} */ (
+				/** @type {unknown} */ (
+					async (/** @type {string} */ url) => {
+						requested.push(url);
+						if (url === '/ring.json') return respondWith([entry])(url);
+						// Headers arrive; the body never does.
+						return {
+							ok: true,
+							status: 200,
+							headers: { get: () => null },
+							text: () => new Promise(() => {})
+						};
+					}
+				)
+			);
+
+			const loading = loadRing(fetchFn, 'https://slow.example/ring.json', '/ring.json');
+			await vi.advanceTimersByTimeAsync(10_001);
+			const loaded = await loading;
+			expect(requested).toEqual(['https://slow.example/ring.json', '/ring.json']);
+			expect(loaded.map((e) => e.id)).toEqual([entry.id]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('rejects a stalled body with no fallback instead of hanging', async () => {
+		vi.useFakeTimers();
+		try {
+			const fetchFn = /** @type {typeof fetch} */ (
+				/** @type {unknown} */ (
+					async () => ({
+						ok: true,
+						status: 200,
+						headers: { get: () => null },
+						text: () => new Promise(() => {})
+					})
+				)
+			);
+			const loading = loadRing(fetchFn);
+			const settled = expect(loading).rejects.toThrow('timed out');
+			await vi.advanceTimersByTimeAsync(10_001);
+			await settled;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	describe('malformed entries cost only themselves', () => {
+		it.each([
+			['a null entry', null],
+			['a string entry', 'nope'],
+			['a nested array entry', [entry]]
+		])('drops %s and keeps the rest', async (_label, bad) => {
+			const loaded = await loadRing(respondWith([entry, bad]));
+			expect(loaded.map((e) => e.id)).toEqual([entry.id]);
+		});
+
+		it('drops null and non-object tracks, pages, artworks and excerpts', async () => {
+			const messy = {
+				...entry,
+				id: 'messy',
+				tracks: [null, 7, { label: 'ok', media_url: 'https://example.org/a.mp3' }],
+				pages: [null, { image_url: 'https://example.org/p.png' }],
+				artworks: ['x', { image_url: 'https://example.org/a.png', alt: 'a' }],
+				excerpts: [null, 3, 'plain text', { text: 'rich' }]
+			};
+			const [loaded] = await loadRing(respondWith([messy]));
+			expect(loaded.tracks).toHaveLength(1);
+			expect(loaded.pages).toHaveLength(1);
+			expect(loaded.artworks).toHaveLength(1);
+			expect(loaded.excerpts).toEqual([{ text: 'plain text' }, { text: 'rich' }]);
+		});
+
+		it('treats wrongly typed collections as empty rather than throwing', async () => {
+			const wrong = {
+				...entry,
+				id: 'wrong',
+				tags: 'solo',
+				tracks: {},
+				pages: 'p',
+				artworks: 1,
+				excerpts: { text: 'not an array' }
+			};
+			const [loaded] = await loadRing(respondWith([wrong]));
+			expect(loaded).toMatchObject({ tags: [], tracks: [], pages: [], artworks: [], excerpts: [] });
+		});
+
+		it('keeps only string tags', async () => {
+			const [loaded] = await loadRing(respondWith([{ ...entry, tags: ['one', 2, null, 'two'] }]));
+			expect(loaded.tags).toEqual(['one', 'two']);
+		});
 	});
 
 	describe('per-entry runtime validation', () => {

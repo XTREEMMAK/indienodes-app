@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { MediaQuery } from 'svelte/reactivity';
-	import GlassPanel from '../../components/GlassPanel.svelte';
+	import GlassPanel from '../../../components/GlassPanel.svelte';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	import { filtersStore } from '$lib/filtersStore.svelte.js';
@@ -14,8 +14,8 @@
 	import { ROTATION_MIN_MS, ROTATION_MAX_MS } from '$lib/preferences.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
-	import { NODE_SKINS, UI_SKINS } from '../../skins/registry.js';
-	import { skinStore } from '../../skins/skinStore.svelte.js';
+	import { NODE_SKINS, UI_SKINS } from '../../../skins/registry.js';
+	import { skinStore } from '../../../skins/skinStore.svelte.js';
 
 	const TABS = [
 		{ id: 'appearance', label: 'Appearance' },

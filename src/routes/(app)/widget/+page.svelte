@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
-	import GlassPanel from '../../components/GlassPanel.svelte';
+	import GlassPanel from '../../../components/GlassPanel.svelte';
 	import { SITE_ORIGIN } from '$lib/config.js';
 	import { BADGE_STYLES, badgeAssetPath, embedHtmlFor } from '$lib/widgetTiers.js';
 	import { embedSnippet, embedFrameSnippet } from './embed-snippet.js';

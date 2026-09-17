@@ -2,14 +2,14 @@
 	import { onMount, untrack } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { SvelteSet } from 'svelte/reactivity';
-	import FieldNode from '../../components/FieldNode.svelte';
+	import FieldNode from '../../../components/FieldNode.svelte';
 	import { favoritesStore } from '$lib/favoritesStore.svelte.js';
 	import { hiddenStore } from '$lib/hiddenStore.svelte.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { isVisibleTo } from '$lib/ring.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
-	import Modal from '../../components/Modal.svelte';
+	import Modal from '../../../components/Modal.svelte';
 
 	// Brief section 8: "the surface previously called Favorites becomes
 	// Lists, with two tabs: liked entries and Not for Me entries." Settings'

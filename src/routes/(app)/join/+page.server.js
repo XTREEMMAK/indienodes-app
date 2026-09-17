@@ -1,7 +1,7 @@
 import { remark } from 'remark';
 import remarkGfm from 'remark-gfm';
 import remarkHtml from 'remark-html';
-import eulaMarkdown from '../../../docs/legal/EULA.md?raw';
+import eulaMarkdown from '../../../../docs/legal/EULA.md?raw';
 
 /**
  * The "Read the full EULA" modal renders the parsed output of

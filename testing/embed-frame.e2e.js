@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 // sandboxed embedding a member site does (that needs a real second origin
 // and is tracked as its own, larger e2e gap), but it does confirm the page
 // itself renders correctly and carries none of the main app's chrome, which
-// is exactly what a regression in the root layout's isEmbedFrame branch
+// is exactly what moving this route back under the `(app)` layout group
 // would break silently.
 
 test('embed-frame renders the widget with no app chrome', async ({ page }) => {

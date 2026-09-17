@@ -8,6 +8,97 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-17
+
+### Security
+
+- **The n8n SSRF guard now parses IPv6 addresses instead of matching their text.** Fully
+  written-out forms such as `[0:0:0:0:0:0:0:1]`, `[0::1]` and the IPv4-mapped
+  `[0:0:0:0:0:ffff:a9fe:a9fe]` (the cloud metadata address) passed the old prefix check, and the
+  fetch then connected to loopback or metadata. Only global unicast IPv6 is accepted now, minus
+  the 6to4, Teredo and documentation ranges, and `198.18.0.0/15` is refused too.
+- **The contact form's Turnstile token is now verified server-side.** The page sent a token that
+  the contact workflow never checked, so a script could post the honeypot and dwell values
+  directly. Siteverify now runs before anything is sent, through the same nodes the update and
+  removal flows use.
+- **The embeddable widget no longer sends visitors to members marked explicit.** It runs on
+  other people's sites, where no visitor setting can opt in.
+- **A non-boolean `showExplicit` in stored preferences no longer shows explicit entries.** An
+  imported or hand-edited `"showExplicit": "false"` read as consent.
+- **Webhook rate limits at the edge**, documented in the n8n runbook. They are applied in Nginx
+  Proxy Manager, outside this repo.
+
+### Fixed
+
+- **Sending a second contact message no longer needs a page reload.** Cloudflare renders its
+  challenge only into widgets that exist when its script first loads, so the form's widget came
+  back empty after "Send another message", and the submit was refused for having no token. The
+  widget now renders itself when the script is already loaded. The same applied to `/update`
+  when switching between change and remove.
+- **Join drafts no longer lose fields.** The generator draft's debounced save wrote only the last
+  change it was given, so committing a display name and then picking a template kept the
+  template and dropped the name. An immediate save also discarded a pending one.
+- **One malformed ring entry no longer fails the whole ring.** A `null` entry, a `null` track or
+  a wrongly typed collection is now dropped on its own.
+- **A ring response that stalls after its headers now times out** and falls back to the second
+  source. In the browser, a response is also refused while downloading once it passes the
+  8 MB ceiling.
+
+### Changed
+
+- **New content rules on `/join`.**
+  - An AI policy built on what a visitor experiences: featured music, art, writing, voice
+    performances, and game design are made by people. Editing and cleanup tools are fine, and
+    games may use AI-assisted programming.
+  - A rights rule: no covers, uncleared samples, fan work, or client-owned performances as
+    featured works.
+  - Adult content is allowed behind a clear content warning. Adult featured works must be
+    marked explicit.
+  - Sexual content involving minors is never allowed.
+  - Wider discrimination wording.
+  - The type list now includes spoken audio and visual art.
+  - A reminder that a Node can be removed at any time.
+- **Submitting and updating now ask for the content-rule attestations.**
+  - Made by people, rights, and an adult-content disclosure (Yes or No, no default), plus a
+    confirmation after "Yes".
+  - `/update` asks the same set before any change can be sent, so an update cannot bypass
+    them.
+  - Both adult-content questions now sit in one section on the entry and edit steps, under a
+    single definition of what counts as adult content, with each in its own panel and a line
+    saying which is about the site and which is about the featured works. `/update` gained that
+    definition, which had only ever appeared on `/join`.
+  - Rights are part of the one "Rights and EULA" checkbox on `/join`, which already affirmed
+    holding full rights, instead of a second checkbox saying the same thing a line above it.
+    `/update`, which has no EULA box, asks for rights on its own.
+  - The form lists what is still missing in plain words. Answers are never stored locally.
+  - `/update`'s narrower "rights, for what you just added" box is replaced by the shared rights
+    attestation.
+- **The explicit checkbox reads "This Node features adult content"** and explains that explicit
+  Nodes stay hidden until a visitor opts in. Its behavior is unchanged.
+- **The private review page shows the attestations and the new checklist items**, with a note that
+  AI attestations are trusted and a Node is removed only on credible evidence.
+  - Finalize records the attestations now. Refusing requests without them waits for
+    `CONTENT_ATTESTATIONS_REQUIRED`, to be switched on after the production release that sends
+    them.
+- **The widget iframe loads about 78% less.** `/embed-frame` sat under the root layout, and
+  SvelteKit loads a layout's whole import graph whatever it renders, so every iframe embed on a
+  member's site downloaded the app's chrome and stylesheet (about 489 kB). The app's routes now
+  live in an `(app)` layout group, and the embed frame loads about 109 kB. Unknown URLs are caught
+  inside the group, so a 404 still shows the app around it.
+- **`/join` and `/update` load about half as much up front.** The rich-text sample editor (Tiptap,
+  ProseMirror and a syntax highlighter, about 560 kB) and its stylesheet now load when the editor
+  is first shown, instead of with the page. The editor's CSS also left the global stylesheet.
+- **Every app page loads 10–20% less.** Ambient View is fetched once the page is idle instead of
+  with the first load, and the development-only audio debug panel no longer ships in production.
+- **`npm run build` now fails if these regress:** if the embed frame goes over budget, or if any
+  page preloads the text editor or Ambient View.
+- **CI now runs the n8n Code-node test suite**, including the SSRF and Turnstile checks.
+- **`/contact`'s "Send another message" now has a 20s cooldown after each send.** Verified live
+  that the real defenses against a fast bot (Turnstile, plus the edge rate limit on
+  `n8n.kjnet.us`) already refuse a burst after the fourth request regardless of interval; this is
+  a UX addition for a real visitor sending several messages in a row, so they see a countdown
+  instead of an unexplained "Too many requests" a few sends in.
+
 ## [1.8.2] - 2026-09-16
 
 ### Changed

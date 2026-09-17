@@ -26,6 +26,35 @@ function createGeneratorDraftStore() {
 	/** @type {ReturnType<typeof setTimeout> | undefined} */
 	let saveTimer;
 
+	/**
+	 * Everything `save()` has been handed since the last write, merged.
+	 *
+	 * The debounce used to persist only the *last* patch it was given, so two
+	 * saves inside 400ms (a blur committing the display name, then a click
+	 * picking a template) wrote the template and silently dropped the name —
+	 * and `saveNow` cancelled a pending save outright. Shallow, like
+	 * `putDraft`'s own merge: each top-level key is replaced whole.
+	 * @type {{ entry?: Record<string, any>, generator?: Record<string, any> }}
+	 */
+	let pending = {};
+
+	/** @param {{ entry?: Record<string, any>, generator?: Record<string, any> }} patch */
+	function queue(patch) {
+		if (patch.entry) pending = { ...pending, entry: { ...pending.entry, ...patch.entry } };
+		if (patch.generator) {
+			pending = { ...pending, generator: { ...pending.generator, ...patch.generator } };
+		}
+	}
+
+	/** Writes whatever is queued, and nothing if nothing is. */
+	function flush() {
+		clearTimeout(saveTimer);
+		const patch = pending;
+		pending = {};
+		if (!patch.entry && !patch.generator) return Promise.resolve();
+		return putDraft(patch);
+	}
+
 	const LEGACY_COLOR_KEYS = ['accentColor', 'groundColor', 'surfaceColor', 'backgroundGlowColor'];
 
 	/**
@@ -110,9 +139,10 @@ function createGeneratorDraftStore() {
 		if (patch.entry) entry = { ...entry, ...patch.entry };
 		if (patch.generator) generator = { ...generator, ...patch.generator };
 		if (!browser) return;
+		queue(patch);
 		clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => {
-			putDraft(patch).catch(() => {
+			flush().catch(() => {
 				// Private browsing, a full quota, or IndexedDB unavailable
 				// entirely. Losing the draft is survivable; there is nothing
 				// actionable to surface mid-keystroke.
@@ -128,8 +158,11 @@ function createGeneratorDraftStore() {
 		if (patch.generator) generator = { ...generator, ...patch.generator };
 		clearTimeout(saveTimer);
 		if (!browser) return;
+		// Writes any still-debounced saves along with this one, in call order,
+		// rather than discarding them.
+		queue(patch);
 		try {
-			await putDraft(patch);
+			await flush();
 		} catch {
 			// Same as the debounced save() below: private browsing, a full
 			// quota, or a transient IndexedDB failure. The in-memory state
@@ -142,6 +175,7 @@ function createGeneratorDraftStore() {
 	/** Explicit "start fresh," per the spec's resume-or-restart choice. */
 	async function discard() {
 		clearTimeout(saveTimer);
+		pending = {};
 		entry = {};
 		generator = {};
 		hasDraft = false;

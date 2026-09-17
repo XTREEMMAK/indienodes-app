@@ -183,6 +183,27 @@ const cases = [
 	['http://[fe80::1]/', 'unsafe_url'],
 	['http://[fc00::1]/', 'unsafe_url'],
 	['http://[::ffff:127.0.0.1]/', 'unsafe_url'],
+	// Uncompressed and partly-compressed spellings of loopback and mapped
+	// addresses. The fetch normalises these to [::1] / [::ffff:...], so a
+	// text-prefix check passed them straight through.
+	['http://[0:0:0:0:0:0:0:1]:5678/', 'unsafe_url'],
+	['http://[0::1]/', 'unsafe_url'],
+	['http://[0000:0000:0000:0000:0000:0000:0000:0001]/', 'unsafe_url'],
+	['http://[0:0:0:0:0:ffff:7f00:1]/', 'unsafe_url'],
+	['https://[0:0:0:0:0:ffff:a9fe:a9fe]/', 'unsafe_url'],
+	['http://[0:0:0:0:0:ffff:169.254.169.254]/', 'unsafe_url'],
+	['http://[64:ff9b::7f00:1]/', 'unsafe_url'],
+	['http://[2002:7f00:1::]/', 'unsafe_url'],
+	['http://[2001:0:4136:e378::1]/', 'unsafe_url'],
+	['http://[2001:db8::1]/', 'unsafe_url'],
+	['http://[fec0::1]/', 'unsafe_url'],
+	['http://[FE80::1]/', 'unsafe_url'],
+	['http://[ff02::1]/', 'unsafe_url'],
+	['http://[1:2:3:4:5:6:7:8:9]/', 'unsafe_url'],
+	['http://[1::2::3]/', 'unsafe_url'],
+	['http://[::ffff:1.2.3.256]/', 'unsafe_url'],
+	['http://[2606:4700:4700::1111]/', 'ok'],
+	['http://198.18.0.1/', 'unsafe_url'],
 	['http://2130706433/', 'unsafe_url'],
 	['http://0x7f000001/', 'unsafe_url'],
 	['http://0177.0.0.1/', 'unsafe_url'],
@@ -271,8 +292,58 @@ check(
 	cd(ok('93.184.216.34', 1), ok('fe80::1', 28)).reason,
 	'unsafe_resolved_ip'
 );
+check(
+	'dns: an uncompressed loopback AAAA is rejected',
+	cd(ok('93.184.216.34', 1), ok('0:0:0:0:0:0:0:1', 28)).reason,
+	'unsafe_resolved_ip'
+);
+check(
+	'dns: an IPv4-mapped metadata AAAA is rejected',
+	cd(nx, ok('::ffff:169.254.169.254', 28)).reason,
+	'unsafe_resolved_ip'
+);
+check('dns: a public AAAA passes', cd(nx, ok('2606:4700:4700::1111', 28)).proceed, 'yes');
 check('dns: both queries transport-failed', cd(err, err).reason, 'unresolvable');
 check('dns: both queries NXDOMAIN', cd(nx, nx).reason, 'unresolvable');
+
+// --- Egress proxy placement --------------------------------------------------
+// Exactly the requests to a stranger-chosen address go through the filtering
+// proxy -- never the DoH lookups, Siteverify, GitHub or notifications, which
+// this shared n8n must keep reaching directly -- and nothing does while
+// EGRESS_PROXY_URL is unset.
+const proxiedNodes = (proxyUrl) =>
+	JSON.parse(
+		execFileSync(
+			'python3',
+			[
+				'-c',
+				`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.EGRESS_PROXY_URL = ${JSON.stringify(proxyUrl)}
+out = []
+for key, b in m.BUILDERS:
+    for n in b({})["nodes"]:
+        p = n["parameters"].get("options", {}).get("proxy") if isinstance(n["parameters"].get("options"), dict) else None
+        if p is not None:
+            out.append([key, n["name"], p])
+print(json.dumps(sorted(out)))
+`
+			],
+			{ encoding: 'utf8' }
+		)
+	);
+check('egress: no node is proxied while unset', JSON.stringify(proxiedNodes('')), '[]');
+check(
+	'egress: only the three untrusted fetches are proxied once set',
+	JSON.stringify(proxiedNodes('http://n8n-egress:3128')),
+	JSON.stringify([
+		['media-check', 'GET media (ranged)', 'http://n8n-egress:3128'],
+		['media-check', 'HEAD media', 'http://n8n-egress:3128'],
+		['reverify-token', 'fetch source_url', 'http://n8n-egress:3128']
+	])
+);
 
 // --- Signature helper -------------------------------------------------------
 const build = extract('signature-helper', 'build canonical message');
@@ -398,20 +469,23 @@ const BODY = {
 	entry: { creator: 'C', type: 'audio', why: 'w', tags: ['t'], form: 'music' },
 	review: { email: 'a@b.co', rights_confirmation: true, eula_agreement: true }
 };
-const vrun = (row = ROW, body = BODY) => {
-	const $ = (name) => ({
-		first: () => ({ json: name === 'Trigger' ? { body } : {} }),
-		all: () => []
-	});
-	const shadow = DENIED.map(
-		(g) => `const ${g} = new Proxy({}, { get(){ throw new ReferenceError("${g}"); } });`
-	).join('\n');
-	return new Function('$input', '$json', '$', `${shadow}\n${finValidate}`)(
-		{ first: () => ({ json: row }), all: () => [{ json: row }] },
-		row,
-		$
-	);
-};
+const makeVrun =
+	(js) =>
+	(row = ROW, body = BODY) => {
+		const $ = (name) => ({
+			first: () => ({ json: name === 'Trigger' ? { body } : {} }),
+			all: () => []
+		});
+		const shadow = DENIED.map(
+			(g) => `const ${g} = new Proxy({}, { get(){ throw new ReferenceError("${g}"); } });`
+		).join('\n');
+		return new Function('$input', '$json', '$', `${shadow}\n${js}`)(
+			{ first: () => ({ json: row }), all: () => [{ json: row }] },
+			row,
+			$
+		);
+	};
+const vrun = makeVrun(finValidate);
 const v = vrun()[0].json;
 check('validate passes with no config at all', v.ok, 'yes');
 // The whole point of this change: the salt used to be concatenated into
@@ -479,9 +553,9 @@ check(
 );
 
 // --- Finalize Submission: consent gate --------------------------------------
-// Mirrors rightsSectionApplies/consentGiven in src/lib/submissionValidation.js,
-// which is what actually gates the /join form's own Continue and Submit
-// buttons: Rights only has to be confirmed alongside a stated PRO
+// The transition rule, while CONTENT_ATTESTATIONS_REQUIRED is off (clients
+// released before the attestations are still live): Rights only has to be
+// confirmed alongside a stated PRO
 // relationship, so this server-side check must accept the same shapes the
 // form can produce or a real "Not a member" submitter (the common case) gets
 // silently rejected here even though the form told them they were done.
@@ -518,6 +592,146 @@ check(
 		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: true }
 	})[0].json.ok,
 	'yes'
+);
+
+// --- Finalize Submission: content-rule attestations ------------------------
+// Mirrors validateAttestations/consentGiven in src/lib/submissionValidation.js.
+// Recorded and normalised in both phases; refused when missing only once
+// CONTENT_ATTESTATIONS_REQUIRED is on. Removals change no featured work, so
+// they never need them.
+const ATTESTED = {
+	ai_attestation: true,
+	rights_confirmation: true,
+	adult_content: 'no',
+	adult_content_confirmation: false
+};
+const ATT_BODY = { ...BODY, review: { ...BODY.review, ...ATTESTED } };
+const ATT_NODE_ROW = { ...ROW, node_id: 'audio-someone-thing' };
+const ATT_UPDATE = {
+	action: 'submit_update',
+	node_id: 'audio-someone-thing',
+	entry: BODY.entry,
+	email: 'a@b.co',
+	turnstile_token: 'test-turnstile-token',
+	review: ATTESTED
+};
+const ATT_REMOVE = {
+	action: 'request_removal',
+	node_id: 'audio-someone-thing',
+	turnstile_token: 'test-turnstile-token'
+};
+
+const recorded = vrun(ROW, ATT_BODY)[0].json.review;
+check('attestations: made-by-people is recorded', recorded.ai_attestation, true);
+check('attestations: adult answer is recorded', recorded.adult_content, 'no');
+check(
+	'attestations: a confirmation after "no" is recorded as false',
+	recorded.adult_content_confirmation,
+	false
+);
+check(
+	'attestations: an unknown adult answer is normalised to null',
+	vrun(ROW, { ...ATT_BODY, review: { ...ATT_BODY.review, adult_content: 'maybe' } })[0].json.review
+		.adult_content,
+	null
+);
+check(
+	'attestations: a truthy non-boolean is not a yes',
+	vrun(ROW, { ...ATT_BODY, review: { ...ATT_BODY.review, ai_attestation: 'true' } })[0].json.review
+		.ai_attestation,
+	false
+);
+check(
+	'attestations: an update records its own review block',
+	vrun(ATT_NODE_ROW, ATT_UPDATE)[0].json.review.ai_attestation,
+	true
+);
+check(
+	'attestations: a removal records none',
+	vrun(ATT_NODE_ROW, ATT_REMOVE)[0].json.review.ai_attestation,
+	null
+);
+check(
+	'attestations (phase 1): an old client without them still passes',
+	vrun(ROW, BODY)[0].json.ok,
+	'yes'
+);
+check(
+	'attestations (phase 1): an old update without them still passes',
+	vrun(ATT_NODE_ROW, { ...ATT_UPDATE, review: undefined })[0].json.ok,
+	'yes'
+);
+
+const enforcedValidate = JSON.parse(
+	execFileSync(
+		'python3',
+		[
+			'-c',
+			`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.CONTENT_ATTESTATIONS_REQUIRED = True
+wf = dict(m.BUILDERS)["finalize-submission"]({})
+print(json.dumps([n["parameters"]["jsCode"] for n in wf["nodes"] if n["name"] == "validate + normalize"][0]))
+`
+		],
+		{ encoding: 'utf8' }
+	)
+);
+const vrunEnforced = makeVrun(enforcedValidate);
+const enforcedCode = (body, row = ROW) => {
+	const out = vrunEnforced(row, body)[0].json;
+	return out.ok === 'yes' ? 'ok' : out.error_code;
+};
+/** @param {Record<string, any>} over */
+const attBody = (over) => ({ ...ATT_BODY, review: { ...ATT_BODY.review, ...over } });
+
+check('attestations (phase 2): a full set passes', enforcedCode(ATT_BODY), 'ok');
+check(
+	'attestations (phase 2): missing made-by-people is refused',
+	enforcedCode(attBody({ ai_attestation: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): rights are required without any PRO answer',
+	enforcedCode(attBody({ rights_confirmation: false, pro_membership: 'Not a member' })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an unanswered adult question is refused',
+	enforcedCode(attBody({ adult_content: '' })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): "yes" without the confirmation is refused',
+	enforcedCode(attBody({ adult_content: 'yes', adult_content_confirmation: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): "yes" with the confirmation passes',
+	enforcedCode(attBody({ adult_content: 'yes', adult_content_confirmation: true })),
+	'ok'
+);
+check(
+	'attestations (phase 2): the EULA still gates a new submission',
+	enforcedCode(attBody({ eula_agreement: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an update cannot skip them',
+	enforcedCode({ ...ATT_UPDATE, review: undefined }, ATT_NODE_ROW),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an attested update passes',
+	enforcedCode(ATT_UPDATE, ATT_NODE_ROW),
+	'ok'
+);
+check(
+	'attestations (phase 2): a removal never needs them',
+	enforcedCode(ATT_REMOVE, ATT_NODE_ROW),
+	'ok'
 );
 
 // --- Finalize Submission: skip a redundant re-verify fetch ------------------
@@ -1163,6 +1377,63 @@ check(
 	false
 );
 
+// The reviewer checklist and the attestation rows (content rules revision).
+check(
+	'review page lists the content-rule checks',
+	html.includes('AI attestation is checked.') &&
+		html.includes('the Node is marked explicit') &&
+		html.includes('characters depicted as minors'),
+	true
+);
+check(
+	'review page states that AI attestations are trusted, not detected',
+	html.includes('not on suspicion or detector output'),
+	true
+);
+check(
+	'a row recorded before the attestations says so instead of "No"',
+	html.includes('<th scope="row">Made by people confirmed</th><td>Not recorded</td>'),
+	true
+);
+check(
+	'a new submission shows rights and the EULA as the one act they are',
+	html.includes('<th scope="row">Rights and EULA agreed</th>') &&
+		!html.includes('<th scope="row">EULA agreed</th>'),
+	true
+);
+const attestedHtml = prun({
+	...evil,
+	entry: JSON.stringify({
+		type: 'audio',
+		form: 'music',
+		creator: 'C',
+		why: 'w',
+		tags: ['t'],
+		explicit: true
+	}),
+	review: JSON.stringify({
+		email: 'a@b.co',
+		eula_agreement: true,
+		...ATTESTED,
+		adult_content: 'yes',
+		adult_content_confirmation: true
+	})
+});
+check(
+	'review page shows the attestation answers',
+	attestedHtml.includes('<th scope="row">Made by people confirmed</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Rights and EULA agreed</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Adult content on site</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Adult content confirmation</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Marked explicit</th><td>Yes</td>'),
+	true
+);
+check(
+	'the adult confirmation row only appears after a "yes"',
+	html.includes('Adult content confirmation'),
+	false
+);
+
 const reviewWebhookShape = JSON.parse(
 	execFileSync(
 		'python3',
@@ -1307,9 +1578,80 @@ const good = {
 	email: 'ada@example.com',
 	message: 'Hello there.',
 	website: '',
-	elapsed_ms: 30000
+	elapsed_ms: 30000,
+	turnstile_token: 'test-turnstile-token'
 };
 const vc = (over = {}) => run(contactValidate, { body: { ...good, ...over } })[0].json;
+
+// The contact form used to be guarded only by the honeypot and dwell time --
+// both values the client chooses. With Turnstile on, a missing token must be
+// refused before anything is sent, and the token must reach Siteverify.
+check(
+	'contact: a missing turnstile token is rejected',
+	vc({ turnstile_token: undefined }).payload?.error?.code,
+	'turnstile_failed'
+);
+check(
+	'contact: a blank turnstile token is rejected',
+	vc({ turnstile_token: '   ' }).payload?.error?.code,
+	'turnstile_failed'
+);
+check(
+	'contact: a turnstile failure is retryable',
+	vc({ turnstile_token: undefined }).payload?.error?.retryable,
+	true
+);
+check('contact: the token travels to siteverify', vc().turnstile_token, 'test-turnstile-token');
+const contactGraph = JSON.parse(
+	execFileSync(
+		'python3',
+		[
+			'-c',
+			`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+wf = dict(m.BUILDERS)["contact"]({})
+print(json.dumps({"enabled": m.TURNSTILE_ENABLED, "nodes": wf["nodes"], "connections": wf["connections"]}))
+`
+		],
+		{ encoding: 'utf8' }
+	)
+);
+if (contactGraph.enabled) {
+	const verifyNode = contactGraph.nodes.find((n) => n.name === 'verify turnstile');
+	check(
+		'contact: a siteverify node exists',
+		verifyNode?.parameters?.url,
+		'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+	);
+	check(
+		'contact: a sendable message goes to siteverify first, not straight to notify',
+		contactGraph.connections.route.main[0][0].node,
+		'verify turnstile'
+	);
+	check(
+		'contact: only a passed challenge reaches the notification',
+		contactGraph.connections['turnstile passed?'].main[0][0].node,
+		'build notification'
+	);
+	check(
+		'contact: a failed challenge is answered, not sent',
+		contactGraph.connections['turnstile passed?'].main[1][0].node,
+		'shape turnstile failure'
+	);
+}
+const contactVerdict = extract('contact', 'turnstile verdict');
+const tv = (json) => run(contactVerdict, json)[0].json.ok;
+check('contact verdict: success passes', tv({ statusCode: 200, body: { success: true } }), 'yes');
+check('contact verdict: failure fails', tv({ statusCode: 200, body: { success: false } }), 'no');
+check(
+	'contact verdict: truthy non-boolean fails',
+	tv({ statusCode: 200, body: { success: 'true' } }),
+	'no'
+);
+check('contact verdict: HTTP error fails', tv({ statusCode: 500, body: { success: true } }), 'no');
+check('contact verdict: transport error fails', tv({ error: 'ETIMEDOUT' }), 'no');
 
 check('contact: a valid message routes to send', vc().route, 'send');
 check('contact: name survives', vc().name, 'Ada');
@@ -1355,7 +1697,9 @@ check(
 	'error'
 );
 
-const note = run(contactNotify, vc())[0].json;
+// The item arriving at `build notification` is the Turnstile verdict, so the
+// message is read from `validate` by name -- pass it only there.
+const note = run(contactNotify, { ok: 'yes' }, { validate: vc() })[0].json;
 check('contact: the notification carries a reply-to', note.replyTo, 'ada@example.com');
 check('contact: the sender is in the body', note.body.includes('ada@example.com'), true);
 check('contact: the message is in the body', note.body.includes('Hello there.'), true);

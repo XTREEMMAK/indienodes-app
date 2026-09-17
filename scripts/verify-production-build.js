@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,6 +62,65 @@ if (failures.length) {
 	process.exit(1);
 }
 
+// What each page preloads. Two regressions here are silent: nothing breaks,
+// pages just get heavier, and one of them lands on every member site.
+//
+// - /embed-frame lives outside the `(app)` layout group so a member's iframe
+//   never downloads the app's chrome or stylesheet. Moving it back under that
+//   layout, or importing app code into the root layout, took it from about
+//   110 kB to about 490 kB.
+// - The text editor (Tiptap/ProseMirror, over 500 kB) and Ambient View are
+//   loaded on first use. A static import anywhere pulls them into first load.
+/** @param {string} page */
+function preloads(page) {
+	const html = readFileSync(join(root, page), 'utf8');
+	return [...new Set(html.match(/_app\/immutable\/[^"]+\.(?:js|css)/g) ?? [])];
+}
+
+/** @param {string} asset */
+function assetText(asset) {
+	return readFileSync(join(root, asset), 'utf8');
+}
+
+const EMBED_FRAME_BUDGET = 150 * 1024;
+const embedAssets = preloads('embed-frame.html');
+const embedBytes = embedAssets.reduce((sum, asset) => sum + statSync(join(root, asset)).size, 0);
+const bundleFailures = [];
+if (embedBytes > EMBED_FRAME_BUDGET) {
+	bundleFailures.push(
+		`embed-frame.html preloads ${embedBytes} bytes (budget ${EMBED_FRAME_BUDGET}); is it back under the app layout?`
+	);
+}
+if (
+	embedAssets.some((asset) => asset.endsWith('.css') && statSync(join(root, asset)).size > 8192)
+) {
+	bundleFailures.push(
+		'embed-frame.html preloads a large stylesheet; the app CSS should not reach it'
+	);
+}
+
+for (const page of readdirSync(root).filter((name) => name.endsWith('.html'))) {
+	for (const asset of preloads(page)) {
+		if (!asset.endsWith('.js')) continue;
+		const text = assetText(asset);
+		if (/prosemirror/i.test(text)) {
+			bundleFailures.push(
+				`${page} preloads the text editor (${asset}); it should load on first use`
+			);
+		}
+		// AmbientOptionsSheet's exit label; only Ambient View renders that sheet.
+		if (text.includes('Exit ambient view')) {
+			bundleFailures.push(`${page} preloads Ambient View (${asset}); it should load on first use`);
+		}
+	}
+}
+
+if (bundleFailures.length) {
+	console.error(`Bundle checks failed:\n  ${bundleFailures.join('\n  ')}`);
+	process.exit(1);
+}
+
 console.log(
 	'Production output excludes the development skin laboratory and carries the real ring.'
 );
+console.log(`Bundle checks passed (embed-frame preloads ${embedBytes} bytes).`);

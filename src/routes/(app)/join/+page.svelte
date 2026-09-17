@@ -25,20 +25,21 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import GlassPanel from '../../components/GlassPanel.svelte';
-	import FormField from '../../components/FormField.svelte';
-	import StepProgress from '../../components/StepProgress.svelte';
-	import Modal from '../../components/Modal.svelte';
-	import EulaContent from '../../components/legal/EulaContent.svelte';
-	import Honeypot from '../../components/Honeypot.svelte';
-	import ExactDataDisclosure from '../../components/ExactDataDisclosure.svelte';
+	import GlassPanel from '../../../components/GlassPanel.svelte';
+	import FormField from '../../../components/FormField.svelte';
+	import StepProgress from '../../../components/StepProgress.svelte';
+	import Modal from '../../../components/Modal.svelte';
+	import EulaContent from '../../../components/legal/EulaContent.svelte';
+	import Honeypot from '../../../components/Honeypot.svelte';
+	import ExactDataDisclosure from '../../../components/ExactDataDisclosure.svelte';
 	import { SITE_ORIGIN } from '$lib/config.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { hasBackend, useMock } from '$lib/submissionApi.js';
 	import { RING_REPO_URL, EARLY_ACCESS } from '$lib/config.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { submissionStore as form, STEPS } from '$lib/submissionStore.svelte.js';
-	import { rightsSectionApplies } from '$lib/submissionValidation.js';
+	import { validateAttestations } from '$lib/submissionValidation.js';
+	import ContentAttestations from '../../../components/ContentAttestations.svelte';
 	import { PRO_OPTIONS } from '$lib/submissionValidation.js';
 	import { uniqueEntryId } from '$lib/slug.js';
 	import {
@@ -52,8 +53,8 @@
 	import { buildGeneratorData } from '$lib/generator/data.js';
 	import { toDataUrl } from '$lib/generator/assets.js';
 	import { resolveTemplateOptions } from '$lib/generator/templateOptions.js';
-	import TextSampleEditor from '../../components/TextSampleEditor.svelte';
-	import SiteBuildGraphic from '../../components/SiteBuildGraphic.svelte';
+	import TextSampleEditor from '../../../components/LazyTextSampleEditor.svelte';
+	import SiteBuildGraphic from '../../../components/SiteBuildGraphic.svelte';
 	import { stripHtml } from '$lib/ring.js';
 	import { exportSite } from '$lib/generator/zipExport.js';
 	import { uid } from '$lib/uid.js';
@@ -80,6 +81,21 @@
 
 	const entry = $derived(form.entry);
 	const review = $derived(form.review);
+	/** What the consent step still needs from the content-rule attestations. */
+	const attestationsMissing = $derived(validateAttestations(review));
+
+	/**
+	 * The one checkbox on the consent step affirms both: the rights statement it
+	 * renders, and the EULA it summarises. Two fields rather than one because
+	 * the reviewer checklist and the backend each ask about rights on its own,
+	 * and because /update collects rights with no EULA to fold it into.
+	 * @param {boolean} checked
+	 */
+	function agreeToEula(checked) {
+		review.eula_agreement = checked;
+		review.rights_confirmation = checked;
+		form.touch();
+	}
 	const generator = $derived(generatorDraftStore.generator);
 
 	/** Labelled as provisional in the UI: the real one is assigned at approval. */
@@ -1160,44 +1176,62 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 							<div class="note-panel rules-panel">
 								<h3>Content rules</h3>
 								<ul class="rules-list">
-									<li>You must be the creator of your content and owner of your website.</li>
 									<li>
-										Your work needs to already exist somewhere a visitor can experience it;
+										Your Node must be your own: work you made, or a collective or studio you can
+										speak for, shown on a website you control. Work scraped or republished from
+										elsewhere, and pages produced in bulk, are not eligible.
+									</li>
+									<li>
+										Your work needs to already exist somewhere a visitor can experience it:
 										something to hear, read, look at, or play. It does not need to be popular,
-										polished, or commercially released, and it does not need to be finished —
-										ongoing comics, serials, and games all count. What does not count on its own is
-										a concept, a pitch, a placeholder, or an announced project.
+										polished, commercially released, or finished. Ongoing comics, serials, and games
+										all count. A concept, pitch, placeholder, or announced project does not count on
+										its own.
 									</li>
 									<li>
-										Your Node has to be yours: your own practice, or a collective or studio you can
-										speak for. Work scraped or republished from elsewhere, or pages produced in
-										bulk, is not eligible.
+										You must hold the rights to the works you feature on your Node. Covers,
+										uncleared samples, fan work using characters you do not own, and performances
+										owned by a client are not eligible as featured works.
 									</li>
 									<li>
-										This discovery network features indies in the Music, Comics, Manga, Video Games,
-										and Writing space. We may expand to other indie creators in the future.
+										IndieNodes features independent creators of music and spoken audio, comics and
+										manga, visual art, writing, and games. We may expand to other kinds of creators
+										in the future.
 									</li>
 									<li>
-										While we will accept NSFW content, such content must be clearly labeled on your
-										application.
+										Everything a visitor experiences in your featured work must be made by people:
+										the music, art, writing, voice performances, and game design. Tools that edit or
+										clean up human-made work, like spellcheck, noise reduction, or pitch correction,
+										are fine. Work where generative AI produces the music, images, text, or voices
+										is not eligible. For games, AI-assisted programming is allowed as long as the
+										art, audio, writing, and design are made by people. You will confirm this when
+										you apply.
+									</li>
+									<li>
+										Your website may include adult content if it sits behind a clear content
+										warning. If any work you feature is adult content, mark your Node as explicit:
+										explicit Nodes stay hidden unless a visitor turns them on in Settings. Disclose
+										any adult content on your application.
+									</li>
+									<li>
+										Sexual content involving minors, or characters depicted as minors, is never
+										allowed anywhere on your website.
 									</li>
 									<li>
 										No bigots allowed! Your website must not host anything discriminatory, including
-										but not limited to: sexism, homophobia, transphobia + TERF ideology, xenophobia,
-										ableism, or any other hatred towards minorities.
+										but not limited to racism, antisemitism, sexism, homophobia, transphobia and
+										TERF ideology, xenophobia, ableism, religious hatred, or any other hatred
+										towards minorities.
 									</li>
 									<li>
-										While we do allow works made using AI-assisted tools such as Claude Code,
-										content made purely through generative techniques that produce music, art,
-										video, or games will not be accepted.
+										Please keep your website and links working. If you need a change,
+										<a href={resolve('/update')}>submit an update request</a>. Nodes with broken
+										links may be removed from the network.
 									</li>
 									<li>
-										While we will do our best to keep the webring functional, please make sure to
-										maintain your website and links. If you need a change, please
-										<a href={resolve('/update')}>submit an update request</a>. Not doing so risks
-										your site being removed from the network.
+										We reserve the right to remove Nodes at our discretion. You can also remove your
+										Node from the network at any time.
 									</li>
-									<li>We reserve the right to remove sites at our discretion.</li>
 								</ul>
 							</div>
 
@@ -1901,56 +1935,50 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 								</FormField>
 							{/if}
 
-							<!-- Rights renders in full rather than behind a link: a checkbox
-					     next to a link to terms is not consent to the terms, a
-					     checkbox under the text of them is closer. Worded for any
-					     type of work, not just audio's "recording and composition";
-					     the PRO sentence is scoped to music (not spoken audio) since
-					     PRO membership itself only means something for music.
-					     Shown only when a stated PRO relationship makes it apply
-					     (see `rightsSectionApplies` in submissionValidation.js) --
-					     "Not a member" has nothing here to disclose, and the general
-					     EULA below already collects a blanket rights affirmation from
-					     everyone. When shown, this box does gate Continue and
-					     Submit, same as .eula-section below -- see `consentGiven`. -->
-							{#if rightsSectionApplies(review)}
-								<h3>Rights</h3>
-								<label class="option consent">
-									<input
-										type="checkbox"
-										bind:checked={review.rights_confirmation}
-										onchange={() => form.touch()}
-									/>
-									<span class="option-description consent-text">
-										I confirm that I hold full rights to what I am submitting, including that no
-										third party such as a co-writer, sample owner, publisher, collaborator, or label
-										holds a claim that would require separate compensation for its use on
-										IndieNodes.
-										{#if entry.type === 'audio' && entry.form === 'music'}
-											I understand that PRO membership does not prevent me from submitting, but I am
-											disclosing it accurately above.
-										{/if}
-									</span>
-								</label>
-							{/if}
+							<!-- Made by people, shared with /update so an update cannot skip it
+						     (see ContentAttestations.svelte). Rendered in full rather than
+						     behind a link: a checkbox under the text it confirms is closer
+						     to consent than one beside a link. Rights are not asked here:
+						     the EULA box below already affirms holding full rights, and
+						     asking the same thing twice a line apart is not two consents.
+						     The adult-content disclosure sits beside the explicit checkbox
+						     it belongs with, back on the entry step. -->
+							<ContentAttestations
+								bind:aiAttestation={review.ai_attestation}
+								missing={attestationsMissing}
+								onchange={() => form.touch()}
+							/>
 
-							<!-- The one consent that actually gates submission (see
-					     `consentGiven` in submissionValidation.js), so it stays short
-					     enough to read in full inline rather than living only behind
-					     the "Read the full EULA" link — the full legal text is still
-					     one click away via the modal below, for anyone who wants it. -->
-							<h3>General EULA</h3>
+							<!-- The consent that gates submission (see `consentGiven` in
+					     submissionValidation.js), so it stays short enough to read in
+					     full inline rather than living only behind the "Read the full
+					     EULA" link: the full legal text is one click away in the modal
+					     below, for anyone who wants it.
+					     
+					     It carries the rights statement too, rather than a separate
+					     checkbox above it saying the same thing in other words. The
+					     sentence naming what is not eligible as a featured work is the
+					     content rules' wording; the compensation waiver is the EULA's.
+					     One act, both affirmed: `agreeToEula` sets both fields, which
+					     is what the reviewer and the backend each read. -->
+							<h3>Rights and EULA</h3>
 							<label class="option consent">
 								<input
 									type="checkbox"
-									bind:checked={review.eula_agreement}
-									onchange={() => form.touch()}
+									checked={review.eula_agreement}
+									onchange={(event) => agreeToEula(event.currentTarget.checked)}
 								/>
 								<span class="option-description consent-text">
-									By submitting, you affirm you hold full rights to what you're submitting, and you
-									agree that IndieNodes operates on a donation-only basis: it collects no revenue
-									from your work, and you waive any claim to compensation from IndieNodes on that
-									basis.
+									I hold the rights to the works I am featuring. None of them are covers, uncleared
+									samples, fan work using characters I do not own, or performances owned by a
+									client.
+									{#if entry.type === 'audio' && entry.form === 'music'}
+										I understand that PRO membership does not prevent me from submitting, but I am
+										disclosing it accurately above.
+									{/if}
+									By submitting, you also agree that IndieNodes operates on a donation-only basis: it
+									collects no revenue from your work, and you waive any claim to compensation from IndieNodes
+									on that basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
 									</button>. By submitting, you also agree to the

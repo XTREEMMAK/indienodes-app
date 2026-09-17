@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * An uploaded image must actually render inside the editor's preview.
@@ -51,6 +52,7 @@ test('an uploaded cover renders inside the sandboxed editor preview', async ({ p
 	await page
 		.locator('#f-cover-file')
 		.setInputFiles({ name: 'cover.png', mimeType: 'image/png', buffer: COVER });
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
@@ -84,6 +86,7 @@ test('the full widget shows as a still in the preview', async ({ page }) => {
 	await page.goto('/join');
 	await page.getByRole('button', { name: 'Start', exact: true }).click();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Build your page' })).toBeVisible();

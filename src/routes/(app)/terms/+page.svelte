@@ -1,6 +1,6 @@
 <script>
-	import GlassPanel from '../../components/GlassPanel.svelte';
-	import EulaContent from '../../components/legal/EulaContent.svelte';
+	import GlassPanel from '../../../components/GlassPanel.svelte';
+	import EulaContent from '../../../components/legal/EulaContent.svelte';
 	import { page } from '$app/state';
 </script>
 

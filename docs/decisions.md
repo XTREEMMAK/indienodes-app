@@ -2283,3 +2283,76 @@ which a bare `JSON.stringify` of an object with an `undefined` value would have 
 0.1.0 and 1.0.0 are both defensible and the choice belongs to whoever begins it. The only
 thing locked here is that the number is theirs to pick, rather than an echo of whatever
 the web app happened to reach while they were not looking.
+
+## LOCKED: content rules revision (AI, rights, adult content, minors), 2026-09-17
+
+Source: `tmp/IndieNode_v2_Addendum_ContentRules.md` (unpublished, see `docs/README.md`). The
+public rules on `/join` were replaced, and every rule a submitter is asked to vouch for is now
+an explicit attestation rather than a sentence they scrolled past. Moderation stays a thin,
+yes/no checklist; nothing here adds detection, scanning, or taste calls.
+
+**AI: an expressive-content test.** Everything a visitor experiences in featured work must be
+made by people: music, art, writing, voice performances, and game design. Editing and cleanup
+tools (spellcheck, noise reduction, pitch correction) are fine. Generated music, images, text,
+or voices are not. For games, AI-assisted programming is allowed while art, audio, writing,
+and design stay human-made. Enforcement is the `ai_attestation` checkbox plus removal on
+credible evidence, never on suspicion or detector output. This is stricter than EULA §5.4's
+"produced purely by generative systems" wording, which is left as it is pending attorney review.
+
+**Rights: featured works must be the creator's to feature.** Covers, uncleared samples, fan
+work using characters the creator does not own, and client-owned performances are not
+eligible as featured works. `rights_confirmation` now carries that wording, is shown to
+everyone, and is required. It used to appear only alongside a stated PRO relationship and
+spoke about third-party compensation claims; that language still lives in the EULA box.
+
+**Adult content: a modified "Option B".** A creator's site may include adult content behind a
+clear content warning, and must disclose it (`adult_content`, yes or no, no default). Featured
+works may be adult content only when the Node is marked explicit, which keeps it hidden from
+the field, Members, Lists, and the widget until a visitor opts in under Settings (the existing
+`explicit` field and `isVisibleTo` gate). The prompt's original Option B, featured works
+suitable for general audiences only, was changed to this in review, so labelled explicit work
+stays welcome. The disclosure and its confirmation are review data only: never in `ring.json`,
+and the schema is unchanged.
+
+**Minors.** Sexual content involving minors, or characters depicted as minors, is never
+allowed anywhere on a member's website. A reviewer checks for it on the site; it is not an
+attestation.
+
+**Type list.** The public list names spoken audio beside music, and visual art beside comics,
+writing, and games, matching the five supported Node types.
+
+**Leaving.** The rules state that a creator can remove their Node at any time. That promise was
+already kept: `/update`'s remove intent re-verifies control and opens a removal PR once a
+reviewer approves (EULA §5.5, §15.2).
+
+**Where the attestations live, and why they are not persisted.** `validateAttestations` in
+`submissionValidation.js` is the one client rule, and Finalize mirrors it. They stay in memory
+like the other consent fields: a consent that restores itself from storage has not been given.
+
+Each question is asked where it makes sense rather than all in one block, because the first
+arrangement read as redundant to the person filling it in, twice over:
+
+- **Both adult-content questions live in one section** (`AdultContentSection.svelte`, on
+  `/join`'s entry step and `/update`'s edit step), under the one definition of what counts as
+  adult content. They are genuinely different questions, the site versus the works featured on
+  the Node, but a step apart they read as the same question asked twice, and the answer to one
+  is no help in answering the other. Two further corrections came out of reading it back:
+  the definition list ("Check this for" / "Leave unchecked for") was written as instructions
+  for the checkbox, so it now reads as a definition governing both ("Adult content" / "Not
+  adult content"); and the required question inside the checkbox's own panel read as optional
+  by association, so it has its own panel, its own required marker, and an accent border when
+  unanswered. The entry step gates on it, and the disclosure is still review-only data that
+  never reaches `ring.json`. `/update` gained the definition in the process: it had only ever
+  existed on `/join`.
+- **Rights are folded into the General EULA checkbox on `/join`** rather than sitting in their
+  own box directly above it. That box already affirmed holding full rights, so the two said the
+  same thing a line apart, and a second checkbox for it is not a second consent. The combined
+  statement carries the content rules' wording about what is not eligible, plus the EULA's own
+  donation-only waiver, and ticking it sets `rights_confirmation` and `eula_agreement` together.
+  The reviewer sees one "Rights and EULA agreed" row for a new submission, and the backend
+  keeps both fields. `/update` has no EULA box to fold into, so it asks for rights on its own
+  through `ContentAttestations`'s `includeRights`.
+
+**Server enforcement ships in two phases** (`CONTENT_ATTESTATIONS_REQUIRED`), because staging
+and production share one n8n instance and the production app only sends the fields after a
+release. Until then Finalize records and displays them without refusing their absence.

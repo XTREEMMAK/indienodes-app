@@ -13,9 +13,10 @@
 	 * reasoning, including why this is a same-origin route rather than a
 	 * separate subdomain.
 	 *
-	 * Carries none of the main app's chrome (see the root layout's own
-	 * `isEmbedFrame` branch) — a stray nav pill or ambient background inside
-	 * a member's small widget-sized iframe would be a bug, not a feature.
+	 * Carries none of the main app's chrome: this route sits outside the
+	 * `(app)` group, under the empty root layout, so it neither renders nor
+	 * downloads it. A stray nav pill or ambient background inside a member's
+	 * small widget-sized iframe would be a bug, not a feature.
 	 */
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';

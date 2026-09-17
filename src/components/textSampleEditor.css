@@ -1,0 +1,84 @@
+/*
+ * Styles for the rich-text sample editor, loaded with it rather than with the
+ * whole app. The editor is a lazily loaded chunk (see LazyTextSampleEditor), so
+ * this file reaches only /join and /update, and only once the editor is shown.
+ *
+ * The order is the one app.css used to have: the editor's own stylesheet first,
+ * then this app's adjustments. Moving it later in the page is safe: the
+ * editor's rules, including its copy of Tailwind's preflight and theme
+ * variables, are all inside cascade layers, and everything this app defines
+ * (its :root tokens and these rules) is unlayered, which wins over any layer
+ * whatever the load order.
+ */
+@import '@friendofsvelte/tipex/styles/index.css';
+
+/*
+ * The rich-text editor used for text samples on /join and /update.
+ *
+ * It is deliberately NOT given `.control`. That class carries its own border,
+ * radius, and padding, and the editor already brings all three — the result
+ * was a frame inside a frame, with the editor's own full-width toolbar inset
+ * from the outer edge by `.control`'s horizontal padding, which read as the
+ * toolbar sitting inside the field rather than being part of it.
+ *
+ * What is left here is only the bridge between the editor's own chrome and
+ * this site's form language: its surfaces come from the same tokens every
+ * other input uses, and its radius is pinned to `--radius-sm` because the
+ * editor asks for Tailwind's `--radius-lg` and this app defines a variable by
+ * that exact name at a much larger value, so the two would otherwise collide
+ * and round a form control like a card.
+ *
+ * Body colour is set explicitly rather than left to the editor's palette. The
+ * editor resolves light and dark from a `.dark` class (Tailwind's class-based
+ * variant); `applyTheme` in src/lib/theme.js now mirrors one onto the root for
+ * exactly this reason, and this rule is the belt to that braces, so the text
+ * is readable in both themes even if that bridge ever moves.
+ */
+.tipex-editor.tipex-control {
+	border-radius: var(--radius-sm);
+	border-color: var(--border);
+	background: var(--bg-elevated);
+	backdrop-filter: none;
+	min-height: 12rem;
+}
+
+.tipex-editor.tipex-control .ProseMirror {
+	color: var(--text);
+	font-family: inherit;
+}
+
+/* The writing area absorbs the field's spare height so the toolbar is pinned
+   to the bottom edge. Without this the editor is only as tall as the text
+   typed so far, the toolbar sits directly under it, and `min-height` above
+   leaves a band of empty field hanging below them both. */
+.tipex-editor.tipex-control .tipex-editor-wrap {
+	min-height: inherit;
+}
+
+.tipex-editor.tipex-control .tipex-editor-section {
+	flex: 1 1 auto;
+}
+
+/* Focus is shown on the field, not on the text box inside it.
+   The global `:focus-visible` rule in app.css lands on the contenteditable, which
+   is a child of the editor rather than the editor itself, so the accent ring
+   was being drawn as a rectangle *inside* the field with the toolbar outside
+   it — and in this app's palette the accent is a warm red, which put a red
+   box around a control that was working perfectly well. Moving the ring to
+   the wrapper makes it read the way every other input's focus does. */
+.tipex-editor.tipex-control .ProseMirror:focus,
+.tipex-editor.tipex-control .ProseMirror:focus-visible {
+	outline: none;
+}
+
+.tipex-editor.tipex-control:focus-within {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.tipex-editor.tipex-control .tipex-controller {
+	border-top-color: var(--border);
+	border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+	background: color-mix(in oklch, var(--bg-elevated) 90%, var(--text) 10%);
+	backdrop-filter: none;
+}

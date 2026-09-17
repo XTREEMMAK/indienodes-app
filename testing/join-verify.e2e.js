@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * Every failure reason the ownership-verification backend can send
@@ -79,6 +80,7 @@ test('every verify failure reason renders its own message on /join', async ({ pa
 	await page.locator('#f-source').fill('https://example.com');
 	await page.locator('#f-tags').fill('test');
 	await page.locator('#f-tags').press('Enter');
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	// Audio tracks are optional on the has-a-site branch, so Continue is
@@ -135,6 +137,7 @@ test('editing a redirected URL creates a fresh verification session', async ({
 	await page.locator('#f-source').fill('https://example.com/redirect');
 	await page.locator('#f-tags').fill('test');
 	await page.locator('#f-tags').press('Enter');
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();

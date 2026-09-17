@@ -36,9 +36,16 @@ For things where the direction _is_ settled and only the building is left, see `
 
 Three PENDING items, recorded here rather than decided, per the addendum's own framing:
 
-- **Spoken rights checklist wording (needs attorney review).** Proposed wording would require every spoken track to be original or fully rights-cleared by the submitter, which would make a demo reel built from client-owned commercial work ineligible. Needs review alongside EULA §6 (contribution license scope) before it can be added to the checklist, since reel rights differ from music rights and the existing PRO-disclosure item is music-specific.
+- **Spoken rights checklist wording (needs attorney review).** Proposed wording would require every spoken track to be original or fully rights-cleared by the submitter, which would make a demo reel built from client-owned commercial work ineligible. Needs review alongside EULA §6 (contribution license scope) before it can be added to the checklist, since reel rights differ from music rights and the existing PRO-disclosure item is music-specific. **Shaped by the 2026-09-17 content rules:** the public rules and the rights attestation now say performances owned by a client are not eligible as featured works, which answers the demo-reel case in the direction this item worried about. The attorney review this item asks for still stands, now covering that wording (see "Carried forward from the content rules addendum" below).
 - **Spoken length guideline.** Audio drama episodes and narrations can run 30 minutes or more, which behaves very differently from a short music sample in both the reader and a queue. Whether to set a recommended or maximum track length for `spoken` is undecided.
 - **Remembered queue choice.** Once "Play my Liked" exists, whether its Music / Spoken / Everything choice is asked every time or remembered locally (`localStorage`) between sessions is undecided. Either way it stays local only, never sent anywhere.
+
+## Carried forward from the content rules addendum (`tmp/IndieNode_v2_Addendum_ContentRules.md`)
+
+Two PENDING items, recorded here rather than decided, per the addendum's own framing:
+
+- **Content rules attestation wording (needs attorney review).** Whether the new AI and rights attestation wording (`docs/submission-form-spec.md` §3 and §3a) needs attorney review alongside EULA §6 and §10. The EULA was deliberately not edited; its §5.4 AI and rights wording is looser than the new rules (see `decisions.md`, content rules revision).
+- **Surfacing the adult-content disclosure to visitors.** Whether a site's adult-content disclosure should ever reach visitors, for example a notice before the widget or reader sends someone to a site that disclosed adult content. No default, and not implemented: today the disclosure is review data only.
 
 ## Found while building the widget
 

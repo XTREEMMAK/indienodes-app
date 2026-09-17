@@ -45,9 +45,9 @@ import { stripHtml } from './ring.js';
  * the key being *absent* from a list in `localData.js`, which made an argued
  * exclusion indistinguishable from someone having forgotten to add it — the
  * ambiguity the catalog exists to remove.)
- * What persists here is the Section 2.1 half only; email and the two consent
- * checkboxes stay in memory and are gone on reload, which is the correct
- * behaviour for a consent checkbox regardless.
+ * What persists here is the Section 2.1 half only; email, the consent
+ * checkboxes and the content-rule attestations stay in memory and are gone on
+ * reload, which is the correct behaviour for a consent answer regardless.
  */
 
 const STORAGE_KEY = STORAGE_KEYS.submissionDraft.key;
@@ -157,7 +157,13 @@ function emptyReview() {
 		pro_membership: '',
 		pro_membership_name: '',
 		rights_confirmation: false,
-		eula_agreement: false
+		eula_agreement: false,
+		// Content-rule attestations (see the rules on /join). In memory only,
+		// like the other consent fields: a reload asks again.
+		ai_attestation: false,
+		/** @type {'' | 'yes' | 'no'} No default: the visitor has to answer. */
+		adult_content: '',
+		adult_content_confirmation: false
 	};
 }
 
@@ -428,9 +434,27 @@ export function createSubmissionStore() {
 	 */
 	const stepFields = {
 		ownership: ['has_own_site'],
-		entry: ['creator', 'type', 'form', 'why', 'source_url', 'thumb_url', 'tags'],
+		entry: [
+			'creator',
+			'type',
+			'form',
+			'why',
+			'source_url',
+			'thumb_url',
+			'tags',
+			// Review-only, but asked on this step beside the explicit checkbox.
+			'adult_content',
+			'adult_content_confirmation'
+		],
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
-		consent: ['email', 'pro_membership', 'pro_membership_name']
+		consent: [
+			'email',
+			'pro_membership',
+			'pro_membership_name',
+			'ai_attestation',
+			// Given by the one Rights and EULA checkbox, alongside eula_agreement.
+			'rights_confirmation'
+		]
 	};
 
 	/**
@@ -570,9 +594,8 @@ export function createSubmissionStore() {
 			// anything -- the review step past it validates nothing about
 			// consent itself (it only disables Submit), so a submitter who
 			// clicked through here would otherwise land there with no
-			// explanation why Submit won't respond. `consentGiven` already
-			// encodes which checkboxes matter for this review (EULA always,
-			// Rights only when a PRO relationship makes it apply).
+			// explanation why Submit won't respond. `consentGiven` covers the
+			// EULA and every content-rule attestation.
 			if (stepId === 'consent') {
 				return Object.keys(stepErrors(stepId)).length === 0 && consentGiven(review);
 			}
@@ -861,7 +884,12 @@ export function createSubmissionStore() {
 						rights_confirmation: review.rights_confirmation,
 						pro_membership: review.pro_membership,
 						pro_membership_name: review.pro_membership_name.trim(),
-						eula_agreement: review.eula_agreement
+						eula_agreement: review.eula_agreement,
+						ai_attestation: review.ai_attestation,
+						adult_content: review.adult_content,
+						// Only meaningful after "yes"; the form clears it on "no".
+						adult_content_confirmation:
+							review.adult_content === 'yes' && review.adult_content_confirmation
 					},
 					website: antiBot.honeypot,
 					elapsed_ms: antiBot.elapsedMs

@@ -1,4 +1,4 @@
-import changelogRaw from '../../CHANGELOG.md?raw';
+import changelogRaw from '../../../CHANGELOG.md?raw';
 
 /**
  * Release history for the About modal, parsed from `CHANGELOG.md`.

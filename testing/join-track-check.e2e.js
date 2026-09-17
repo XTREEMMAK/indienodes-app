@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { expect, test } from '@playwright/test';
+import { answerAdultContent } from './helpers.js';
 
 /**
  * "Check this track" on the /join media step has to give the same answer the
@@ -88,6 +89,7 @@ test('Check this track reports whether a host allows the reactive background', a
 	await page.locator('#f-tags').fill('ambient');
 	await page.locator('#f-tags').press('Enter');
 	await page.locator('#f-form').selectOption('music');
+	await answerAdultContent(page);
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 	await expect(page.getByRole('heading', { name: 'Your tracks' })).toBeVisible();
 

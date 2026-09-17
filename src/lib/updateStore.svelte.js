@@ -27,11 +27,9 @@ import {
 	requestRemoval,
 	checkRateStatus
 } from './submissionApi.js';
-import { validateEntry, toRingEntry } from './submissionValidation.js';
+import { validateAttestations, validateEntry, toRingEntry } from './submissionValidation.js';
 import { createAntiBot } from './antiBot.svelte.js';
 import { uid } from './uid.js';
-import { SvelteSet } from 'svelte/reactivity';
-import { stripHtml } from './ring.js';
 import { newExcerpt } from './submissionStore.svelte.js';
 
 const STORAGE_KEY = STORAGE_KEYS.updateDraft.key;
@@ -197,7 +195,17 @@ export function createUpdateStore() {
 	// closed the tab. Everything else in the draft still survives a reload,
 	// which is the half that actually protects their work.
 	let email = $state('');
-	let rightsReaffirmed = $state(false);
+	/**
+	 * The content-rule attestations (see `validateAttestations`). Same set a
+	 * new submission gives, asked on the review step of every change request
+	 * so an update cannot swap in work that skipped them. In memory only, like
+	 * email: a reload asks again.
+	 */
+	let aiAttestation = $state(false);
+	let rightsConfirmation = $state(false);
+	/** @type {'' | 'yes' | 'no'} */
+	let adultContent = $state('');
+	let adultContentConfirmation = $state(false);
 	/**
 	 * Which of the two things this visit is. Only ever set by an explicit
 	 * choice on the verify step; nothing infers it, because inferring "they
@@ -209,12 +217,6 @@ export function createUpdateStore() {
 	let removalReason = $state('');
 	/** The deliberate act that arms removal, reset whenever intent changes. */
 	let removalConfirmed = $state(false);
-
-	/** uids seeded from the published node, so a row added afterward reads as new work. */
-	let seededTrackUids = new SvelteSet();
-	let seededPageUids = new SvelteSet();
-	let seededArtworkUids = new SvelteSet();
-	let seededExcerptUids = new SvelteSet();
 
 	let step = $state('identify');
 	let submissionId = $state('');
@@ -288,50 +290,19 @@ export function createUpdateStore() {
 
 	const sourceUrlChanged = $derived(computeSourceUrlChanged());
 
-	/**
-	 * Named rather than inline arrow functions passed to `.some()` below,
-	 * and typed via `@param` on the function itself rather than a cast
-	 * inside the arrow's parameter list — see `submissionStore.svelte.js`'s
-	 * own `isNotUid` doc comment on why an inline `@type` cast written
-	 * directly inside an arrow function's parens breaks under SSR here.
-	 * @param {{ uid: string, label?: string, media_url?: string }} t
-	 */
-	function isNewTrack(t) {
-		return !seededTrackUids.has(t.uid) && Boolean(t.label?.trim()) && Boolean(t.media_url?.trim());
-	}
-
-	/** @param {{ uid: string, image_url?: string }} p */
-	function isNewPage(p) {
-		return !seededPageUids.has(p.uid) && Boolean(p.image_url?.trim());
-	}
-
-	/** @param {{ uid: string, image_url?: string }} artwork */
-	function isNewArtwork(artwork) {
-		return !seededArtworkUids.has(artwork.uid) && Boolean(artwork.image_url?.trim());
-	}
-
-	/** @param {{ uid: string, text?: string }} sample */
-	function isNewExcerpt(sample) {
-		return !seededExcerptUids.has(sample.uid) && Boolean(stripHtml(sample.text ?? '').trim());
-	}
-
 	/** @param {{ label: string, media_url: string }} t */
 	function seedTrack(t) {
-		const r = row({ label: t.label, media_url: t.media_url });
-		seededTrackUids.add(r.uid);
-		return r;
+		return row({ label: t.label, media_url: t.media_url });
 	}
 
 	/** @param {{ image_url: string, caption?: string }} p */
 	function seedPage(p) {
-		const r = row({ image_url: p.image_url, caption: p.caption ?? '' });
-		seededPageUids.add(r.uid);
-		return r;
+		return row({ image_url: p.image_url, caption: p.caption ?? '' });
 	}
 
 	/** @param {{ image_url: string, alt: string, title?: string, year?: string, medium?: string, external_url?: string }} artwork */
 	function seedArtwork(artwork) {
-		const r = row({
+		return row({
 			image_url: artwork.image_url,
 			alt: artwork.alt,
 			title: artwork.title ?? '',
@@ -339,19 +310,15 @@ export function createUpdateStore() {
 			medium: artwork.medium ?? '',
 			external_url: artwork.external_url ?? ''
 		});
-		seededArtworkUids.add(r.uid);
-		return r;
 	}
 
 	/** @param {{ title?: string, text: string, audio_url?: string }} sample */
 	function seedExcerpt(sample) {
-		const r = row({
+		return row({
 			title: sample.title ?? '',
 			text: sample.text,
 			audio_url: sample.audio_url ?? ''
 		});
-		seededExcerptUids.add(r.uid);
-		return r;
 	}
 
 	/**
@@ -365,12 +332,13 @@ export function createUpdateStore() {
 	function seedFoundExcerpt(sample) {
 		return seedExcerpt(typeof sample === 'string' ? { text: sample } : sample);
 	}
-	/** Any media row that was not part of the published node — the thing the rights re-affirmation is scoped to. */
-	const hasNewWork = $derived(
-		entry.tracks.some(isNewTrack) ||
-			entry.pages.some(isNewPage) ||
-			entry.artworks.some(isNewArtwork) ||
-			entry.excerpts.some(isNewExcerpt)
+	const attestationErrors = $derived(
+		validateAttestations({
+			ai_attestation: aiAttestation,
+			rights_confirmation: rightsConfirmation,
+			adult_content: adultContent,
+			adult_content_confirmation: adultContentConfirmation
+		})
 	);
 
 	return {
@@ -399,11 +367,38 @@ export function createUpdateStore() {
 		get emailError() {
 			return emailError;
 		},
-		get rightsReaffirmed() {
-			return rightsReaffirmed;
+		get aiAttestation() {
+			return aiAttestation;
 		},
-		set rightsReaffirmed(value) {
-			rightsReaffirmed = value;
+		set aiAttestation(value) {
+			aiAttestation = value;
+		},
+		get rightsConfirmation() {
+			return rightsConfirmation;
+		},
+		set rightsConfirmation(value) {
+			rightsConfirmation = value;
+		},
+		get adultContent() {
+			return adultContent;
+		},
+		/** @param {'' | 'yes' | 'no'} value A confirmation only means something after "yes". */
+		set adultContent(value) {
+			adultContent = value;
+			if (value !== 'yes') adultContentConfirmation = false;
+		},
+		get adultContentConfirmation() {
+			return adultContentConfirmation;
+		},
+		set adultContentConfirmation(value) {
+			adultContentConfirmation = value;
+		},
+		/** What the review step still needs, field to message. */
+		get attestationErrors() {
+			return attestationErrors;
+		},
+		get attestationsGiven() {
+			return Object.keys(attestationErrors).length === 0;
 		},
 		get step() {
 			return step;
@@ -444,9 +439,6 @@ export function createUpdateStore() {
 		get sourceUrlChanged() {
 			return sourceUrlChanged;
 		},
-		get hasNewWork() {
-			return hasNewWork;
-		},
 
 		/** The entry exactly as it will be sent, for the review step. */
 		get preview() {
@@ -479,7 +471,13 @@ export function createUpdateStore() {
 			if (stepId === 'identify') return Boolean(nodeId.trim());
 			if (stepId === 'verify') return verified;
 			if (stepId === 'edit') {
-				return Object.keys(entryErrors).length === 0 && (!hasNewWork || rightsReaffirmed);
+				// The adult-content disclosure is asked on this step, beside the
+				// explicit checkbox; made-by-people and rights are asked on review.
+				return (
+					Object.keys(entryErrors).length === 0 &&
+					!attestationErrors.adult_content &&
+					!attestationErrors.adult_content_confirmation
+				);
 			}
 			// Removal is complete only once armed. The whole step exists to be
 			// the deliberate act, so it cannot be walked past unticked.
@@ -534,10 +532,6 @@ export function createUpdateStore() {
 			// never the text that was typed to find it.
 			nodeId = found.id;
 
-			seededTrackUids = new SvelteSet();
-			seededPageUids = new SvelteSet();
-			seededArtworkUids = new SvelteSet();
-			seededExcerptUids = new SvelteSet();
 			entry = {
 				creator: found.creator,
 				type: found.type,
@@ -626,7 +620,7 @@ export function createUpdateStore() {
 		 * @param {string} [turnstileToken] Omitted when `Turnstile.svelte` isn't rendering one (`TURNSTILE_SITE_KEY` unset).
 		 */
 		async send(turnstileToken) {
-			if (pending !== 'idle' || !verified) return;
+			if (pending !== 'idle' || !verified || Object.keys(attestationErrors).length) return;
 			pending = 'submitting';
 			error = null;
 			try {
@@ -639,6 +633,12 @@ export function createUpdateStore() {
 					node_id: nodeId.trim(),
 					entry: toRingEntry(entry),
 					email: email.trim(),
+					review: {
+						ai_attestation: aiAttestation,
+						rights_confirmation: rightsConfirmation,
+						adult_content: adultContent,
+						adult_content_confirmation: adultContent === 'yes' && adultContentConfirmation
+					},
 					website: antiBot.honeypot,
 					elapsed_ms: antiBot.elapsedMs,
 					...(turnstileToken ? { turnstile_token: turnstileToken } : {})
@@ -724,14 +724,13 @@ export function createUpdateStore() {
 			notFound = false;
 			entry = emptyEntry();
 			email = '';
-			rightsReaffirmed = false;
+			aiAttestation = false;
+			rightsConfirmation = false;
+			adultContent = '';
+			adultContentConfirmation = false;
 			intent = 'change';
 			removalReason = '';
 			removalConfirmed = false;
-			seededTrackUids = new SvelteSet();
-			seededPageUids = new SvelteSet();
-			seededArtworkUids = new SvelteSet();
-			seededExcerptUids = new SvelteSet();
 			step = 'identify';
 			submissionId = '';
 			token = '';
