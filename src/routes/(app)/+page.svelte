@@ -1,12 +1,12 @@
 <script>
 	import { onMount, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
-	import FieldGrid from '../components/FieldGrid.svelte';
-	import FieldSlot from '../components/FieldSlot.svelte';
-	import ArrangeMenu from '../components/ArrangeMenu.svelte';
-	import RingLoading from '../components/RingLoading.svelte';
-	import EmptyNode from '../components/EmptyNode.svelte';
-	import NodeConfig from '../components/NodeConfig.svelte';
+	import FieldGrid from '../../components/FieldGrid.svelte';
+	import FieldSlot from '../../components/FieldSlot.svelte';
+	import ArrangeMenu from '../../components/ArrangeMenu.svelte';
+	import RingLoading from '../../components/RingLoading.svelte';
+	import EmptyNode from '../../components/EmptyNode.svelte';
+	import NodeConfig from '../../components/NodeConfig.svelte';
 	import { aboutModalStore } from '$lib/aboutModalStore.svelte.js';
 	import { createDecks } from '$lib/entryDeck.js';
 	import { filtersStore } from '$lib/filtersStore.svelte.js';

@@ -15,9 +15,9 @@
 	 */
 	let { canAdvance, onBack, onNext } = $props();
 
-	import FormField from '../../components/FormField.svelte';
-	import FieldNode from '../../components/FieldNode.svelte';
-	import CoverPositionControls from '../../components/CoverPositionControls.svelte';
+	import FormField from '../../../components/FormField.svelte';
+	import FieldNode from '../../../components/FieldNode.svelte';
+	import CoverPositionControls from '../../../components/CoverPositionControls.svelte';
 	import { submissionStore as form } from '$lib/submissionStore.svelte.js';
 	import { ringStore } from '$lib/ringStore.svelte.js';
 	import { generatorDraftStore } from '$lib/generator/generatorDraftStore.svelte.js';

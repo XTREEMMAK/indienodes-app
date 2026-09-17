@@ -1,4 +1,4 @@
-import { embedSnippet, embedFrameSnippet } from '../routes/widget/embed-snippet.js';
+import { embedSnippet, embedFrameSnippet } from '../routes/(app)/widget/embed-snippet.js';
 import { MARK_DATA_URI } from '../widget/mark.js';
 
 /**

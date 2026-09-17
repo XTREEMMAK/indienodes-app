@@ -17,11 +17,11 @@
 	 */
 	let { canAdvance, onBack, onNext } = $props();
 
-	import FormField from '../../components/FormField.svelte';
-	import TrackPlaybackCheck from '../../components/TrackPlaybackCheck.svelte';
+	import FormField from '../../../components/FormField.svelte';
+	import TrackPlaybackCheck from '../../../components/TrackPlaybackCheck.svelte';
 	import AudioHostingHelp from './AudioHostingHelp.svelte';
-	import ArtworkMetadataFields from '../../components/ArtworkMetadataFields.svelte';
-	import TextSampleEditor from '../../components/TextSampleEditor.svelte';
+	import ArtworkMetadataFields from '../../../components/ArtworkMetadataFields.svelte';
+	import TextSampleEditor from '../../../components/LazyTextSampleEditor.svelte';
 	import {
 		submissionStore as form,
 		newArtwork,

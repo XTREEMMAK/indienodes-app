@@ -1,6 +1,7 @@
 <script>
 	import { onDestroy } from 'svelte';
 	import { Tipex } from '@friendofsvelte/tipex';
+	import './textSampleEditor.css';
 
 	/**
 	 * `headings: false` drops the block-level controls, leaving bold, italic,

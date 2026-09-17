@@ -1,7 +1,7 @@
 import { remark } from 'remark';
 import remarkGfm from 'remark-gfm';
 import remarkHtml from 'remark-html';
-import termsMarkdown from '../../../docs/legal/TERMS-AND-PRIVACY.md?raw';
+import termsMarkdown from '../../../../docs/legal/TERMS-AND-PRIVACY.md?raw';
 
 /**
  * The published Terms of Use and Privacy Notice are authored in Markdown and

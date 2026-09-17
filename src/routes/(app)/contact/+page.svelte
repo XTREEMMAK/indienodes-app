@@ -7,10 +7,10 @@
 	 * in one visit has no such gap. Plain page-local `$state()` plus
 	 * `createAntiBot()` is enough; nothing here persists across a reload.
 	 */
-	import GlassPanel from '../../components/GlassPanel.svelte';
-	import FormField from '../../components/FormField.svelte';
-	import Honeypot from '../../components/Honeypot.svelte';
-	import Turnstile from '../../components/Turnstile.svelte';
+	import GlassPanel from '../../../components/GlassPanel.svelte';
+	import FormField from '../../../components/FormField.svelte';
+	import Honeypot from '../../../components/Honeypot.svelte';
+	import Turnstile from '../../../components/Turnstile.svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/state';
 	import { hasBackend, useMock, send } from '$lib/contactApi.js';

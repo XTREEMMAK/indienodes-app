@@ -44,6 +44,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **The widget iframe loads about 78% less.** `/embed-frame` sat under the root layout, and
+  SvelteKit loads a layout's whole import graph whatever it renders, so every iframe embed on a
+  member's site downloaded the app's chrome and stylesheet (about 489 kB). The app's routes now
+  live in an `(app)` layout group, and the embed frame loads about 109 kB. Unknown URLs are caught
+  inside the group, so a 404 still shows the app around it.
+- **`/join` and `/update` load about half as much up front.** The rich-text sample editor (Tiptap,
+  ProseMirror and a syntax highlighter, about 560 kB) and its stylesheet now load when the editor
+  is first shown, instead of with the page. The editor's CSS also left the global stylesheet.
+- **Every app page loads 10–20% less.** Ambient View is fetched once the page is idle instead of
+  with the first load, and the development-only audio debug panel no longer ships in production.
+- **`npm run build` now fails if these regress:** if the embed frame goes over budget, or if any
+  page preloads the text editor or Ambient View.
 - **CI now runs the n8n Code-node test suite**, including the SSRF and Turnstile checks.
 
 ## [1.8.2] - 2026-09-16
