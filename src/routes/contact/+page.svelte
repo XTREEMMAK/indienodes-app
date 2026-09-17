@@ -131,6 +131,8 @@ What changed, looks unsafe, or no longer matches the approved entry:
 		reference = '';
 		error = null;
 		antiBot.reset();
+		// Siteverify accepts a token once, so the next message needs a new one.
+		turnstileEl?.reset();
 	}
 </script>
 

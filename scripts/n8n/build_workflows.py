@@ -162,11 +162,11 @@ EMAIL_CONFIGURED = not NOTIFY_FROM_EMAIL.endswith("@invalid")
 # credential below holds the matching secret -- an `httpCustomAuth`
 # credential whose json is {"body": {"secret": "<cloudflare turnstile
 # secret>"}}, verified 2026-08-22 to inject into the request body, which is
-# where Cloudflare's siteverify expects it. Guards only submit_update and
+# where Cloudflare's siteverify expects it. Guards submit_update and
 # request_removal (see this file's own comment further down, near
-# tsToken) -- issue_token/bind_source_url/verify/submit stay unguarded by
-# design. /contact has no Turnstile branch of its own yet; that is separate,
-# unbuilt work, not something this flag reaches.
+# tsToken) and /contact (wf_contact) -- issue_token/bind_source_url/verify/
+# submit stay unguarded by design. Rating is not covered: its prompt renders
+# no challenge.
 TURNSTILE_ENABLED = True
 TURNSTILE_CREDENTIAL = {"id": "g0EFH2lm3bgbeea7", "name": "IndieNodes - Turnstile Secret"}
 
@@ -355,6 +355,40 @@ def settings(error_workflow_id=None, caller_ids=None, no_persist=False):
         s["saveDataErrorExecution"] = "none"
         s["saveManualExecutions"] = False
     return s
+
+
+def turnstile_nodes(token_expr, verify_pos, verdict_pos):
+    """Cloudflare Siteverify and its verdict, for any workflow Turnstile guards.
+
+    Written once so Finalize and Contact cannot come to disagree about what
+    "passed" means. The verdict node answers `ok: 'yes' | 'no'`; the caller
+    wires an IF on it. Fails closed: a timeout, a non-2xx, a non-JSON body or
+    anything but `success === true` is a failure.
+
+    Only emit these when TURNSTILE_ENABLED -- the siteverify node requires an
+    httpCustomAuth credential, and n8n refuses to publish a node whose required
+    credential is absent.
+    """
+    return [
+        node("verify turnstile", "n8n-nodes-base.httpRequest", 4.5, verify_pos, {
+            "method": "POST", "url": "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+            "sendBody": True, "specifyBody": "json",
+            "authentication": "genericCredentialType", "genericAuthType": "httpCustomAuth",
+            # `secret` is injected into the body by the credential -- verified
+            # 2026-08-22 -- so it is never in the workflow JSON or an item.
+            "jsonBody": "={{ JSON.stringify({ response: %s }) }}" % token_expr,
+            "options": {"timeout": 8000,
+                        "response": {"response": {"neverError": True, "fullResponse": True,
+                                                  "responseFormat": "json"}}}},
+             credentials={"httpCustomAuth": TURNSTILE_CREDENTIAL},
+             onError="continueErrorOutput"),
+        code_node("turnstile verdict", verdict_pos,
+                  "const s = Number($json.statusCode || 0);\n"
+                  "const b = $json.body || {};\n"
+                  "// Timeouts, non-JSON and HTTP errors are all failures.\n"
+                  "const passed = s >= 200 && s < 300 && b && b.success === true;\n"
+                  "return [{ json: { ok: passed ? 'yes' : 'no', error_code: 'turnstile_failed' } }];"),
+    ]
 
 
 # --- Workflow: Error Workflow ------------------------------------------------
@@ -557,6 +591,28 @@ return [{{ json: {{
 # copy of that rule drifted three ways after being written twice. One
 # function, interpolated twice, makes that impossible here instead of merely
 # avoided by discipline.
+# The forward proxy every request to a stranger-chosen address goes through,
+# or "" for direct. This n8n is shared with LAN automations (Home Assistant,
+# Gotify, local AI), so private ranges cannot be firewalled off the whole
+# container; instead only the untrusted fetches -- `fetch source_url` and the
+# two Check Media URL requests -- use a proxy whose own ACL refuses private,
+# loopback, link-local and metadata addresses *after* resolving the name
+# itself. That closes what the DoH check below cannot: the fetch re-resolving
+# the name (DNS rebinding, or a split answer per resolver). The DoH lookups
+# stay direct and stay in place as the early, friendly refusal.
+#
+# Set only once the proxy is running and has passed its checks; pushing with a
+# proxy n8n cannot reach makes every verification answer "unreachable".
+# See docs/n8n-workflow-runbook.md for the proxy's configuration.
+EGRESS_PROXY_URL = ""
+
+
+def untrusted_fetch_options(options):
+    """HTTP Request node options for a stranger-chosen URL: `options` plus the
+    egress proxy when one is configured. Unchanged output when it is not."""
+    return {**options, "proxy": EGRESS_PROXY_URL} if EGRESS_PROXY_URL else options
+
+
 IP_RANGE_CHECK_JS = """
 function isUnsafeIPv4(raw) {
   const host = (raw || '').toString().toLowerCase();
@@ -570,17 +626,56 @@ function isUnsafeIPv4(raw) {
   if (a === 192 && b === 168) return true;
   if (a === 192 && b === 0) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;   // CGNAT
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
   if (a >= 224) return true;                           // multicast + reserved
   return false;
 }
 
+// The eight 16-bit groups of an IPv6 literal, or null if it is not one.
+//
+// Parsed rather than prefix-matched. The fetch normalises whatever spelling it
+// is handed, so `0:0:0:0:0:0:0:1` and `0::1` both connect to ::1 -- and a text
+// test for '::1' or a leading '::' let both of those (and the IPv4-mapped
+// `0:0:0:0:0:ffff:a9fe:a9fe`, i.e. 169.254.169.254) straight through.
+function ipv6Groups(raw) {
+  let host = (raw || '').toString().toLowerCase();
+  if (!/^[0-9a-f:.]+$/.test(host)) return null;        // also refuses %zone ids
+  // A trailing dotted quad (::ffff:127.0.0.1) becomes its two hex groups.
+  const lastColon = host.lastIndexOf(':');
+  const tail = host.slice(lastColon + 1);
+  if (tail.indexOf('.') !== -1) {
+    if (!/^[0-9]{1,3}(\\.[0-9]{1,3}){3}$/.test(tail)) return null;
+    const o = tail.split('.').map(Number);
+    if (o.some((n) => n > 255)) return null;
+    host = host.slice(0, lastColon + 1) +
+      ((o[0] * 256) + o[1]).toString(16) + ':' + ((o[2] * 256) + o[3]).toString(16);
+  }
+  const halves = host.split('::');
+  if (halves.length > 2) return null;
+  const part = (s) => (s === '' ? [] : s.split(':'));
+  const head = part(halves[0]);
+  const rest = halves.length === 2 ? part(halves[1]) : [];
+  let groups = head;
+  if (halves.length === 2) {
+    if (head.length + rest.length > 7) return null;
+    groups = head.concat(new Array(8 - head.length - rest.length).fill('0'), rest);
+  }
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.map((g) => parseInt(g, 16));
+}
+
+// Allowlist-shaped: only global unicast (2000::/3) can be public, which
+// already excludes ::/8 (loopback, unspecified, IPv4-mapped/compatible),
+// 64:ff9b::/96 (NAT64), fc00::/7, fe80::/10, fec0::/10 and ff00::/8. Inside
+// 2000::/3, the ranges that tunnel to an IPv4 address or are documentation-
+// only are refused too. Anything that does not parse fails closed.
 function isUnsafeIPv6(raw) {
-  const host = (raw || '').toString().toLowerCase();
-  if (host.indexOf(':') === -1) return true;           // not IPv6-shaped at all
-  if (host === '::1' || host === '::') return true;
-  if (/^f[cd]/.test(host)) return true;                // unique-local fc00::/7
-  if (/^fe[89ab]/.test(host)) return true;             // link-local fe80::/10
-  if (host.slice(0, 2) === '::') return true;          // mapped/compat (::ffff:x.x.x.x etc.)
+  const g = ipv6Groups(raw);
+  if (!g) return true;
+  if ((g[0] & 0xe000) !== 0x2000) return true;
+  if (g[0] === 0x2002) return true;                    // 6to4 2002::/16
+  if (g[0] === 0x2001 && g[1] === 0) return true;      // Teredo 2001::/32
+  if (g[0] === 0x2001 && g[1] === 0xdb8) return true;  // documentation 2001:db8::/32
   return false;
 }
 """.strip()
@@ -900,12 +995,12 @@ return [{ json: { proceed: 'yes', url, token } }];
             node("fetch source_url", "n8n-nodes-base.httpRequest", 4.5, (1680, -80), {
                 "method": "GET",
                 "url": "={{ $json.url }}",
-                "options": {
+                "options": untrusted_fetch_options({
                     "timeout": 8000,
                     "redirect": {"redirect": {"followRedirects": False}},
                     "response": {"response": {"neverError": True, "fullResponse": True,
                                               "responseFormat": "text"}},
-                },
+                }),
             },
                  # `neverError` only suppresses HTTP status errors. DNS and TCP
                  # failures still throw, which would abort the run and return
@@ -1276,10 +1371,11 @@ return [{ json: {
 
     def fetch(name, pos, method, url, extra=None):
         params = {"method": method, "url": url,
-                  "options": {"timeout": MEDIA_FETCH_TIMEOUT_MS,
-                              "redirect": {"redirect": {"followRedirects": False}},
-                              "response": {"response": {"neverError": True, "fullResponse": True,
-                                                        "responseFormat": "text"}}}}
+                  "options": untrusted_fetch_options({
+                      "timeout": MEDIA_FETCH_TIMEOUT_MS,
+                      "redirect": {"redirect": {"followRedirects": False}},
+                      "response": {"response": {"neverError": True, "fullResponse": True,
+                                                "responseFormat": "text"}}})}
         params.update(extra or {})
         return node(name, "n8n-nodes-base.httpRequest", 4.5, pos, params,
                     onError="continueErrorOutput")
@@ -2111,30 +2207,13 @@ return [{ json: {
                                    "attemptToConvertTypes": False, "convertFieldsToString": True},
                 "options": {}}),
             ifn("ownership still proven?", (220, -60), "={{ $json.matched }}", "yes", 2),
-            # Turnstile nodes exist only when the feature is on. Leaving them in
-            # the graph while disabled is not free: the siteverify node requires
-            # an httpCustomAuth credential, and n8n refuses to publish a node
-            # whose required credential is absent.
+            # Turnstile nodes exist only when the feature is on (see
+            # turnstile_nodes for why leaving them in while disabled breaks
+            # publishing).
             *([
                 ifn("needs turnstile?", (440, -60), "={{ $('validate + normalize').first().json.needsTurnstile }}", "yes", 3),
-            node("verify turnstile", "n8n-nodes-base.httpRequest", 4.5, (660, -140), {
-                "method": "POST", "url": "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                "sendBody": True, "specifyBody": "json",
-                "authentication": "genericCredentialType", "genericAuthType": "httpCustomAuth",
-                # `secret` is injected into the body by the credential -- verified
-                # 2026-08-22 -- so it is never in the workflow JSON or an item.
-                "jsonBody": "={{ JSON.stringify({ response: $('validate + normalize').first().json.turnstile_token }) }}",
-                "options": {"timeout": 8000,
-                            "response": {"response": {"neverError": True, "fullResponse": True,
-                                                      "responseFormat": "json"}}}},
-                 credentials={"httpCustomAuth": TURNSTILE_CREDENTIAL},
-                 onError="continueErrorOutput"),
-            code_node("turnstile verdict", (880, -140),
-                      "const s = Number($json.statusCode || 0);\n"
-                      "const b = $json.body || {};\n"
-                      "// Timeouts, non-JSON and HTTP errors are all failures.\n"
-                      "const passed = s >= 200 && s < 300 && b && b.success === true;\n"
-                      "return [{ json: { ok: passed ? 'yes' : 'no', error_code: 'turnstile_failed' } }];"),
+            *turnstile_nodes("$('validate + normalize').first().json.turnstile_token",
+                             (660, -140), (880, -140)),
             ifn("turnstile passed?", (1100, -140), "={{ $json.ok }}", "yes", 4),
             ] if TURNSTILE_ENABLED else []),
 
@@ -3908,8 +3987,9 @@ def wf_contact(ctx):
     produce an email whose shape is known in advance. It also authenticates
     its webhook with a header credential, which works there because n8n is the
     only caller; here the caller is a browser, so a header secret would ship
-    in the client bundle. The honeypot, dwell gate and CORS list do that job
-    instead.
+    in the client bundle. Turnstile (verified server-side, when
+    TURNSTILE_ENABLED) does that job instead; the honeypot and dwell gate are
+    only a cheap first filter, since both values come from the client.
     """
     validate = """
 const body = $json.body;
@@ -3952,20 +4032,32 @@ if (message.length > 20000 || name.length > 1000 || email.length > 320) {
   return err('invalid_request', 'That message is too long to send.', false);
 }
 
+// The honeypot and dwell time above are the client's own word; this is the
+// check a script cannot fake. Required, not optional, once Turnstile is on:
+// a request that simply leaves the token out must not skip Siteverify.
+// Retryable, because the page resets the widget on any failure.
+const token = typeof body.turnstile_token === 'string' ? body.turnstile_token.trim() : '';
+if (%(ts_enabled)s && (!token || token.length > 2048)) {
+  return err('turnstile_failed', 'Spam check failed - please try again.', true);
+}
+
 return [{ json: { route: 'send',
   name: name.slice(0, 200),
   email: email.slice(0, 320),
-  message: message.slice(0, 5000)
+  message: message.slice(0, 5000),
+  turnstile_token: token
 } }];
-""" % {"dwell": MIN_DWELL_MS}
+""" % {"dwell": MIN_DWELL_MS, "ts_enabled": "true" if TURNSTILE_ENABLED else "false"}
 
     # Same generator as intake's fake success, and for the same reason: it must
     # be indistinguishable from a real reference, and n8n's Code sandbox has no
     # crypto.randomUUID to make a better one with.
     reference = "Date.now().toString(36) + Math.random().toString(36).slice(2, 10)"
 
+    # Read from `validate` by name: with Turnstile on, the item arriving here is
+    # the verdict, not the message.
     build_notification = """
-const d = $json;
+const d = $('validate').first().json;
 const ref = %(ref)s;
 
 // The sender's address travels in the body of a message going straight to a
@@ -4068,6 +4160,20 @@ return [{ json: { ok: true, reference: fakeId() } }];
              {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}}),
     ]
 
+    # Siteverify sits between the route and the notification, so nothing is
+    # sent for a message whose challenge did not pass. See turnstile_nodes.
+    if TURNSTILE_ENABLED:
+        nodes += [
+            *turnstile_nodes("$('validate').first().json.turnstile_token",
+                             (-200, -360), (20, -360)),
+            ifn("turnstile passed?", (240, -360), "={{ $json.ok }}", "yes", 3),
+            code_node("shape turnstile failure", (460, -360),
+                      "return [{ json: { ok: false, error: {\n"
+                      "  message: 'Spam check failed - please try again.',\n"
+                      "  code: 'turnstile_failed', retryable: true } } }];"),
+        ]
+    send_target = "verify turnstile" if TURNSTILE_ENABLED else "build notification"
+
     return {
         "name": "Webring - Contact v2",
         # no_persist is not an optimisation. Contact correspondence may remain
@@ -4087,9 +4193,19 @@ return [{ json: { ok: true, reference: fakeId() } }];
             "Webhook": {"main": [[{"node": "validate", "type": "main", "index": 0}]]},
             "validate": {"main": [[{"node": "route", "type": "main", "index": 0}]]},
             "route": {"main": [
-                [{"node": "build notification", "type": "main", "index": 0}],
+                [{"node": send_target, "type": "main", "index": 0}],
                 [{"node": "shape fake success", "type": "main", "index": 0}],
                 [{"node": "shape client error", "type": "main", "index": 0}]]},
+            **({
+                "verify turnstile": {"main": [
+                    [{"node": "turnstile verdict", "type": "main", "index": 0}],
+                    [{"node": "turnstile verdict", "type": "main", "index": 0}]]},
+                "turnstile verdict": {"main": [[{"node": "turnstile passed?", "type": "main", "index": 0}]]},
+                "turnstile passed?": {"main": [
+                    [{"node": "build notification", "type": "main", "index": 0}],
+                    [{"node": "shape turnstile failure", "type": "main", "index": 0}]]},
+                "shape turnstile failure": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]},
+            } if TURNSTILE_ENABLED else {}),
             "build notification": {"main": [[{"node": "notify: gotify", "type": "main", "index": 0}]]},
             "notify: gotify": {"main": [
                 [{"node": "gotify delivered?", "type": "main", "index": 0}],

@@ -68,6 +68,15 @@ jobs:
       - name: Lint and formatting
         run: npm run lint
 
+      # Runs the generated n8n Code-node JS -- including the SSRF guard and
+      # the Turnstile gates -- in an n8n-shaped sandbox. It needs python3
+      # (the generator) and prettier, both already present on this runner.
+      # Deliberately NOT `n8n:check`: drift against the live export is a
+      # deploy-state question, and a generator change is legitimately ahead
+      # of n8n until someone runs --push and --export.
+      - name: n8n workflow code
+        run: node scripts/n8n/test_code_nodes.mjs
+
       # Before the unit tests, not just the e2e ones: vitest's `client` project
       # runs the Svelte component tests in real Chromium via
       # @vitest/browser-playwright (see vite.config.js), so `npm run test:unit`

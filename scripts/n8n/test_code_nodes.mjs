@@ -183,6 +183,27 @@ const cases = [
 	['http://[fe80::1]/', 'unsafe_url'],
 	['http://[fc00::1]/', 'unsafe_url'],
 	['http://[::ffff:127.0.0.1]/', 'unsafe_url'],
+	// Uncompressed and partly-compressed spellings of loopback and mapped
+	// addresses. The fetch normalises these to [::1] / [::ffff:...], so a
+	// text-prefix check passed them straight through.
+	['http://[0:0:0:0:0:0:0:1]:5678/', 'unsafe_url'],
+	['http://[0::1]/', 'unsafe_url'],
+	['http://[0000:0000:0000:0000:0000:0000:0000:0001]/', 'unsafe_url'],
+	['http://[0:0:0:0:0:ffff:7f00:1]/', 'unsafe_url'],
+	['https://[0:0:0:0:0:ffff:a9fe:a9fe]/', 'unsafe_url'],
+	['http://[0:0:0:0:0:ffff:169.254.169.254]/', 'unsafe_url'],
+	['http://[64:ff9b::7f00:1]/', 'unsafe_url'],
+	['http://[2002:7f00:1::]/', 'unsafe_url'],
+	['http://[2001:0:4136:e378::1]/', 'unsafe_url'],
+	['http://[2001:db8::1]/', 'unsafe_url'],
+	['http://[fec0::1]/', 'unsafe_url'],
+	['http://[FE80::1]/', 'unsafe_url'],
+	['http://[ff02::1]/', 'unsafe_url'],
+	['http://[1:2:3:4:5:6:7:8:9]/', 'unsafe_url'],
+	['http://[1::2::3]/', 'unsafe_url'],
+	['http://[::ffff:1.2.3.256]/', 'unsafe_url'],
+	['http://[2606:4700:4700::1111]/', 'ok'],
+	['http://198.18.0.1/', 'unsafe_url'],
 	['http://2130706433/', 'unsafe_url'],
 	['http://0x7f000001/', 'unsafe_url'],
 	['http://0177.0.0.1/', 'unsafe_url'],
@@ -271,8 +292,58 @@ check(
 	cd(ok('93.184.216.34', 1), ok('fe80::1', 28)).reason,
 	'unsafe_resolved_ip'
 );
+check(
+	'dns: an uncompressed loopback AAAA is rejected',
+	cd(ok('93.184.216.34', 1), ok('0:0:0:0:0:0:0:1', 28)).reason,
+	'unsafe_resolved_ip'
+);
+check(
+	'dns: an IPv4-mapped metadata AAAA is rejected',
+	cd(nx, ok('::ffff:169.254.169.254', 28)).reason,
+	'unsafe_resolved_ip'
+);
+check('dns: a public AAAA passes', cd(nx, ok('2606:4700:4700::1111', 28)).proceed, 'yes');
 check('dns: both queries transport-failed', cd(err, err).reason, 'unresolvable');
 check('dns: both queries NXDOMAIN', cd(nx, nx).reason, 'unresolvable');
+
+// --- Egress proxy placement --------------------------------------------------
+// Exactly the requests to a stranger-chosen address go through the filtering
+// proxy -- never the DoH lookups, Siteverify, GitHub or notifications, which
+// this shared n8n must keep reaching directly -- and nothing does while
+// EGRESS_PROXY_URL is unset.
+const proxiedNodes = (proxyUrl) =>
+	JSON.parse(
+		execFileSync(
+			'python3',
+			[
+				'-c',
+				`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.EGRESS_PROXY_URL = ${JSON.stringify(proxyUrl)}
+out = []
+for key, b in m.BUILDERS:
+    for n in b({})["nodes"]:
+        p = n["parameters"].get("options", {}).get("proxy") if isinstance(n["parameters"].get("options"), dict) else None
+        if p is not None:
+            out.append([key, n["name"], p])
+print(json.dumps(sorted(out)))
+`
+			],
+			{ encoding: 'utf8' }
+		)
+	);
+check('egress: no node is proxied while unset', JSON.stringify(proxiedNodes('')), '[]');
+check(
+	'egress: only the three untrusted fetches are proxied once set',
+	JSON.stringify(proxiedNodes('http://n8n-egress:3128')),
+	JSON.stringify([
+		['media-check', 'GET media (ranged)', 'http://n8n-egress:3128'],
+		['media-check', 'HEAD media', 'http://n8n-egress:3128'],
+		['reverify-token', 'fetch source_url', 'http://n8n-egress:3128']
+	])
+);
 
 // --- Signature helper -------------------------------------------------------
 const build = extract('signature-helper', 'build canonical message');
@@ -1307,9 +1378,80 @@ const good = {
 	email: 'ada@example.com',
 	message: 'Hello there.',
 	website: '',
-	elapsed_ms: 30000
+	elapsed_ms: 30000,
+	turnstile_token: 'test-turnstile-token'
 };
 const vc = (over = {}) => run(contactValidate, { body: { ...good, ...over } })[0].json;
+
+// The contact form used to be guarded only by the honeypot and dwell time --
+// both values the client chooses. With Turnstile on, a missing token must be
+// refused before anything is sent, and the token must reach Siteverify.
+check(
+	'contact: a missing turnstile token is rejected',
+	vc({ turnstile_token: undefined }).payload?.error?.code,
+	'turnstile_failed'
+);
+check(
+	'contact: a blank turnstile token is rejected',
+	vc({ turnstile_token: '   ' }).payload?.error?.code,
+	'turnstile_failed'
+);
+check(
+	'contact: a turnstile failure is retryable',
+	vc({ turnstile_token: undefined }).payload?.error?.retryable,
+	true
+);
+check('contact: the token travels to siteverify', vc().turnstile_token, 'test-turnstile-token');
+const contactGraph = JSON.parse(
+	execFileSync(
+		'python3',
+		[
+			'-c',
+			`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+wf = dict(m.BUILDERS)["contact"]({})
+print(json.dumps({"enabled": m.TURNSTILE_ENABLED, "nodes": wf["nodes"], "connections": wf["connections"]}))
+`
+		],
+		{ encoding: 'utf8' }
+	)
+);
+if (contactGraph.enabled) {
+	const verifyNode = contactGraph.nodes.find((n) => n.name === 'verify turnstile');
+	check(
+		'contact: a siteverify node exists',
+		verifyNode?.parameters?.url,
+		'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+	);
+	check(
+		'contact: a sendable message goes to siteverify first, not straight to notify',
+		contactGraph.connections.route.main[0][0].node,
+		'verify turnstile'
+	);
+	check(
+		'contact: only a passed challenge reaches the notification',
+		contactGraph.connections['turnstile passed?'].main[0][0].node,
+		'build notification'
+	);
+	check(
+		'contact: a failed challenge is answered, not sent',
+		contactGraph.connections['turnstile passed?'].main[1][0].node,
+		'shape turnstile failure'
+	);
+}
+const contactVerdict = extract('contact', 'turnstile verdict');
+const tv = (json) => run(contactVerdict, json)[0].json.ok;
+check('contact verdict: success passes', tv({ statusCode: 200, body: { success: true } }), 'yes');
+check('contact verdict: failure fails', tv({ statusCode: 200, body: { success: false } }), 'no');
+check(
+	'contact verdict: truthy non-boolean fails',
+	tv({ statusCode: 200, body: { success: 'true' } }),
+	'no'
+);
+check('contact verdict: HTTP error fails', tv({ statusCode: 500, body: { success: true } }), 'no');
+check('contact verdict: transport error fails', tv({ error: 'ETIMEDOUT' }), 'no');
 
 check('contact: a valid message routes to send', vc().route, 'send');
 check('contact: name survives', vc().name, 'Ada');
@@ -1355,7 +1497,9 @@ check(
 	'error'
 );
 
-const note = run(contactNotify, vc())[0].json;
+// The item arriving at `build notification` is the Turnstile verdict, so the
+// message is read from `validate` by name -- pass it only there.
+const note = run(contactNotify, { ok: 'yes' }, { validate: vc() })[0].json;
 check('contact: the notification carries a reply-to', note.replyTo, 'ada@example.com');
 check('contact: the sender is in the body', note.body.includes('ada@example.com'), true);
 check('contact: the message is in the body', note.body.includes('Hello there.'), true);
