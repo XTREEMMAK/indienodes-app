@@ -110,6 +110,18 @@ export function loadPreferences() {
 			// their nodes rotating on NaN. That is reachable in practice: an
 			// older export, a hand-edited file, or a future build that adds a
 			// fifth type all produce exactly that shape.
+			// Strict `=== true`, never the spread value: `isVisibleTo` treats
+			// any truthy flag as consent, so an imported or hand-edited
+			// `"showExplicit": "false"` used to show explicit entries. This
+			// one fails closed, like `explicit` itself in ring.js.
+			showExplicit: parsed?.showExplicit === true,
+			fitToView: parsed?.fitToView === true,
+			theme: ['light', 'dark', 'system'].includes(parsed?.theme)
+				? parsed.theme
+				: DEFAULT_PREFERENCES.theme,
+			background: ['none', 'drifty-stars'].includes(parsed?.background)
+				? parsed.background
+				: DEFAULT_PREFERENCES.background,
 			randomizeAudioTracks: parsed?.randomizeAudioTracks !== false,
 			rotationMs: sanitizeRotation(parsed?.rotationMs),
 			ambientTypes: sanitizeAmbientTypes(parsed?.ambientTypes),

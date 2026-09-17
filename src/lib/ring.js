@@ -36,20 +36,28 @@ import DOMPurify from 'isomorphic-dompurify';
  * @returns {RingEntry}
  */
 function normalizeEntry(entry) {
+	// Each collection is an array of records whatever the file said: a wrong
+	// type (a string `tags`, an object `excerpts`, a `null` track) used to
+	// throw further down and cost the reader the whole ring, not one field.
 	return {
 		...entry,
-		tags: entry.tags ?? [],
-		tracks: entry.tracks ?? [],
-		pages: entry.pages ?? [],
-		artworks: entry.artworks ?? [],
+		tags: Array.isArray(entry.tags) ? entry.tags.filter((tag) => typeof tag === 'string') : [],
+		tracks: Array.isArray(entry.tracks) ? entry.tracks.filter(isRecord) : [],
+		pages: Array.isArray(entry.pages) ? entry.pages.filter(isRecord) : [],
+		artworks: Array.isArray(entry.artworks) ? entry.artworks.filter(isRecord) : [],
 		// `excerpts` moved from a plain string array to `{ text, audio_url? }`
 		// objects. Real ring.json entries still on disk predate that change,
 		// and the older single-`excerpt` string predates `excerpts` entirely,
 		// so both are lifted into the current shape here rather than requiring
 		// a one-time data migration.
-		excerpts: (entry.excerpts ?? (entry.excerpt ? [entry.excerpt] : [])).map((sample) =>
-			typeof sample === 'string' ? { text: sample } : sample
-		),
+		excerpts: (Array.isArray(entry.excerpts)
+			? entry.excerpts
+			: entry.excerpt
+				? [entry.excerpt]
+				: []
+		)
+			.map((sample) => (typeof sample === 'string' ? { text: sample } : sample))
+			.filter(isRecord),
 		explicit: entry.explicit === true
 	};
 }
@@ -332,13 +340,25 @@ const FETCH_TIMEOUT_MS = 10_000;
 async function fetchRing(fetchFn, url) {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-	/** @type {Response} */
-	let response;
+	// The timeout covers the body as well as the headers. It used to be
+	// cleared the moment headers arrived, so a server that answered and then
+	// stalled hung the caller indefinitely -- and `loadRing` never reached its
+	// fallback, because nothing ever failed.
 	try {
-		response = await fetchFn(url, { signal: controller.signal });
+		return await fetchRingWithin(fetchFn, url, controller.signal);
 	} finally {
 		clearTimeout(timeout);
 	}
+}
+
+/**
+ * @param {typeof fetch} fetchFn
+ * @param {string} url
+ * @param {AbortSignal} signal
+ * @returns {Promise<RingEntry[]>}
+ */
+async function fetchRingWithin(fetchFn, url, signal) {
+	const response = await fetchFn(url, { signal });
 	if (!response.ok) {
 		throw new Error(`Failed to load ring.json: ${response.status}`);
 	}
@@ -370,16 +390,78 @@ async function fetchRing(fetchFn, url) {
 		throw new Error(`Failed to load ring.json: response too large (${contentLength} bytes)`);
 	}
 
-	const text = await response.text();
+	const text = await readBody(response, signal);
 	if (text.length > MAX_RING_BYTES) {
 		throw new Error(`Failed to load ring.json: response too large (${text.length} bytes)`);
 	}
 
 	const allowedHttpOrigin = developmentHttpOrigin(url);
+	// Non-objects are dropped before anything reads a field off them: one
+	// `null` in the array used to throw inside `normalizeEntry` and fail the
+	// whole ring, not just that entry.
 	return ringEntries(JSON.parse(text))
+		.filter(isRecord)
 		.map(normalizeEntry)
 		.filter((entry) => hasValidShape(entry, allowedHttpOrigin))
 		.map((entry) => withSafeMedia(entry, allowedHttpOrigin));
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, any>}
+ */
+function isRecord(value) {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The response body as text, abandoned when `signal` fires.
+ *
+ * In the browser (the widget on a member's page, and the app's own stores)
+ * the body is streamed and refused as soon as it passes `MAX_RING_BYTES`,
+ * rather than buffered whole and measured afterwards; `content-length` is
+ * absent for a chunked or compressed response, so it cannot be the only cap.
+ *
+ * During prerendering it stays `response.text()`. SvelteKit's load `fetch`
+ * records the body to inline for hydration, and reading `.body` instead
+ * switches that record to base64 -- a larger page and a different replay path
+ * for what is this origin's own committed mirror. The length check in
+ * `fetchRingWithin` still applies there.
+ * @param {Response} response
+ * @param {AbortSignal} signal
+ * @returns {Promise<string>}
+ */
+async function readBody(response, signal) {
+	/** @type {Promise<never>} */
+	const aborted = new Promise((_, reject) => {
+		const fail = () => reject(new Error('Failed to load ring.json: timed out'));
+		if (signal.aborted) fail();
+		else signal.addEventListener('abort', fail, { once: true });
+	});
+	// Only ever observed through a race; never an unhandled rejection.
+	aborted.catch(() => {});
+
+	const reader = import.meta.env?.SSR ? undefined : response.body?.getReader?.();
+	if (!reader) return Promise.race([response.text(), aborted]);
+
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = '';
+	try {
+		for (;;) {
+			const { done, value } = await Promise.race([reader.read(), aborted]);
+			if (done) break;
+			bytes += value.byteLength;
+			if (bytes > MAX_RING_BYTES) {
+				throw new Error(`Failed to load ring.json: response too large (over ${bytes} bytes)`);
+			}
+			text += decoder.decode(value, { stream: true });
+		}
+	} catch (error) {
+		reader.cancel().catch(() => {});
+		throw error;
+	}
+	return text + decoder.decode();
 }
 
 /**

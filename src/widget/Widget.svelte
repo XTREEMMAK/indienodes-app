@@ -42,7 +42,7 @@
 	 * everyone is entry zero, so Next at least still walks the ring rather
 	 * than funnelling every site's visitors to the same first member.
 	 */
-	import { loadRing } from '../lib/ring.js';
+	import { isVisibleTo, loadRing } from '../lib/ring.js';
 	import { RING_ENDPOINT_URL, RING_JSON_URL, SITE_ORIGIN } from '../lib/config.js';
 	import { MARK_DATA_URI } from './mark.js';
 
@@ -56,6 +56,12 @@
 
 	$effect(() => {
 		loadRing(fetch, RING_ENDPOINT_URL, RING_JSON_URL)
+			// This runs on someone else's site, with no access to a visitor's
+			// Settings, so the explicit-content gate stays at its default: off.
+			// The host member's own entry is kept even if explicit, only so
+			// Prev/Next stay relative to it; travel never opens the current
+			// entry, so it is never where a visitor is sent.
+			.then((ring) => ring.filter((entry) => entry.id === siteId || isVisibleTo(entry, false)))
 			.then((loaded) => {
 				entries = loaded;
 				const own = siteId ? loaded.findIndex((entry) => entry.id === siteId) : -1;
@@ -74,25 +80,39 @@
 	const canTravel = $derived(ready && entries.length > 1);
 
 	/**
+	 * The entry at a ring position, wrapping in both directions.
+	 * @param {number} i
+	 */
+	function at(i) {
+		return entries[((i % entries.length) + entries.length) % entries.length];
+	}
+
+	/**
 	 * Opens a member's site in a new tab rather than navigating the host page
 	 * away. A classic webring replaced the whole page, but this widget is a
 	 * script running inside someone else's site, and taking their visitor off
 	 * it without asking is not ours to do.
+	 *
+	 * The only explicit entry `entries` can hold is the host member's own
+	 * (kept for positioning, see the load above), so landing on it steps once
+	 * more in the same direction rather than opening it.
 	 * @param {number} target
+	 * @param {1 | -1} [direction]
 	 */
-	function travelTo(target) {
-		const entry = entries[((target % entries.length) + entries.length) % entries.length];
-		if (!entry) return;
+	function travelTo(target, direction = 1) {
+		let entry = at(target);
+		if (entry && !isVisibleTo(entry, false)) entry = at(target + direction);
+		if (!entry || !isVisibleTo(entry, false)) return;
 		index = entries.indexOf(entry);
 		window.open(entry.source_url, '_blank', 'noopener,noreferrer');
 	}
 
 	function next() {
-		if (canTravel) travelTo(index + 1);
+		if (canTravel) travelTo(index + 1, 1);
 	}
 
 	function prev() {
-		if (canTravel) travelTo(index - 1);
+		if (canTravel) travelTo(index - 1, -1);
 	}
 
 	function random() {
