@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **The n8n SSRF guard now parses IPv6 addresses instead of matching their text.** Fully
+  written-out forms such as `[0:0:0:0:0:0:0:1]`, `[0::1]` and the IPv4-mapped
+  `[0:0:0:0:0:ffff:a9fe:a9fe]` (the cloud metadata address) passed the old prefix check, and the
+  fetch then connected to loopback or metadata. Only global unicast IPv6 is accepted now, minus
+  the 6to4, Teredo and documentation ranges, and `198.18.0.0/15` is refused too.
+- **The contact form's Turnstile token is now verified server-side.** The page sent a token that
+  the contact workflow never checked, so a script could post the honeypot and dwell values
+  directly. Siteverify now runs before anything is sent, through the same nodes the update and
+  removal flows use.
+- **The embeddable widget no longer sends visitors to members marked explicit.** It runs on
+  other people's sites, where no visitor setting can opt in.
+- **A non-boolean `showExplicit` in stored preferences no longer shows explicit entries.** An
+  imported or hand-edited `"showExplicit": "false"` read as consent.
+- **Webhook rate limits at the edge**, documented in the n8n runbook. They are applied in Nginx
+  Proxy Manager, outside this repo.
+
+### Fixed
+
+- **Join drafts no longer lose fields.** The generator draft's debounced save wrote only the last
+  change it was given, so committing a display name and then picking a template kept the
+  template and dropped the name. An immediate save also discarded a pending one.
+- **One malformed ring entry no longer fails the whole ring.** A `null` entry, a `null` track or
+  a wrongly typed collection is now dropped on its own.
+- **A ring response that stalls after its headers now times out** and falls back to the second
+  source. In the browser, a response is also refused while downloading once it passes the
+  8 MB ceiling.
+
+### Changed
+
+- **CI now runs the n8n Code-node test suite**, including the SSRF and Turnstile checks.
+
 ## [1.8.2] - 2026-09-16
 
 ### Changed

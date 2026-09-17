@@ -394,12 +394,17 @@ Reachability failure is reported distinctly from a reachable page without the to
 a 404 error page's body for the meta tag and reported `token_not_found`, telling creators to
 check their tag when their site was down.
 
-**Still required at the infrastructure layer:** network-level egress controls remain the complete
-fix. The DNS-over-HTTPS resolution above closes the untimed, single-DNS-record bypass, but a
-true rebinding race (the DNS answer changing between that lookup and `fetch source_url`'s own
-resolution, moments later) is not addressed — that needs an egress proxy that resolves once,
-pins the connection to the validated address, and enforces a response-size ceiling, none of
-which the HTTP node offers directly.
+**Still required at the infrastructure layer:** the egress proxy in §6b. The DNS-over-HTTPS
+resolution above closes the untimed, single-DNS-record bypass, but `fetch source_url` resolves the
+name again on its own. No timing is needed to exploit that: an attacker's authoritative server
+can simply answer Google's resolver with a public address and n8n's resolver with a private one.
+Only a proxy that resolves the name itself and applies the range check to _that_ answer closes
+it.
+
+The IP-literal check itself parses IPv6 into its eight groups (since 2026-09-17). The earlier
+text-prefix test passed `[0:0:0:0:0:0:0:1]`, `[0::1]` and the IPv4-mapped
+`[0:0:0:0:0:ffff:a9fe:a9fe]` (169.254.169.254) straight through, because the fetch normalises
+those spellings to loopback and metadata addresses.
 
 ---
 
@@ -440,8 +445,278 @@ which field failed, before any branch or PR exists.
 **Residual, accepted risk.** The same DNS-rebinding window as §6. The `check_media_url` action
 lets an anonymous caller (past the honeypot/dwell gate) have n8n request a public https URL and
 learn a one-word verdict. The ranged GET has no response-size ceiling in the HTTP node, so a server
-that ignores `Range` can send a whole file; `MEDIA_FETCH_TIMEOUT_MS` bounds it. The egress proxy
-§6 recommends would close both.
+that ignores `Range` can send a whole file. `MEDIA_FETCH_TIMEOUT_MS` does **not** bound that: the
+HTTP node's timeout covers only the wait for response headers. The egress proxy in §6b closes the
+rebinding window and bounds the body by time.
+
+---
+
+## 6b. Egress proxy (infrastructure)
+
+**Status: on hold (2026-09-17).** The Squid design below is not deployed; the approach is under
+review, and a different mechanism may replace it. Until something is deployed, the rebinding
+window described in §6 is open. `EGRESS_PROXY_URL` stays `""`, and it works with any HTTP
+forward proxy that applies the range check to its own resolution, not only this one.
+
+This n8n instance is shared with LAN automations (Gotify, its database, local AI, Home Assistant,
+Nextcloud), so private ranges cannot be firewalled off the whole container. Instead, the three
+requests to a stranger-chosen address go through a dedicated forward proxy whose ACL refuses
+private destinations after resolving the name itself: `fetch source_url` (§6), and `HEAD media`
+and `GET media (ranged)` (§6a). Everything else in n8n keeps its direct network access.
+
+The routing is one constant, `EGRESS_PROXY_URL` in `build_workflows.py`. While it is `""`, the
+generated workflows are unchanged. `test_code_nodes.mjs` pins that exactly those three nodes, and
+no others, pick it up once it is set. **Set it only after the proxy passes the checks below:** with
+a proxy n8n cannot reach, every verification answers `unreachable`.
+
+### Compose
+
+Squid (`ubuntu/squid`, maintained by Canonical), attached to two networks:
+
+- **`egress-client`** is `internal: true`: no route anywhere, shared with n8n only.
+- **`egress`** is the proxy's only way out.
+
+Because the client network has no gateway, n8n cannot bypass the proxy on that network, and the
+proxy's default route is the egress network.
+
+```yaml
+services:
+  n8n:
+    # ...existing definition...
+    networks:
+      - default # list every network n8n already uses; adding `networks:` drops the implicit default
+      - egress-client
+
+  n8n-egress:
+    image: ubuntu/squid:6.6-24.04_beta
+    restart: unless-stopped
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+    networks:
+      - egress-client
+      - egress
+    mem_limit: 256m
+
+networks:
+  egress-client:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.251.0/24 # pick unused ranges: docker network inspect $(docker network ls -q)
+  egress:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+```
+
+### `egress/squid.conf`
+
+```
+http_port 3128
+
+acl egress_clients src 172.31.251.0/24
+acl web_ports port 80 443
+acl SSL_ports port 443
+acl CONNECT method CONNECT
+
+# Evaluated against the addresses Squid itself resolved, which are the
+# addresses it then connects to. Mirrors isUnsafeIPv4/isUnsafeIPv6.
+acl blocked_dst dst 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8
+acl blocked_dst dst 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16
+acl blocked_dst dst 198.18.0.0/15 224.0.0.0/3
+acl blocked_dst dst ::/8 64:ff9b::/96 2001::/32 2001:db8::/32 2002::/16
+acl blocked_dst dst fc00::/7 fe80::/10 fec0::/10 ff00::/8
+
+http_access deny !egress_clients
+http_access deny !web_ports
+http_access deny CONNECT !SSL_ports
+http_access deny blocked_dst
+http_access allow egress_clients
+http_access deny all
+
+# Public resolvers, so a LAN-only name never resolves to an internal host.
+dns_nameservers 1.1.1.1 9.9.9.9
+
+# Time bounds. The HTTP node's own timeout stops at the headers; these do not.
+connect_timeout 5 seconds
+read_timeout 10 seconds
+request_timeout 10 seconds
+client_lifetime 30 seconds
+# Plain http only: an https body inside CONNECT is opaque to the proxy.
+reply_body_max_size 2 MB
+
+cache deny all
+via off
+forwarded_for delete
+httpd_suppress_version_string on
+access_log stdio:/dev/stdout
+cache_log /dev/stderr
+logfile_rotate 0
+```
+
+Ports are limited to 80 and 443. A creator site served on another port will fail verification
+with `unreachable`; widen `web_ports` only deliberately.
+
+**What this does not do:** cap the size of an https body. That would need TLS interception,
+which is not worth it here. An https response is bounded by `client_lifetime` (time), not bytes;
+the edge rate limits in §6c bound how often anyone can ask for one.
+
+### Checks, before setting `EGRESS_PROXY_URL`
+
+Run from a throwaway container on the client network (compose prefixes the network name with
+the project name, so find it with `docker network ls | grep egress-client`):
+
+```bash
+NET=<project>_egress-client
+# Prints: <http status> <proxy CONNECT status> <args>. For an https URL a refusal
+# shows in the second column; for plain http, in the first.
+t() { docker run --rm --network "$NET" curlimages/curl -s -o /dev/null -w "%{http_code} %{http_connect}  $*\n" "$@"; }
+
+t -x http://n8n-egress:3128 https://example.com/          # 200 200  allowed
+t -x http://n8n-egress:3128 http://example.com/           # 200 000  allowed
+t -x http://n8n-egress:3128 http://localtest.me/          # 403 000  public name resolving to 127.0.0.1
+t -x http://n8n-egress:3128 http://169.254.169.254/       # 403 000  metadata
+t -x http://n8n-egress:3128 'http://[::1]/'               # 403 000
+t -x http://n8n-egress:3128 http://192.168.1.1/           # 403 000  substitute a real LAN address
+t -x http://n8n-egress:3128 https://localtest.me/         # 000 403  same check through CONNECT
+t -x http://n8n-egress:3128 https://example.com:8443/     # 000 403  port
+t --max-time 5 https://example.com/                       # 000 000  no route without the proxy
+```
+
+Any `200` on a blocked line, or anything but `000 000` on the last, means stop and fix before going on.
+Then set `EGRESS_PROXY_URL = "http://n8n-egress:3128"`, run `test_code_nodes.mjs`, push
+`reverify-token` and `media-check`, `--export`, and run one real `/join` Verify plus one media
+check end to end. Each should appear in `docker compose logs n8n-egress`.
+
+**Optional second layer.** A host firewall rule dropping new connections from the `egress`
+subnet to private ranges (`DOCKER-USER`, for example) catches a Squid misconfiguration too. Rules
+added there do not survive a reboot on their own; persist them with whatever the host already
+uses (`iptables-persistent`, a systemd unit). If the host runs `ufw`, check how it interacts with
+Docker's chains first.
+
+## 6c. Edge rate limits (Nginx Proxy Manager)
+
+n8n has no per-caller rate limit on its public webhooks, and Turnstile does not cover issue_token,
+check_media_url or rating. Limits live in Nginx Proxy Manager in front of `n8n.kjnet.us`.
+
+**`/data/nginx/custom/http_top.conf`** (inside NPM's data volume; zones and maps must be defined
+in the `http` block):
+
+```
+# CORS preflights are never counted. A preflight answered 429 fails in the
+# browser outright, and nginx skips any request whose limit key is empty.
+map $request_method $n8n_limit_key {
+    OPTIONS "";
+    default $binary_remote_addr;
+}
+
+# The origins the webhooks already allow (INTAKE_ALLOWED_ORIGINS in
+# build_workflows.py), so a 429 from nginx is readable by the app.
+map $http_origin $n8n_cors_origin {
+    default "";
+    "https://app.indienodes.us" $http_origin;
+    "https://test.indienodes.us" $http_origin;
+    "http://localhost:5173" $http_origin;
+}
+
+limit_req_zone $n8n_limit_key zone=n8n_webhook:10m rate=30r/m;
+limit_req_zone $n8n_limit_key zone=n8n_contact:10m rate=3r/m;
+limit_req_status 429;
+```
+
+**Proxy host `n8n.kjnet.us` → Advanced → Custom Nginx Configuration:**
+
+```
+# n8n.kjnet.us is orange-clouded, so the connecting address is a Cloudflare
+# edge. Server level on purpose: NPM already sets `real_ip_header X-Real-IP`
+# in the http block, so repeating it in http_top.conf is a duplicate-directive
+# error. NPM's generated ip_ranges.conf supplies Cloudflare's set_real_ip_from
+# lines, so the header is only trusted from Cloudflare.
+real_ip_header CF-Connecting-IP;
+
+location /webhook/ {
+    limit_req zone=n8n_webhook burst=20 nodelay;
+    client_max_body_size 1m;
+    error_page 429 = @n8n_rate_limited;
+    include conf.d/include/proxy.conf;
+}
+
+location ~ ^/webhook/indienodes-(contact|rating)$ {
+    limit_req zone=n8n_contact burst=3 nodelay;
+    client_max_body_size 128k;
+    error_page 429 = @n8n_rate_limited;
+    include conf.d/include/proxy.conf;
+}
+
+# Same envelope the workflows answer with, so webhookClient.js shows the message
+# and treats it as retryable. Without the CORS header, the browser hides the 429
+# and the page can only say "Could not reach the service."
+location @n8n_rate_limited {
+    default_type application/json;
+    add_header Access-Control-Allow-Origin $n8n_cors_origin always;
+    add_header Vary Origin always;
+    return 429 '{"ok":false,"error":{"message":"Too many requests. Please wait a minute and try again.","code":"rate_limited","retryable":true}}';
+}
+```
+
+Only the POSTs count, since preflights are excluded. One `/join` session makes several calls in
+quick succession (issue token, media checks, verify, submit), so the general budget allows a
+burst of 20. Contact and rating allow 3 in a burst, then one every 20 seconds per address. The
+editor UI and the n8n API are outside `/webhook/` and are unaffected.
+If `INTAKE_ALLOWED_ORIGINS` changes, update the origin map to match.
+
+**Apply it in this order on NPM 2.15.** NPM runs `nginx -t` when a proxy host is saved, and when
+the test fails it deletes that host's generated file (`/data/nginx/proxy_host/83.conf` for
+n8n) without logging why. The UI can still say Online, but Cloudflare answers `525` for the
+whole hostname. That happened on 2026-09-17, 15:17 to 15:25: `http_top.conf` was not actually in
+place, NPM's `http_top[.]conf` include silently matched nothing, and the Advanced block's
+`$n8n_cors_origin` was an unknown variable.
+
+1. Write `http_top.conf` from inside the container, so the path cannot be wrong, and read it back:
+   `docker exec -i <npm> sh -c 'cat > /data/nginx/custom/http_top.conf' < http_top.conf`, then
+   `docker exec <npm> cat /data/nginx/custom/http_top.conf`. `nginx -t` passing proves nothing
+   here, because a missing file is not an error.
+2. Test the Advanced block offline before pasting it. Build a copy of the host file with the block
+   after `server_name`, and a copy of `nginx.conf` whose `include /data/nginx/proxy_host/*.conf;`
+   points at that copy only. Put the copy of `nginx.conf` in `/etc/nginx/` so relative includes
+   resolve. Run `nginx -t -c` against it, then delete both copies. The running config is not
+   touched.
+3. Paste and save only after that test passes. Immediately check that
+   `/data/nginx/proxy_host/83.conf` still exists and `https://n8n.kjnet.us/healthz` returns `200`.
+   If either fails, remove the block and save again.
+
+Before relying on it, confirm three things:
+
+1. **`proxy.conf` carries the `proxy_pass`.** Run `docker compose exec <npm> cat /etc/nginx/conf.d/include/proxy.conf`.
+   If it has no `proxy_pass` line, add `proxy_pass $forward_scheme://$server:$port;` to both
+   webhook locations above.
+2. **The config is valid.** Run `docker compose exec <npm> nginx -t`.
+3. **The limit sees real client addresses.** NPM must have fetched Cloudflare's ranges
+   (`grep -c set_real_ip_from /etc/nginx/conf.d/include/ip_ranges.conf` is well above zero;
+   `IP_RANGES_FETCH_ENABLED` must not be `false`). After one request from a known address, the
+   host's access log (`/data/logs/proxy-host-<id>_access.log`) should show that address, not a
+   Cloudflare one. If it still shows Cloudflare, every visitor shares one bucket; do not rely on
+   the limit until that is fixed.
+
+To test (these requests are refused before anything is sent, because they carry no Turnstile
+token):
+
+```bash
+for i in $(seq 1 6); do
+  curl -s -o /dev/null -w "%{http_code} " -X POST https://n8n.kjnet.us/webhook/indienodes-contact \
+    -H 'Origin: https://test.indienodes.us' -H 'Content-Type: application/json' -d '{}'
+done; echo
+# expect: 200 200 200 200 429 429 (the first four are n8n's own JSON refusal)
+
+curl -si -X POST https://n8n.kjnet.us/webhook/indienodes-contact \
+  -H 'Origin: https://test.indienodes.us' -H 'Content-Type: application/json' -d '{}' \
+  | grep -iE '^HTTP|access-control-allow-origin|rate_limited'
+# expect: HTTP/2 429, access-control-allow-origin: https://test.indienodes.us, and the JSON body
+
+curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS https://n8n.kjnet.us/webhook/indienodes-contact \
+  -H 'Origin: https://test.indienodes.us' -H 'Access-Control-Request-Method: POST'
+# expect: 204 or 200 even while limited, because preflights are never counted
+```
 
 ---
 
@@ -714,14 +989,17 @@ one-node change.
 
 ## 11. Contact workflow
 
-`Webring - Contact v2` (`8VYg8aZ7owilxxgb`), 15 nodes, path `indienodes-contact`. A separate
+`Webring - Contact v2` (`8VYg8aZ7owilxxgb`), 19 nodes, path `indienodes-contact`. A separate
 webhook from the submission one so either can be paused or rotated without touching the other.
 
-Much simpler — no queue, no PR, no token contract. Webhook receives `{ name, email, message, website, elapsed_ms, turnstile_token? }`:
+Much simpler — no queue, no PR, no token contract. Webhook receives `{ name, email, message, website, elapsed_ms, turnstile_token }`
+(`turnstile_token` is required while `TURNSTILE_ENABLED` is on):
 
 ```
 Webhook → validate → Switch  send | dropped | error
-  send    → build notification → notify: gotify → delivered?
+  send    → verify turnstile → turnstile verdict → passed?
+              no  → shape turnstile failure (retryable `turnstile_failed`)
+              yes → build notification → notify: gotify → delivered?
                                     ok  → shape sent
                                     no  → notify: email fallback → delivered?
                                                 ok → shape sent
@@ -760,17 +1038,21 @@ diagnosable from those services rather than from a retained workflow copy.
 Unlike Data Table rows (§13), executions **can** be deleted through the public API
 (`DELETE /executions/<id>`), which is how the pre-fix test records were purged.
 
-Turnstile is not wired here. `TURNSTILE_ENABLED` is `False` system-wide (§12), and the
-convention in this generator is that Turnstile nodes are left out of the graph entirely rather
-than sitting dormant. Enabling it means adding the siteverify node here at the same time as the
-others.
+**Turnstile is server-verified here** (since 2026-09-17), with the same `turnstile_nodes`
+Siteverify pair Finalize uses. Before that, the page rendered the widget and sent a token that
+nothing checked, so a script posting the honeypot and dwell values directly could send
+notifications at will. `validate` refuses a missing token before anything else runs, and only a
+`success === true` answer reaches `build notification` — which reads the message from `validate`
+by name, since the item arriving there is the verdict. A failure is retryable: the page resets the
+widget on any error, and after a successful send, because Siteverify accepts a token once.
 
 **Not modelled on `KJO Contact Flow`,** despite that being the nearest existing workflow. It
 formats its mail with a GPT-4.1-mini agent, which puts a third-party dependency and a
 per-message cost between a person and a maintainer to produce an email whose shape is known in
 advance. It also authenticates its webhook with a header credential — fine there, where n8n is
 the only caller, but here the caller is a browser and a header secret would ship in the client
-bundle. The honeypot, dwell gate, and CORS allowlist do that job instead.
+bundle. Turnstile does that job instead; the honeypot and dwell gate are only a cheap first
+filter, since both values come from the client.
 
 ---
 
@@ -869,8 +1151,8 @@ the three Data Table IDs, `CRYPTO_CREDENTIAL`, `GITHUB_REPO`, `REVIEW_WEBHOOK_BA
 
 Carried deliberately, each with its reason:
 
-- **No network-level SSRF egress control.** Workflow validation cannot stop DNS rebinding, and
-  the HTTP node offers no response-size cap. Infrastructure work.
+- **SSRF egress control depends on §6b being deployed.** Workflow validation alone cannot stop
+  DNS rebinding. Even with the proxy, an https response body is bounded by time, not size.
 - **Duplicate PR window.** A retry from `approval_failed` can open a second PR if the first run
   died between opening one and marking approved. Needs prior-artifact detection.
 - **Approve paths now have live proof.** The add/update path opened PRs #1–#8 on 2026-08-22 and
