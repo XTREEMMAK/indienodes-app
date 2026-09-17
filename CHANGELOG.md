@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Sending a second contact message no longer needs a page reload.** Cloudflare renders its
+  challenge only into widgets that exist when its script first loads, so the form's widget came
+  back empty after "Send another message", and the submit was refused for having no token. The
+  widget now renders itself when the script is already loaded. The same applied to `/update`
+  when switching between change and remove.
 - **Join drafts no longer lose fields.** The generator draft's debounced save wrote only the last
   change it was given, so committing a display name and then picking a template kept the
   template and dropped the name. An immediate save also discarded a pending one.

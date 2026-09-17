@@ -53,18 +53,44 @@
 		token = '';
 	}
 
+	/** @type {string | undefined} */
+	let widgetId;
+
 	onMount(() => {
 		if (!TURNSTILE_SITE_KEY) return;
 		const win = /** @type {any} */ (window);
 		win[cbSuccess] = onTurnstileSuccess;
 		win[cbExpired] = onTurnstileReset;
 		win[cbError] = onTurnstileReset;
-		loadScript();
+		// Cloudflare renders `.cf-turnstile` containers once, when its script
+		// first loads. A widget mounted after that — the contact form coming
+		// back for "Send another message", or /update switching between change
+		// and remove — is a container nobody scans, so it never shows a
+		// challenge and the submit fails server-side for want of a token. Once
+		// the API is present, render this container explicitly instead.
+		if (win.turnstile?.render && widgetEl) {
+			widgetId = win.turnstile.render(widgetEl, {
+				sitekey: TURNSTILE_SITE_KEY,
+				theme: 'auto',
+				callback: onTurnstileSuccess,
+				'expired-callback': onTurnstileReset,
+				'error-callback': onTurnstileReset
+			});
+		} else {
+			loadScript();
+		}
 	});
 
 	onDestroy(() => {
 		if (typeof window === 'undefined') return;
 		const win = /** @type {any} */ (window);
+		if (widgetId !== undefined) {
+			try {
+				win.turnstile?.remove?.(widgetId);
+			} catch {
+				// Already gone with its container; nothing to clean up.
+			}
+		}
 		delete win[cbSuccess];
 		delete win[cbExpired];
 		delete win[cbError];
@@ -78,7 +104,7 @@
 		token = '';
 		const win = /** @type {any} */ (typeof window === 'undefined' ? undefined : window);
 		if (win?.turnstile && widgetEl) {
-			win.turnstile.reset(widgetEl);
+			win.turnstile.reset(widgetId ?? widgetEl);
 		}
 	}
 </script>
