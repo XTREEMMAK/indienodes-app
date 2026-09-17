@@ -38,7 +38,9 @@ import {
 	toRingEntry,
 	validateReview,
 	consentGiven,
-	rightsSectionApplies
+	attestationsGiven,
+	validateAttestations,
+	ATTESTATION_MESSAGES
 } from './submissionValidation.js';
 
 describe('entry type labels', () => {
@@ -667,8 +669,16 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 	});
 });
 
+/** Every content-rule attestation given, with "No" to adult content. */
+const ATTESTED = {
+	ai_attestation: true,
+	rights_confirmation: true,
+	adult_content: 'no',
+	adult_content_confirmation: false
+};
+
 describe('validateReview', () => {
-	const base = { email: 'a@b.co', pro_membership: 'Not a member' };
+	const base = { email: 'a@b.co', pro_membership: 'Not a member', ...ATTESTED };
 
 	it('accepts a minimal valid review block', () => {
 		expect(validateReview(base)).toEqual({});
@@ -696,51 +706,78 @@ describe('validateReview', () => {
 			validateReview({ ...base, pro_membership: 'Other', pro_membership_name: 'Other' })
 		).toEqual({});
 	});
+
+	it('includes the content-rule attestations, so the consent step covers them', () => {
+		expect(validateReview({ ...base, ai_attestation: false })).toEqual({
+			ai_attestation: 'Please confirm your featured works were made by people.'
+		});
+	});
+});
+
+describe('validateAttestations', () => {
+	it('is empty when everything is given', () => {
+		expect(validateAttestations(ATTESTED)).toEqual({});
+		expect(attestationsGiven(ATTESTED)).toBe(true);
+	});
+
+	it('names each missing attestation in plain words', () => {
+		expect(validateAttestations({})).toEqual({
+			ai_attestation: ATTESTATION_MESSAGES.ai_attestation,
+			rights_confirmation: ATTESTATION_MESSAGES.rights_confirmation,
+			adult_content: ATTESTATION_MESSAGES.adult_content
+		});
+		expect(ATTESTATION_MESSAGES.ai_attestation).toBe(
+			'Please confirm your featured works were made by people.'
+		);
+	});
+
+	it.each([
+		['made-by-people unchecked', { ai_attestation: false }, 'ai_attestation'],
+		['rights unchecked', { rights_confirmation: false }, 'rights_confirmation'],
+		['adult question unanswered', { adult_content: '' }, 'adult_content'],
+		['an unknown adult answer', { adult_content: 'maybe' }, 'adult_content'],
+		[
+			'"yes" without its confirmation',
+			{ adult_content: 'yes', adult_content_confirmation: false },
+			'adult_content_confirmation'
+		]
+	])('blocks on %s', (_label, over, field) => {
+		const errors = validateAttestations({ ...ATTESTED, ...over });
+		expect(Object.keys(errors)).toEqual([field]);
+		expect(attestationsGiven({ ...ATTESTED, ...over })).toBe(false);
+	});
+
+	it('only takes a real true as a yes', () => {
+		expect(attestationsGiven({ ...ATTESTED, ai_attestation: 'true' })).toBe(false);
+		expect(attestationsGiven({ ...ATTESTED, rights_confirmation: 1 })).toBe(false);
+	});
+
+	it('passes "yes" once confirmed, and "no" without any confirmation', () => {
+		expect(
+			attestationsGiven({ ...ATTESTED, adult_content: 'yes', adult_content_confirmation: true })
+		).toBe(true);
+		expect(attestationsGiven({ ...ATTESTED, adult_content: 'no' })).toBe(true);
+	});
 });
 
 describe('consentGiven', () => {
-	it('is gated on the general EULA box regardless of rights_confirmation, when no PRO is stated', () => {
-		expect(consentGiven({ eula_agreement: true })).toBe(true);
-		expect(consentGiven({ eula_agreement: false })).toBe(false);
-		expect(consentGiven({ rights_confirmation: true, eula_agreement: false })).toBe(false);
-		expect(consentGiven({ rights_confirmation: false, eula_agreement: true })).toBe(true);
+	it('needs the general EULA box and every attestation', () => {
+		expect(consentGiven({ eula_agreement: true, ...ATTESTED })).toBe(true);
+		expect(consentGiven({ eula_agreement: false, ...ATTESTED })).toBe(false);
+		expect(consentGiven({ eula_agreement: true })).toBe(false);
 		expect(consentGiven({})).toBe(false);
 	});
 
-	it('is gated on the general EULA box alone when pro_membership is "Not a member"', () => {
-		expect(consentGiven({ eula_agreement: true, pro_membership: 'Not a member' })).toBe(true);
-		expect(
-			consentGiven({
-				eula_agreement: true,
-				pro_membership: 'Not a member',
-				rights_confirmation: false
-			})
-		).toBe(true);
-	});
-
-	it('also requires rights_confirmation once a real PRO relationship is stated', () => {
-		expect(
-			consentGiven({ eula_agreement: true, pro_membership: 'BMI', rights_confirmation: true })
-		).toBe(true);
-		expect(
-			consentGiven({ eula_agreement: true, pro_membership: 'BMI', rights_confirmation: false })
-		).toBe(false);
-		expect(consentGiven({ eula_agreement: true, pro_membership: 'BMI' })).toBe(false);
-		// EULA still comes first: neither checked is still just "EULA missing".
-		expect(consentGiven({ eula_agreement: false, pro_membership: 'BMI' })).toBe(false);
-	});
-});
-
-describe('rightsSectionApplies', () => {
-	it('is false with no PRO stated yet, or "Not a member"', () => {
-		expect(rightsSectionApplies({})).toBe(false);
-		expect(rightsSectionApplies({ pro_membership: '' })).toBe(false);
-		expect(rightsSectionApplies({ pro_membership: 'Not a member' })).toBe(false);
-	});
-
-	it('is true for every other PRO answer, including "Not sure"', () => {
-		for (const value of ['ASCAP', 'BMI', 'SESAC', 'GMR', 'Other', 'Not sure']) {
-			expect(rightsSectionApplies({ pro_membership: value })).toBe(true);
+	it('requires rights for everyone now, not only alongside a stated PRO', () => {
+		for (const pro_membership of ['', 'Not a member', 'BMI']) {
+			expect(
+				consentGiven({
+					eula_agreement: true,
+					...ATTESTED,
+					pro_membership,
+					rights_confirmation: false
+				})
+			).toBe(false);
 		}
 	});
 });

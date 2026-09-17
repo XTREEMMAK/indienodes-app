@@ -71,9 +71,33 @@ describe('the email never reaches storage', () => {
 		expect(store.email).toBe('');
 	});
 
-	it('starts each session with the re-affirmation ungiven', () => {
-		const store = freshStore({ nodeId: 'x', entry: {}, rightsReaffirmed: true });
-		expect(store.rightsReaffirmed).toBe(false);
+	it('starts each session with every attestation ungiven', () => {
+		const store = freshStore({
+			nodeId: 'x',
+			entry: {},
+			rightsReaffirmed: true,
+			aiAttestation: true,
+			adultContent: 'no'
+		});
+		expect(store.aiAttestation).toBe(false);
+		expect(store.rightsConfirmation).toBe(false);
+		expect(store.adultContent).toBe('');
+		expect(store.adultContentConfirmation).toBe(false);
+	});
+
+	it('never writes the attestations to the draft', () => {
+		const store = freshStore();
+		store.nodeId = 'audio-ashzone-xeno';
+		store.aiAttestation = true;
+		store.rightsConfirmation = true;
+		store.adultContent = 'yes';
+		store.adultContentConfirmation = true;
+		store.touch();
+		vi.runAllTimers();
+
+		const raw = localStorage.getItem(KEY) ?? '';
+		expect(raw).toContain('audio-ashzone-xeno');
+		expect(raw).not.toMatch(/attestation|adultContent|rightsConfirmation/i);
 	});
 });
 
@@ -167,6 +191,85 @@ describe('finding the node without knowing its id', () => {
 		store.nodeId = '';
 		store.lookup(RING);
 		expect(store.notFound).toBe(false);
+	});
+});
+
+describe('content-rule attestations on a change request', () => {
+	it('are all required before a change can be sent', () => {
+		const store = freshStore();
+		expect(store.attestationsGiven).toBe(false);
+		expect(Object.keys(store.attestationErrors)).toEqual([
+			'ai_attestation',
+			'rights_confirmation',
+			'adult_content'
+		]);
+
+		store.aiAttestation = true;
+		store.rightsConfirmation = true;
+		store.adultContent = 'no';
+		expect(store.attestationsGiven).toBe(true);
+		expect(store.attestationErrors).toEqual({});
+	});
+
+	it('need the confirmation after a "yes"', () => {
+		const store = freshStore();
+		store.aiAttestation = true;
+		store.rightsConfirmation = true;
+		store.adultContent = 'yes';
+		expect(store.attestationErrors).toEqual({
+			adult_content_confirmation: 'Please confirm your adult content sits behind a content warning.'
+		});
+		store.adultContentConfirmation = true;
+		expect(store.attestationsGiven).toBe(true);
+	});
+
+	it('drop a confirmation when the answer changes back to "no"', () => {
+		const store = freshStore();
+		store.adultContent = 'yes';
+		store.adultContentConfirmation = true;
+		store.adultContent = 'no';
+		expect(store.adultContentConfirmation).toBe(false);
+	});
+
+	it('no longer gate the edit step, which only checks the entry itself', () => {
+		const store = freshStore();
+		store.nodeId = 'audio-ashzone-xeno';
+		store.lookup(RING);
+		store.entry.form = 'music';
+		expect(store.entryErrors).toEqual({});
+		// Nothing attested yet, and the edit step is still complete: the
+		// attestations are asked on the review step, for every change.
+		expect(store.attestationsGiven).toBe(false);
+		expect(store.isStepComplete('edit')).toBe(true);
+	});
+
+	it('are cleared by reset', () => {
+		const store = freshStore();
+		store.aiAttestation = true;
+		store.rightsConfirmation = true;
+		store.adultContent = 'yes';
+		store.adultContentConfirmation = true;
+
+		store.reset();
+
+		expect(store.aiAttestation).toBe(false);
+		expect(store.rightsConfirmation).toBe(false);
+		expect(store.adultContent).toBe('');
+		expect(store.adultContentConfirmation).toBe(false);
+	});
+
+	it('refuse to send without them, even once everything else is in place', async () => {
+		const store = freshStore();
+		store.nodeId = 'audio-ashzone-xeno';
+		store.lookup(RING);
+		store.email = 'someone@example.com';
+
+		await store.send();
+
+		// Unverified as well, so this also holds without a backend; the
+		// attested path end to end is testing/content-attestations.e2e.js.
+		expect(store.reference).toBe('');
+		expect(store.pending).toBe('idle');
 	});
 });
 

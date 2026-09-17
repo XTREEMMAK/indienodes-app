@@ -124,12 +124,15 @@ describe('restoring a draft', () => {
 });
 
 describe('what never reaches storage', () => {
-	it('does not persist the email or the consent checkboxes', () => {
+	it('does not persist the email, the consent checkboxes, or the attestations', () => {
 		const store = freshStore();
 		store.entry.creator = 'Someone';
 		store.review.email = 'private@example.com';
 		store.review.rights_confirmation = true;
 		store.review.eula_agreement = true;
+		store.review.ai_attestation = true;
+		store.review.adult_content = 'yes';
+		store.review.adult_content_confirmation = true;
 		store.touch();
 		vi.runAllTimers();
 
@@ -139,13 +142,24 @@ describe('what never reaches storage', () => {
 		expect(raw).not.toContain('private@example.com');
 		expect(raw).not.toContain('rights_confirmation');
 		expect(raw).not.toContain('eula_agreement');
+		expect(raw).not.toContain('ai_attestation');
+		expect(raw).not.toContain('adult_content');
 	});
 
 	it('starts every session with consent ungiven, whatever was stored', () => {
 		// A consent checkbox that restores itself has not been consented to.
-		const store = freshStore({ creator: 'X', review: { eula_agreement: true } });
+		const store = freshStore({
+			creator: 'X',
+			review: { eula_agreement: true, ai_attestation: true, adult_content: 'no' },
+			ai_attestation: true,
+			adult_content: 'no'
+		});
 		expect(store.review.eula_agreement).toBe(false);
 		expect(store.review.rights_confirmation).toBe(false);
+		expect(store.review.ai_attestation).toBe(false);
+		// No default: the adult-content question starts unanswered.
+		expect(store.review.adult_content).toBe('');
+		expect(store.review.adult_content_confirmation).toBe(false);
 		expect(store.review.email).toBe('');
 	});
 });
@@ -193,6 +207,23 @@ describe('reset', () => {
 
 		expect(localStorage.getItem(KEY)).toBeNull();
 		expect(store.entry.creator).toBe('');
+	});
+
+	it('clears every attestation, so starting over asks again', () => {
+		const store = freshStore();
+		store.review.ai_attestation = true;
+		store.review.rights_confirmation = true;
+		store.review.adult_content = 'yes';
+		store.review.adult_content_confirmation = true;
+
+		store.reset();
+
+		expect(store.review).toMatchObject({
+			ai_attestation: false,
+			rights_confirmation: false,
+			adult_content: '',
+			adult_content_confirmation: false
+		});
 	});
 });
 
@@ -308,36 +339,64 @@ describe("isStepComplete('consent')", () => {
 		store.review.pro_membership = 'Not a member';
 	}
 
+	/** @param {ReturnType<typeof freshStore>} store */
+	function attestAll(store) {
+		store.review.ai_attestation = true;
+		store.review.rights_confirmation = true;
+		store.review.adult_content = 'no';
+	}
+
 	it('is not complete until the general EULA box is checked', () => {
 		const store = freshStore();
 		fillContactFields(store);
+		attestAll(store);
 		expect(store.isStepComplete('consent')).toBe(false);
 
 		store.review.eula_agreement = true;
 		expect(store.isStepComplete('consent')).toBe(true);
 	});
 
-	it('does not require rights_confirmation when pro_membership is "Not a member"', () => {
+	it('is not complete until every attestation is given', () => {
 		const store = freshStore();
 		fillContactFields(store);
+		store.review.eula_agreement = true;
+		expect(store.isStepComplete('consent')).toBe(false);
+		expect(store.consentGiven).toBe(false);
+
+		attestAll(store);
+		expect(store.isStepComplete('consent')).toBe(true);
+		expect(store.consentGiven).toBe(true);
+	});
+
+	it('requires rights_confirmation even when pro_membership is "Not a member"', () => {
+		const store = freshStore();
+		fillContactFields(store);
+		attestAll(store);
 		store.review.eula_agreement = true;
 		store.review.rights_confirmation = false;
-		expect(store.isStepComplete('consent')).toBe(true);
+		expect(store.isStepComplete('consent')).toBe(false);
+		expect(store.stepErrors('consent')).toHaveProperty('rights_confirmation');
 	});
 
-	it('also requires rights_confirmation once a real PRO relationship is stated', () => {
+	it('needs the confirmation after a "yes" to adult content, and not after a "no"', () => {
 		const store = freshStore();
 		fillContactFields(store);
-		store.review.pro_membership = 'BMI';
+		attestAll(store);
 		store.review.eula_agreement = true;
-		expect(store.isStepComplete('consent')).toBe(false);
 
-		store.review.rights_confirmation = true;
+		store.review.adult_content = 'yes';
+		expect(store.isStepComplete('consent')).toBe(false);
+		expect(store.stepErrors('consent')).toEqual({
+			adult_content_confirmation: 'Please confirm your adult content sits behind a content warning.'
+		});
+
+		store.review.adult_content_confirmation = true;
 		expect(store.isStepComplete('consent')).toBe(true);
 	});
 
 	it('still requires the contact fields themselves (email, pro_membership)', () => {
 		const store = freshStore();
+		attestAll(store);
 		store.review.eula_agreement = true;
 		expect(store.isStepComplete('consent')).toBe(false);
 	});

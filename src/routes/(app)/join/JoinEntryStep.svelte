@@ -409,11 +409,10 @@
 			<label class="option">
 				<input type="checkbox" bind:checked={entry.explicit} onchange={() => form.touch()} />
 				<span>
-					<span class="option-label">This entry is exclusively explicit / NSFW content</span>
+					<span class="option-label">This Node features adult content</span>
 					<span class="option-description">
-						Not "contains some mature moments" — this is for a creator whose work here is adult
-						content through and through. Checking it hides this entry from the field, Members, and
-						Lists until a visitor explicitly turns explicit content on for themselves.
+						Explicit Nodes are hidden from the field, Members, Lists, and the widget until a visitor
+						turns explicit content on in Settings.
 					</span>
 				</span>
 			</label>

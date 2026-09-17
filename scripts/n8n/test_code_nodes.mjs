@@ -469,20 +469,23 @@ const BODY = {
 	entry: { creator: 'C', type: 'audio', why: 'w', tags: ['t'], form: 'music' },
 	review: { email: 'a@b.co', rights_confirmation: true, eula_agreement: true }
 };
-const vrun = (row = ROW, body = BODY) => {
-	const $ = (name) => ({
-		first: () => ({ json: name === 'Trigger' ? { body } : {} }),
-		all: () => []
-	});
-	const shadow = DENIED.map(
-		(g) => `const ${g} = new Proxy({}, { get(){ throw new ReferenceError("${g}"); } });`
-	).join('\n');
-	return new Function('$input', '$json', '$', `${shadow}\n${finValidate}`)(
-		{ first: () => ({ json: row }), all: () => [{ json: row }] },
-		row,
-		$
-	);
-};
+const makeVrun =
+	(js) =>
+	(row = ROW, body = BODY) => {
+		const $ = (name) => ({
+			first: () => ({ json: name === 'Trigger' ? { body } : {} }),
+			all: () => []
+		});
+		const shadow = DENIED.map(
+			(g) => `const ${g} = new Proxy({}, { get(){ throw new ReferenceError("${g}"); } });`
+		).join('\n');
+		return new Function('$input', '$json', '$', `${shadow}\n${js}`)(
+			{ first: () => ({ json: row }), all: () => [{ json: row }] },
+			row,
+			$
+		);
+	};
+const vrun = makeVrun(finValidate);
 const v = vrun()[0].json;
 check('validate passes with no config at all', v.ok, 'yes');
 // The whole point of this change: the salt used to be concatenated into
@@ -550,9 +553,9 @@ check(
 );
 
 // --- Finalize Submission: consent gate --------------------------------------
-// Mirrors rightsSectionApplies/consentGiven in src/lib/submissionValidation.js,
-// which is what actually gates the /join form's own Continue and Submit
-// buttons: Rights only has to be confirmed alongside a stated PRO
+// The transition rule, while CONTENT_ATTESTATIONS_REQUIRED is off (clients
+// released before the attestations are still live): Rights only has to be
+// confirmed alongside a stated PRO
 // relationship, so this server-side check must accept the same shapes the
 // form can produce or a real "Not a member" submitter (the common case) gets
 // silently rejected here even though the form told them they were done.
@@ -589,6 +592,146 @@ check(
 		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: true }
 	})[0].json.ok,
 	'yes'
+);
+
+// --- Finalize Submission: content-rule attestations ------------------------
+// Mirrors validateAttestations/consentGiven in src/lib/submissionValidation.js.
+// Recorded and normalised in both phases; refused when missing only once
+// CONTENT_ATTESTATIONS_REQUIRED is on. Removals change no featured work, so
+// they never need them.
+const ATTESTED = {
+	ai_attestation: true,
+	rights_confirmation: true,
+	adult_content: 'no',
+	adult_content_confirmation: false
+};
+const ATT_BODY = { ...BODY, review: { ...BODY.review, ...ATTESTED } };
+const ATT_NODE_ROW = { ...ROW, node_id: 'audio-someone-thing' };
+const ATT_UPDATE = {
+	action: 'submit_update',
+	node_id: 'audio-someone-thing',
+	entry: BODY.entry,
+	email: 'a@b.co',
+	turnstile_token: 'test-turnstile-token',
+	review: ATTESTED
+};
+const ATT_REMOVE = {
+	action: 'request_removal',
+	node_id: 'audio-someone-thing',
+	turnstile_token: 'test-turnstile-token'
+};
+
+const recorded = vrun(ROW, ATT_BODY)[0].json.review;
+check('attestations: made-by-people is recorded', recorded.ai_attestation, true);
+check('attestations: adult answer is recorded', recorded.adult_content, 'no');
+check(
+	'attestations: a confirmation after "no" is recorded as false',
+	recorded.adult_content_confirmation,
+	false
+);
+check(
+	'attestations: an unknown adult answer is normalised to null',
+	vrun(ROW, { ...ATT_BODY, review: { ...ATT_BODY.review, adult_content: 'maybe' } })[0].json.review
+		.adult_content,
+	null
+);
+check(
+	'attestations: a truthy non-boolean is not a yes',
+	vrun(ROW, { ...ATT_BODY, review: { ...ATT_BODY.review, ai_attestation: 'true' } })[0].json.review
+		.ai_attestation,
+	false
+);
+check(
+	'attestations: an update records its own review block',
+	vrun(ATT_NODE_ROW, ATT_UPDATE)[0].json.review.ai_attestation,
+	true
+);
+check(
+	'attestations: a removal records none',
+	vrun(ATT_NODE_ROW, ATT_REMOVE)[0].json.review.ai_attestation,
+	null
+);
+check(
+	'attestations (phase 1): an old client without them still passes',
+	vrun(ROW, BODY)[0].json.ok,
+	'yes'
+);
+check(
+	'attestations (phase 1): an old update without them still passes',
+	vrun(ATT_NODE_ROW, { ...ATT_UPDATE, review: undefined })[0].json.ok,
+	'yes'
+);
+
+const enforcedValidate = JSON.parse(
+	execFileSync(
+		'python3',
+		[
+			'-c',
+			`
+import json, importlib.util
+spec = importlib.util.spec_from_file_location("g", "scripts/n8n/build_workflows.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.CONTENT_ATTESTATIONS_REQUIRED = True
+wf = dict(m.BUILDERS)["finalize-submission"]({})
+print(json.dumps([n["parameters"]["jsCode"] for n in wf["nodes"] if n["name"] == "validate + normalize"][0]))
+`
+		],
+		{ encoding: 'utf8' }
+	)
+);
+const vrunEnforced = makeVrun(enforcedValidate);
+const enforcedCode = (body, row = ROW) => {
+	const out = vrunEnforced(row, body)[0].json;
+	return out.ok === 'yes' ? 'ok' : out.error_code;
+};
+/** @param {Record<string, any>} over */
+const attBody = (over) => ({ ...ATT_BODY, review: { ...ATT_BODY.review, ...over } });
+
+check('attestations (phase 2): a full set passes', enforcedCode(ATT_BODY), 'ok');
+check(
+	'attestations (phase 2): missing made-by-people is refused',
+	enforcedCode(attBody({ ai_attestation: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): rights are required without any PRO answer',
+	enforcedCode(attBody({ rights_confirmation: false, pro_membership: 'Not a member' })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an unanswered adult question is refused',
+	enforcedCode(attBody({ adult_content: '' })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): "yes" without the confirmation is refused',
+	enforcedCode(attBody({ adult_content: 'yes', adult_content_confirmation: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): "yes" with the confirmation passes',
+	enforcedCode(attBody({ adult_content: 'yes', adult_content_confirmation: true })),
+	'ok'
+);
+check(
+	'attestations (phase 2): the EULA still gates a new submission',
+	enforcedCode(attBody({ eula_agreement: false })),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an update cannot skip them',
+	enforcedCode({ ...ATT_UPDATE, review: undefined }, ATT_NODE_ROW),
+	'invalid_request'
+);
+check(
+	'attestations (phase 2): an attested update passes',
+	enforcedCode(ATT_UPDATE, ATT_NODE_ROW),
+	'ok'
+);
+check(
+	'attestations (phase 2): a removal never needs them',
+	enforcedCode(ATT_REMOVE, ATT_NODE_ROW),
+	'ok'
 );
 
 // --- Finalize Submission: skip a redundant re-verify fetch ------------------
@@ -1231,6 +1374,56 @@ check('review action placeholder is fully resolved', html.includes('__CONFIRM_AC
 check(
 	'the review page has no browser confirmation action',
 	html.includes('return confirm('),
+	false
+);
+
+// The reviewer checklist and the attestation rows (content rules revision).
+check(
+	'review page lists the content-rule checks',
+	html.includes('AI attestation is checked.') &&
+		html.includes('the Node is marked explicit') &&
+		html.includes('characters depicted as minors'),
+	true
+);
+check(
+	'review page states that AI attestations are trusted, not detected',
+	html.includes('not on suspicion or detector output'),
+	true
+);
+check(
+	'a row recorded before the attestations says so instead of "No"',
+	html.includes('<th scope="row">Made by people confirmed</th><td>Not recorded</td>'),
+	true
+);
+const attestedHtml = prun({
+	...evil,
+	entry: JSON.stringify({
+		type: 'audio',
+		form: 'music',
+		creator: 'C',
+		why: 'w',
+		tags: ['t'],
+		explicit: true
+	}),
+	review: JSON.stringify({
+		email: 'a@b.co',
+		eula_agreement: true,
+		...ATTESTED,
+		adult_content: 'yes',
+		adult_content_confirmation: true
+	})
+});
+check(
+	'review page shows the attestation answers',
+	attestedHtml.includes('<th scope="row">Made by people confirmed</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Adult content on site</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Adult content confirmation</th><td>Yes</td>') &&
+		attestedHtml.includes('<th scope="row">Marked explicit</th><td>Yes</td>'),
+	true
+);
+check(
+	'the adult confirmation row only appears after a "yes"',
+	html.includes('Adult content confirmation'),
 	false
 );
 

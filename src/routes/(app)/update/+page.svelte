@@ -26,6 +26,7 @@
 	import StepProgress from '../../../components/StepProgress.svelte';
 	import Honeypot from '../../../components/Honeypot.svelte';
 	import Turnstile from '../../../components/Turnstile.svelte';
+	import ContentAttestations from '../../../components/ContentAttestations.svelte';
 	import ExactDataDisclosure from '../../../components/ExactDataDisclosure.svelte';
 	import FieldNode from '../../../components/FieldNode.svelte';
 	import { ringStore } from '$lib/ringStore.svelte.js';
@@ -671,8 +672,11 @@
 									onchange={() => form.touch()}
 								/>
 								<span>
-									<span class="option-label">This entry is exclusively explicit / NSFW content</span
-									>
+									<span class="option-label">This Node features adult content</span>
+									<span class="option-description">
+										Explicit Nodes are hidden from the field, Members, Lists, and the widget until a
+										visitor turns explicit content on in Settings.
+									</span>
 								</span>
 							</label>
 
@@ -1021,26 +1025,6 @@
 								</FormField>
 							{/if}
 
-							{#if form.hasNewWork}
-								<div class="explicit-panel">
-									<label class="option">
-										<input
-											type="checkbox"
-											bind:checked={form.rightsReaffirmed}
-											onchange={() => form.touch()}
-										/>
-										<span>
-											<span class="option-label">Rights, for what you just added</span>
-											<span class="option-description">
-												I confirm I hold full rights to the track(s), page(s), or artwork added or
-												changed above, including that no third party holds a claim requiring
-												separate compensation for its use here.
-											</span>
-										</span>
-									</label>
-								</div>
-							{/if}
-
 							<div class="actions">
 								<button type="button" class="btn btn-ghost" onclick={back}>Back</button>
 								<button type="button" class="btn btn-primary" disabled={!canAdvance} onclick={next}>
@@ -1089,6 +1073,20 @@
 								{/snippet}
 							</FormField>
 
+							<!-- The same content-rule attestations a new submission gives,
+							     asked on every change request so an update cannot swap in
+							     work that skipped them. -->
+							<ContentAttestations
+								bind:aiAttestation={form.aiAttestation}
+								bind:rightsConfirmation={form.rightsConfirmation}
+								bind:adultContent={form.adultContent}
+								bind:adultContentConfirmation={form.adultContentConfirmation}
+								missing={form.attestationErrors}
+								showMusicProSentence={false}
+								idPrefix="update"
+								onchange={() => form.touch()}
+							/>
+
 							<Honeypot bind:value={form.honeypot} />
 							<Turnstile bind:this={turnstileEl} bind:token={turnstileToken} />
 
@@ -1108,7 +1106,9 @@
 								<button
 									type="button"
 									class="btn btn-primary"
-									disabled={form.pending !== 'idle' || Boolean(form.emailError)}
+									disabled={form.pending !== 'idle' ||
+										Boolean(form.emailError) ||
+										!form.attestationsGiven}
 									onclick={onSend}
 								>
 									{form.pending === 'submitting' ? 'Sending…' : 'Send request'}
@@ -1281,19 +1281,6 @@
 		margin: 0 0 1.6rem;
 		padding: 0;
 		list-style: none;
-	}
-
-	.explicit-panel {
-		margin: 1rem 0 2rem;
-		max-width: 62ch;
-		padding: 1.1rem 1.3rem;
-		border: 1px solid rgb(234 179 8 / 0.5);
-		border-radius: var(--radius-sm);
-		background: rgb(234 179 8 / 0.1);
-	}
-
-	.explicit-panel .option {
-		margin: 0;
 	}
 
 	.repeat-row {

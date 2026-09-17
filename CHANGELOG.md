@@ -44,6 +44,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **New content rules on `/join`.**
+  - An AI policy built on what a visitor experiences: featured music, art, writing, voice
+    performances, and game design are made by people. Editing and cleanup tools are fine, and
+    games may use AI-assisted programming.
+  - A rights rule: no covers, uncleared samples, fan work, or client-owned performances as
+    featured works.
+  - Adult content is allowed behind a clear content warning. Adult featured works must be
+    marked explicit.
+  - Sexual content involving minors is never allowed.
+  - Wider discrimination wording.
+  - The type list now includes spoken audio and visual art.
+  - A reminder that a Node can be removed at any time.
+- **Submitting and updating now ask for the content-rule attestations.**
+  - Made by people, rights, and an adult-content disclosure (Yes or No, no default), plus a
+    confirmation after "Yes".
+  - `/update` asks the same set before any change can be sent, so an update cannot bypass
+    them.
+  - The rights box is now shown to everyone and required. It used to appear only alongside a
+    stated PRO membership.
+  - The form lists what is still missing in plain words. Answers are never stored locally.
+  - `/update`'s narrower "rights, for what you just added" box is replaced by the shared rights
+    attestation.
+- **The explicit checkbox reads "This Node features adult content"** and explains that explicit
+  Nodes stay hidden until a visitor opts in. Its behavior is unchanged.
+- **The private review page shows the attestations and the new checklist items**, with a note that
+  AI attestations are trusted and a Node is removed only on credible evidence.
+  - Finalize records the attestations now. Refusing requests without them waits for
+    `CONTENT_ATTESTATIONS_REQUIRED`, to be switched on after the production release that sends
+    them.
 - **The widget iframe loads about 78% less.** `/embed-frame` sat under the root layout, and
   SvelteKit loads a layout's whole import graph whatever it renders, so every iframe embed on a
   member's site downloaded the app's chrome and stylesheet (about 489 kB). The app's routes now

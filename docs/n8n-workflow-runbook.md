@@ -148,7 +148,7 @@ Notes that change how you build this:
 
 - `issue_token`'s `source_url` is nullable — the site-generator branch (a creator with no site yet) mints a token before any URL exists to embed it at. `bind_source_url` is that branch's second half, attaching a real URL to the same `submission_id` afterward. It must reject (not silently overwrite) a second bind attempt on an already-bound submission — see §4's `bind_source_url` branch.
 - `verify` sends only `submission_id`. **The workflow must resolve `source_url` from its own stored state, never from the request.** If the workflow trusted a client-supplied URL here, a submitter could verify a page they control and then submit a different one — the whole check becomes decorative. This is the single most load-bearing rule in this entire document; every branch that touches a URL (`verify`, `submit`'s re-check, `request_update_token`) must resolve it server-side.
-- `entry` (in `submit` and `submit_update`) is the full `ring.json`-shaped object per `schema/ring.schema.json` (§2.3 below) — `id`/`creator_id` excluded (the workflow assigns those at approval, §9). `review` (in `submit` only) is the Section 2.2 block: `email`, `rights_confirmation`, `pro_membership`, `pro_membership_name`, `eula_agreement`.
+- `entry` (in `submit` and `submit_update`) is the full `ring.json`-shaped object per `schema/ring.schema.json` (§2.3 below), with `id`/`creator_id` excluded (the workflow assigns those at approval, §9). `review` (in `submit`) is the Section 2.2 block: `email`, `rights_confirmation`, `pro_membership`, `pro_membership_name`, `eula_agreement`, plus the content-rule attestations `ai_attestation`, `adult_content` (`'yes' | 'no'`) and `adult_content_confirmation`. `submit_update` carries its own `review` with the four attestation fields (`ai_attestation`, `rights_confirmation`, `adult_content`, `adult_content_confirmation`) beside its top-level `email`, so an update cannot skip them. `request_removal` has none. Whether they are required is `CONTENT_ATTESTATIONS_REQUIRED` (§12).
 - `request_update_token`/`submit_update`/`request_removal` are keyed by an existing `node_id`, not a new submission. The workflow must fetch the node's **current** `source_url` from the live `ring.json` itself (not from anything the client sends) to check the token against — same reasoning as `verify`.
 - `turnstile_token` is optional and appears **only** on `submit_update`, `request_removal`, and the Contact webhook — `issue_token`/`verify`/`submit` on `/join` are not Turnstile-guarded at all. Don't add a Turnstile check to those three actions; the client never sends a token for them.
 - `rate_status` (added 2026-08-31) is a **read-only** pre-check: whether a fresh `submit`/`submit_update`/`request_removal` for this `source_url` would be rate-limited right now, asked from `/update`'s identify step as soon as a node is found — before the visitor has invested time in the form or a Turnstile challenge only to be told to come back later. It reads the same `rate_limits` bucket §5's rate limiting describes but never writes to it, and it has none of `resume`/`is_removal`'s exemptions (it doesn't yet know which the visitor will end up doing), so it can occasionally say "blocked" a beat before the real gate at actual submit time would exempt it. That's intentional — it's advisory, never the gate; the client treats a failure to reach it as "nothing to show," not an error.
@@ -861,6 +861,23 @@ reviewer's own session on this n8n instance. One `escapeHtml()` helper, applied 
 covers it. Verified live: a submission with `creator` set to `<script>alert(1)</script>` and a
 tag set to `"><img src=x onerror=alert(2)>` rendered both as inert escaped text, not as markup.
 
+The **Review criteria** list is the reviewer checklist. Every item is a yes/no check, not a quality
+judgment. Besides the §8 items, it carries the content-rule checks (added 2026-09-17):
+
+- the AI attestation is checked;
+- the rights attestation is checked, and no featured work is obviously a cover, fan work, or client
+  work;
+- the adult-content disclosure is answered, and any adult featured work is marked explicit;
+- no sexual content involving minors, or characters depicted as minors, is visible on the site.
+
+It ends with the standing note that AI attestations are trusted at submission, and a Node is
+removed only on credible evidence that featured work is generated, never on suspicion or detector
+output.
+
+The **Submission checks** table shows each attestation answer, plus whether the entry is marked
+explicit. A row recorded before the attestations existed shows "Not recorded" rather than a "No"
+the submitter was never asked for.
+
 Reject on the page carries a `confirm()` prompt before navigating — it deletes the row
 permanently, so a lightweight guard against a misclick is worth the one line. Approve stays a
 plain link; `approval_failed` is already a recoverable state if clicked by mistake.
@@ -1122,17 +1139,31 @@ Execution history stays off (`no_persist`) either way, so the row is the only co
 **No config table.** Notification targets are generator constants in
 `scripts/n8n/build_workflows.py`:
 
-| Constant            | Notes                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------- |
-| `REVIEWER_EMAIL`    | Mail fallback recipient                                                                               |
-| `NOTIFY_FROM_EMAIL` | From address; also gates the reject path                                                              |
-| `TURNSTILE_ENABLED` | `False`. When off, the Turnstile nodes are left out of the graph entirely rather than sitting dormant |
+| Constant                        | Notes                                                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `REVIEWER_EMAIL`                | Mail fallback recipient                                                                               |
+| `NOTIFY_FROM_EMAIL`             | From address; also gates the reject path                                                              |
+| `TURNSTILE_ENABLED`             | `False`. When off, the Turnstile nodes are left out of the graph entirely rather than sitting dormant |
+| `CONTENT_ATTESTATIONS_REQUIRED` | See below. Whether Finalize refuses a submission or update without the content-rule attestations      |
 
 Both addresses default to `@invalid`, a reserved TLD that can never resolve, so an unfilled
 placeholder cannot quietly deliver somewhere wrong. `EMAIL_CONFIGURED` derives from that, and
 the reject path treats an `@invalid` sender as unconfigured — holding the submission rather than
 deleting it with no notice. n8n rejects an empty `fromEmail` at publish time, which is why a
 placeholder exists rather than a blank.
+
+**Content-rule attestations (`CONTENT_ATTESTATIONS_REQUIRED`).** Finalize always records
+`ai_attestation`, `rights_confirmation`, `adult_content` and `adult_content_confirmation` for new
+submissions and updates, and the review page always shows them. The flag only decides refusal,
+and it moves in two phases because staging and production share this instance:
+
+1. **`False`** (shipped 2026-09-17): record and display only. The older rule still applies:
+   rights are required only alongside a stated PRO. A production app released before the
+   attestations keeps working.
+2. **`True`**: every new submission and update must carry all of them (a "yes" to adult content
+   also needs its confirmation); removals never do. Flip it, `--push`, and `--export` **only after
+   the production release that carries the client change**. Pushing it earlier refuses every
+   join and update from the older production app.
 
 **Enabling Turnstile:** create an `httpCustomAuth` credential whose `json` is
 `{"body": {"secret": "<cloudflare secret>"}}` — verified 2026-08-22 to inject into the request

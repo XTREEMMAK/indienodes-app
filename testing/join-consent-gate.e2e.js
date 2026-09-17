@@ -1,23 +1,17 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Two bugs on the Consent step, found by manual testing:
+ * The Consent step's gate.
  *
- * 1. The step's own Continue button didn't require the General EULA
- *    checkbox at all -- only the final "Submit my entry" button did, so a
- *    submitter could click through to Review with nothing agreed and land
- *    there with no visible explanation why Submit stayed disabled.
- * 2. The "Terms of Use" and "Privacy Notice" links both pointed at the same
- *    bare `/terms` URL -- a real link existed, but "Privacy Notice" never
- *    actually reached the privacy section of that combined document.
+ * Continue (and later Submit) needs the general EULA and every content-rule
+ * attestation: made by people, rights, and an answer to the adult-content
+ * question, plus its confirmation after a "Yes". Rights apply to everyone;
+ * they used to appear only alongside a stated PRO relationship.
  *
- * Also covers the newer, deliberate rule that grew out of fixing (1): the
- * Rights section (and its checkbox's contribution to the gate) only applies
- * when the submitter has stated an actual PRO relationship -- "Not a
- * member" has nothing there to disclose, and the general EULA already
- * covers the blanket rights affirmation for everyone.
+ * Also pins an older bug: the "Terms of Use" and "Privacy Notice" links both
+ * pointed at the bare `/terms` URL.
  */
-test('consent step requires the general EULA before Continue, and Rights only applies to a stated PRO member', async ({
+test('consent step requires the EULA and every content-rule attestation before Continue', async ({
 	page
 }, testInfo) => {
 	test.skip(testInfo.project.name !== 'join-mock-dev');
@@ -51,27 +45,68 @@ test('consent step requires the general EULA before Continue, and Rights only ap
 
 	await expect(page.getByRole('heading', { name: 'Rights and contact' })).toBeVisible();
 	const continueBtn = page.getByRole('button', { name: 'Continue', exact: true }).last();
+	const eula = page.getByRole('checkbox', { name: /By submitting, you affirm/ });
+	const madeByPeople = page.getByRole('checkbox', { name: /were made by people/ });
+	const rights = page.getByRole('checkbox', { name: /I hold the rights to the works/ });
+	const adultYes = page.getByRole('radio', { name: 'Yes', exact: true });
+	const adultNo = page.getByRole('radio', { name: 'No', exact: true });
+	const adultConfirm = page.getByRole('checkbox', { name: /behind a clear content warning/ });
+	const stillNeeded = page.locator('.still-needed');
 
 	await page.locator('#f-email').fill('consent-test@example.com');
 	await page.locator('#f-pro').selectOption('Not a member');
 
-	// "Not a member" leaves nothing for the Rights section to disclose, so
-	// it must not even render, and Continue must still be blocked on EULA.
-	await expect(page.getByRole('heading', { name: 'Rights', exact: true })).toHaveCount(0);
+	// Nothing answered yet: every attestation is listed, and neither adult
+	// answer is chosen for the visitor.
+	await expect(adultYes).not.toBeChecked();
+	await expect(adultNo).not.toBeChecked();
+	await expect(adultConfirm).toHaveCount(0);
+	await expect(stillNeeded).toContainText(
+		'Please confirm your featured works were made by people.'
+	);
+	await expect(stillNeeded).toContainText(
+		'Please confirm you hold the rights to the works you are featuring.'
+	);
+	await expect(stillNeeded).toContainText(
+		'Please say whether your website includes adult content.'
+	);
+
+	// The EULA alone is no longer enough, and neither is anything short of all.
+	await eula.check();
+	await expect(continueBtn).toBeDisabled();
+	await madeByPeople.check();
+	await expect(continueBtn).toBeDisabled();
+	await rights.check();
 	await expect(continueBtn).toBeDisabled();
 
-	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).check();
+	// "Yes" brings its own required confirmation.
+	await adultYes.check();
+	await expect(adultConfirm).toBeVisible();
+	await expect(stillNeeded).toContainText(
+		'Please confirm your adult content sits behind a content warning.'
+	);
+	await expect(continueBtn).toBeDisabled();
+	await adultConfirm.check();
 	await expect(continueBtn).toBeEnabled();
-	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).uncheck();
-	await expect(continueBtn).toBeDisabled();
+	await expect(stillNeeded).toHaveCount(0);
 
-	// Naming an actual PRO brings the Rights section back, and it now joins
-	// the gate: EULA alone is no longer enough.
-	await page.locator('#f-pro').selectOption('BMI');
-	await expect(page.getByRole('heading', { name: 'Rights', exact: true })).toBeVisible();
-	await page.getByRole('checkbox', { name: /By submitting, you affirm/ }).check();
+	// Back to "No": the confirmation is hidden and cleared, and "No" is a
+	// complete answer on its own.
+	await adultNo.check();
+	await expect(adultConfirm).toHaveCount(0);
+	await expect(continueBtn).toBeEnabled();
+	await adultYes.check();
+	await expect(adultConfirm).not.toBeChecked();
 	await expect(continueBtn).toBeDisabled();
-	await page.getByRole('checkbox', { name: /I confirm that I hold full rights/ }).check();
+	await adultNo.check();
+
+	// Each piece still gates on its own.
+	await rights.uncheck();
+	await expect(continueBtn).toBeDisabled();
+	await rights.check();
+	await eula.uncheck();
+	await expect(continueBtn).toBeDisabled();
+	await eula.check();
 	await expect(continueBtn).toBeEnabled();
 
 	const links = await page
@@ -81,4 +116,13 @@ test('consent step requires the general EULA before Continue, and Rights only ap
 		);
 	expect(links).toContainEqual({ text: 'Terms of Use', href: '/terms#terms-of-use' });
 	expect(links).toContainEqual({ text: 'Privacy Notice', href: '/terms#privacy-notice' });
+});
+
+test('the content rules link to the update route', async ({ page }) => {
+	await page.goto('/join', { waitUntil: 'networkidle' });
+	const link = page.locator('.rules-list a', { hasText: 'submit an update request' });
+	await expect(link).toHaveAttribute('href', '/update');
+	await expect(page.locator('.rules-list')).toContainText(
+		'You can also remove your Node from the network at any time.'
+	);
 });

@@ -168,6 +168,21 @@ EMAIL_CONFIGURED = not NOTIFY_FROM_EMAIL.endswith("@invalid")
 # submit stay unguarded by design. Rating is not covered: its prompt renders
 # no challenge.
 TURNSTILE_ENABLED = True
+
+# The content-rule attestations (AI, rights, adult-content disclosure) that
+# /join and /update collect; see `validateAttestations` in
+# src/lib/submissionValidation.js. Finalize always records them and the review
+# page always shows them. This flag decides whether a new submission or update
+# is refused without them.
+#
+# Two phases, because staging and production share this one n8n instance and
+# the production app only starts sending the fields once a release carries
+# the client change:
+#   1. False (now): record and display; keep the old rule that rights are
+#      only required alongside a stated PRO. Old clients keep working.
+#   2. True, pushed only after that production release: every new submission
+#      and update must carry all of them. Removals never need them.
+CONTENT_ATTESTATIONS_REQUIRED = False
 TURNSTILE_CREDENTIAL = {"id": "g0EFH2lm3bgbeea7", "name": "IndieNodes - Turnstile Secret"}
 
 # Shortened 2026-08-31 from 60 * 60. Turnstile (see TURNSTILE_ENABLED above)
@@ -2027,30 +2042,50 @@ if (!isRemoval && (!email || email.length > 320 || email.indexOf('@') < 1)) {
 // explanation, so an absent reason is a complete request, not a partial one.
 const reason = isRemoval ? (b.reason || '').toString().slice(0, 2000) : '';
 
+// Content-rule attestations (see CONTENT_ATTESTATIONS_REQUIRED). A new
+// submission sends them in its review block; an update sends them in `review`
+// beside its top-level email. A removal changes no featured work, so it has
+// none. Normalised strictly: only `true` is a yes, and a confirmation only
+// counts after an adult-content "yes".
+const carriesWorks = !isRemoval;
+const att = hasEntryBlock ? rv : (b.review && typeof b.review === 'object' ? b.review : {});
+const adultContent = ['yes', 'no'].includes(att.adult_content) ? att.adult_content : '';
+
 const review = {
   mode: isRemoval ? 'remove' : (isUpdate ? 'update' : 'new'),
   node_id: storedNode || null,
   email,
   reason: isRemoval ? reason : null,
-  rights_confirmation: hasEntryBlock ? rv.rights_confirmation === true : null,
+  rights_confirmation: carriesWorks ? att.rights_confirmation === true : null,
+  ai_attestation: carriesWorks ? att.ai_attestation === true : null,
+  adult_content: carriesWorks ? (adultContent || null) : null,
+  adult_content_confirmation: carriesWorks
+    ? (adultContent === 'yes' && att.adult_content_confirmation === true)
+    : null,
   eula_agreement: hasEntryBlock ? rv.eula_agreement === true : null,
   pro_membership: hasEntryBlock ? (rv.pro_membership || null) : null,
   pro_membership_name: hasEntryBlock ? (rv.pro_membership_name || null) : null
 };
-// Rights only has to be confirmed alongside a stated PRO relationship --
-// "Not a member" (or unanswered) leaves nothing there to disclose, and the
-// general EULA already collects a blanket rights affirmation from everyone.
-// Mirrors `rightsSectionApplies`/`consentGiven` in
-// src/lib/submissionValidation.js, which is what actually gates the /join
-// form's own Continue and Submit buttons -- this is the same rule enforced
-// again server-side, not a second, independent one.
-const rightsSectionApplies =
-  hasEntryBlock && Boolean(review.pro_membership) && review.pro_membership !== 'Not a member';
-if (
-  hasEntryBlock &&
-  (review.eula_agreement !== true || (rightsSectionApplies && review.rights_confirmation !== true))
-) {
-  return bad('invalid_request');
+// The EULA always gates a new submission. The attestations mirror
+// `consentGiven`/`validateAttestations` in src/lib/submissionValidation.js,
+// which gate the /join and /update buttons: the same rule enforced again
+// server-side, not a second, independent one.
+if (hasEntryBlock && review.eula_agreement !== true) return bad('invalid_request');
+if (%(attest_required)s) {
+  if (carriesWorks && (
+    review.ai_attestation !== true ||
+    review.rights_confirmation !== true ||
+    !review.adult_content ||
+    (review.adult_content === 'yes' && review.adult_content_confirmation !== true)
+  )) {
+    return bad('invalid_request');
+  }
+} else {
+  // Transition rule for clients released before the attestations: rights
+  // were only asked alongside a stated PRO relationship.
+  const rightsSectionApplies =
+    hasEntryBlock && Boolean(review.pro_membership) && review.pro_membership !== 'Not a member';
+  if (rightsSectionApplies && review.rights_confirmation !== true) return bad('invalid_request');
 }
 
 // The salt is an HMAC credential and the Gotify server is a credential, so
@@ -2074,6 +2109,7 @@ return [{ json: {
 
 %(canonical_js)s
 """ % {"ts_enabled": "true" if TURNSTILE_ENABLED else "false",
+       "attest_required": "true" if CONTENT_ATTESTATIONS_REQUIRED else "false",
        "stale": STALE_CLAIM_SECONDS * 1000,
        "skip_ttl": REVERIFY_SKIP_TTL_SECONDS * 1000,
        "canonical_js": CANONICAL_URL_JS}
@@ -2785,6 +2821,12 @@ const thumb = entry.thumb_url
   ? '<img class="cover" style="object-position:' + esc(thumbX) + '% ' + esc(thumbY) + '%" src="' + esc(entry.thumb_url) + '" alt="" loading="lazy">'
   : '';
 
+// Attestations exist for new submissions and updates alike (a removal renders
+// its own branch). A row recorded before they existed has none: say so rather
+// than showing a "No" the submitter was never asked for.
+const attest = (v) => v === true ? 'Yes' : (v === false ? 'No' : 'Not recorded');
+const adultAnswer = review.adult_content === 'yes' ? 'Yes'
+  : (review.adult_content === 'no' ? 'No' : 'Not recorded');
 const membership = review.pro_membership
   ? esc(review.pro_membership) +
     (review.pro_membership_name ? ' (' + esc(review.pro_membership_name) + ')' : '')
@@ -2835,14 +2877,23 @@ const reviewContent = isRemoval
         <li>Work is publicly reachable and released, not announced &mdash; ongoing is fine, a concept alone is not.</li>
         <li>The Node is authentically this creator's, not scraped, republished, or bulk-produced.</li>
         <li>Rough production, small scope, niche style, a plain site, or a small audience are never grounds to decline.</li>
+        <li>AI attestation is checked.</li>
+        <li>Rights attestation is checked, and no featured work is obviously a cover, fan work using characters the creator does not own, or client work.</li>
+        <li>Adult content disclosure is answered. If any featured work is adult content, the Node is marked explicit.</li>
+        <li>No sexual content involving minors or characters depicted as minors is visible on the site.</li>
       </ul>
+      <p class="why">AI attestations are trusted at submission. A Node is removed only on credible evidence that featured work is generated, not on suspicion or detector output.</p>
     </section>
     <section class="section">
       <p class="section-label">Submission checks</p>
       <table class="details">
         <tbody>
           <tr><th scope="row">Email</th><td>${esc(review.email)}</td></tr>
-          <tr><th scope="row">Rights confirmed</th><td>${yn(review.rights_confirmation)}</td></tr>
+          <tr><th scope="row">Made by people confirmed</th><td>${attest(review.ai_attestation)}</td></tr>
+          <tr><th scope="row">Rights confirmed</th><td>${attest(review.rights_confirmation)}</td></tr>
+          <tr><th scope="row">Adult content on site</th><td>${adultAnswer}</td></tr>
+          ${review.adult_content === 'yes' ? `<tr><th scope="row">Adult content confirmation</th><td>${attest(review.adult_content_confirmation)}</td></tr>` : ''}
+          <tr><th scope="row">Marked explicit</th><td>${entry.explicit === true ? 'Yes' : 'No'}</td></tr>
           <tr><th scope="row">EULA agreed</th><td>${yn(review.eula_agreement)}</td></tr>
           <tr><th scope="row">PRO membership</th><td>${membership}</td></tr>
         </tbody>

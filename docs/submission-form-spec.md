@@ -63,14 +63,17 @@ piece from a soundtrack that happens to share every tag.
 
 ### 2.2 Verification and consent fields (not in ring.json, used at review stage only)
 
-| Field               | Type             | Required    | Notes                                                                                                                                    |
-| ------------------- | ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| email               | email            | yes         | See below. Never written to ring.json, never stored as an account.                                                                       |
-| verification_token  | system-generated | yes         | Opaque string, issued by the backend. Placed at source_url directly, or embedded in the generated site's export. Expires 24h after issue |
-| rights_confirmation | checkbox         | yes         | See Section 3 warranty text                                                                                                              |
-| pro_membership      | select           | yes         | Options: Not a member / ASCAP / BMI / SESAC / GMR / Other / Not sure                                                                     |
-| pro_membership_name | text             | conditional | Shown only if pro_membership is "Other" — every named option (ASCAP, BMI, ...) already names itself by being picked                      |
-| eula_agreement      | checkbox         | yes         | See Section 4                                                                                                                            |
+| Field                      | Type             | Required    | Notes                                                                                                                                    |
+| -------------------------- | ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| email                      | email            | yes         | See below. Never written to ring.json, never stored as an account.                                                                       |
+| verification_token         | system-generated | yes         | Opaque string, issued by the backend. Placed at source_url directly, or embedded in the generated site's export. Expires 24h after issue |
+| rights_confirmation        | checkbox         | yes         | See Section 3 warranty text                                                                                                              |
+| ai_attestation             | checkbox         | yes         | See Section 3a                                                                                                                           |
+| adult_content              | radio (yes / no) | yes         | See Section 3a. No default                                                                                                               |
+| adult_content_confirmation | checkbox         | conditional | Shown and required only after adult_content "yes"; cleared on "no". See Section 3a                                                       |
+| pro_membership             | select           | yes         | Options: Not a member / ASCAP / BMI / SESAC / GMR / Other / Not sure                                                                     |
+| pro_membership_name        | text             | conditional | Shown only if pro_membership is "Other": every named option (ASCAP, BMI, ...) already names itself by being picked                       |
+| eula_agreement             | checkbox         | yes         | See Section 4                                                                                                                            |
 
 The `pro_membership` field is data collection only. It does not block or approve submissions. It exists to give the project accurate visibility into PRO exposure across the live ring. Do not build any rejection logic against this field without a separate decision to do so.
 
@@ -78,9 +81,21 @@ The `pro_membership` field is data collection only. It does not block or approve
 
 ## 3. Rights Warranty (checkbox label text)
 
-Shown as a single checkbox. Collected for every type, but does not gate Continue or Submit — see Section 6. Worded for any type of work, not just audio's "recording and composition"; the PRO sentence is shown only when `type` is `audio` and `form` is `music`, since PRO membership only means something for music, not for spoken-word audio:
+**Revised 2026-09-17 (content rules revision).** Shown to everyone as a single checkbox, and required: it gates Continue and Submit (Section 6). The PRO sentence is still shown only when `type` is `audio` and `form` is `music`, since PRO membership only means something for music:
 
-> "I confirm that I hold full rights to what I am submitting, including that no third party such as a co-writer, sample owner, publisher, collaborator, or label holds a claim that would require separate compensation for its use on IndieNodes. [music only:] I understand that PRO membership does not prevent me from submitting, but I am disclosing it accurately above."
+> "I hold the rights to the works I am featuring. None of them are covers, uncleared samples, fan work using characters I do not own, or performances owned by a client. [music only:] I understand that PRO membership does not prevent me from submitting, but I am disclosing it accurately above."
+
+The third-party compensation language this box used to carry lives on in the General EULA (Section 4).
+
+## 3a. Content-rule attestations
+
+Added 2026-09-17, alongside the rights warranty above, on `/join`'s consent step and on `/update`'s review step, so an update cannot bypass them (a removal changes no featured work and asks none of them). All of them are review data only: never written to `ring.json`, and never persisted with the local draft. A reload asks again, like every other consent field.
+
+- **Made by people** (`ai_attestation`, required checkbox): "I confirm that the music, art, writing, voice performances, and game design in my featured works were made by people, as described in the content rules."
+- **Adult content** (`adult_content`, required, Yes or No, no default): "Does your website include adult content?"
+- **After "Yes"** (`adult_content_confirmation`, required checkbox; hidden and cleared on "No"): "I confirm that adult content on my website sits behind a clear content warning, and that I have marked this Node as explicit if any work I feature is adult content."
+
+Adult featured works are allowed when the Node is marked explicit (the entry's `explicit` field, labelled "This Node features adult content" on the form). Explicit Nodes stay hidden until a visitor turns explicit content on in Settings. The disclosure itself never reaches the ring.
 
 ## 4. General EULA (shown at submission, required checkbox)
 
@@ -129,7 +144,7 @@ The one consent that actually gates submission (Section 6). Worded for any type 
 - `artworks`: one to three for Art. Every work requires an external `image_url` and meaningful `alt`; `title`, `year`, `medium`, and a work-level `external_url` are optional.
 - `media_url`, `image_url`, `preview_url`, `thumb_url`: must not point at IndieNodes's own domain. This enforces the no-rehosting principle at the data layer, not just as a policy statement. Now encoded in the JSON schema as a shared `$defs/externalMediaUrl`, which means `npm run validate:publish` rejects a violation on every entry, including ones added by hand, rather than the rule depending on the form being the only way in. The form and the backend check it too; the schema is the backstop, not the only line.
 - `trailer_url`: optional for games, HTTPS YouTube URLs only. It remains separate from `preview_url` so old direct clips stay compatible and third-party embeds remain explicit.
-- `eula_agreement` must be checked before the submit action is enabled. Disable the submit button rather than validating on click, so the requirement is visible before the attempt. `rights_confirmation` is also collected but does not gate Continue or Submit — its wording is necessarily written toward one kind of work and reads oddly for the others (Section 3), so the general EULA (Section 4), which every type can equally agree to, is the one actual gate.
+- `eula_agreement` and every Section 3 and 3a attestation must be given before the submit action is enabled (and before Continue on the consent step). Disable the button rather than validating on click, so the requirement is visible before the attempt; the form lists what is still missing in plain words ("Please confirm your featured works were made by people."). The backend enforces the same rule once `CONTENT_ATTESTATIONS_REQUIRED` is on (`docs/n8n-workflow-runbook.md`).
 - `pro_membership_name` is required only if `pro_membership` is "Other."
 
 ## 7. Architecture: Where This Runs

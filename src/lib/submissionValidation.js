@@ -83,20 +83,54 @@ export const PRO_OPTIONS = /** @type {const} */ ([
 const PRO_NAME_REQUIRED_FOR = 'Other';
 
 /**
- * Whether the Rights section (the detailed rights warranty, naming
- * co-writers/sample owners/publishers/collaborators/labels, plus the PRO
- * disclosure sentence for music) applies to this submitter at all.
+ * Answers to "Does your website include adult content?". There is no default:
+ * an unanswered question is `''` and blocks submission.
+ */
+export const ADULT_CONTENT_OPTIONS = /** @type {const} */ (['yes', 'no']);
+
+/**
+ * The content-rule attestations every new submission and every update must
+ * carry (see the content rules on /join). Keys are the review fields they
+ * belong to, so a store's error map can be read by field.
+ */
+export const ATTESTATION_MESSAGES = /** @type {const} */ ({
+	ai_attestation: 'Please confirm your featured works were made by people.',
+	rights_confirmation: 'Please confirm you hold the rights to the works you are featuring.',
+	adult_content: 'Please say whether your website includes adult content.',
+	adult_content_confirmation: 'Please confirm your adult content sits behind a content warning.'
+});
+
+/**
+ * What is still missing from the content-rule attestations, as field to
+ * message. Empty when everything is given.
  *
- * Deliberately tied to `pro_membership`, not to `type`: the general EULA
- * checkbox already collects a blanket "I hold full rights" affirmation from
- * everyone, so the more detailed Rights section only earns its own required
- * checkbox when there is an actual PRO relationship that could complicate
- * that affirmation -- "Not a member" (or the field not yet answered) has
- * nothing to disclose here.
+ * Shared by /join and /update so an update cannot skip a check a new
+ * submission has to pass. The rights attestation applies to everyone: it
+ * used to appear only when a PRO relationship was stated.
+ * @param {Record<string, any>} review
+ * @returns {ErrorMap}
+ */
+export function validateAttestations(review) {
+	/** @type {ErrorMap} */
+	const errors = {};
+	if (review?.ai_attestation !== true) errors.ai_attestation = ATTESTATION_MESSAGES.ai_attestation;
+	if (review?.rights_confirmation !== true) {
+		errors.rights_confirmation = ATTESTATION_MESSAGES.rights_confirmation;
+	}
+	if (!ADULT_CONTENT_OPTIONS.includes(review?.adult_content)) {
+		errors.adult_content = ATTESTATION_MESSAGES.adult_content;
+	} else if (review.adult_content === 'yes' && review?.adult_content_confirmation !== true) {
+		errors.adult_content_confirmation = ATTESTATION_MESSAGES.adult_content_confirmation;
+	}
+	return errors;
+}
+
+/**
+ * Whether every content-rule attestation is given.
  * @param {Record<string, any>} review
  */
-export function rightsSectionApplies(review) {
-	return Boolean(review?.pro_membership) && review.pro_membership !== 'Not a member';
+export function attestationsGiven(review) {
+	return Object.keys(validateAttestations(review)).length === 0;
 }
 
 /** Schema cap: three, so the ring stays a sampler rather than a host. */
@@ -337,6 +371,9 @@ export function validateEntry(entry) {
  * `pro_membership` is collected and never judged. Spec section 2.2 is
  * explicit that it must not gate anything without a separate decision, so
  * the only rule here is the conditional on `pro_membership_name`.
+ *
+ * The content-rule attestations are included, so the consent step's own
+ * completeness check covers them.
  * @param {Record<string, any>} review
  * @returns {ErrorMap}
  */
@@ -363,30 +400,20 @@ export function validateReview(review) {
 		errors.pro_membership_name = 'Which organization?';
 	}
 
-	return errors;
+	return { ...errors, ...validateAttestations(review) };
 }
 
 /**
  * Whether the submit action may be enabled.
  *
- * `eula_agreement` always gates this — the general EULA is the one
- * statement every type can equally agree to, worded generically rather than
- * toward one kind of work the way `rights_confirmation` necessarily is
- * (built for audio's "recording and composition", which reads oddly for a
- * comic). Spec section 6 asks for the button to be *disabled* until this is
- * checked, rather than validating on click, so the requirement is visible
- * before the attempt rather than after it.
- *
- * `rights_confirmation` only joins the gate when `rightsSectionApplies`
- * says the Rights section is actually shown (a stated PRO relationship,
- * not "Not a member") — see that function's own comment for why it is tied
- * to `pro_membership` rather than to `type`.
+ * The general EULA and every content-rule attestation gate it. Spec section 6
+ * asks for the button to be *disabled* until these are given, rather than
+ * validating on click, so the requirement is visible before the attempt
+ * rather than after it.
  * @param {Record<string, any>} review
  */
 export function consentGiven(review) {
-	if (review?.eula_agreement !== true) return false;
-	if (rightsSectionApplies(review)) return review?.rights_confirmation === true;
-	return true;
+	return review?.eula_agreement === true && attestationsGiven(review);
 }
 
 /**

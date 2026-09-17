@@ -220,7 +220,11 @@ export async function requestUpdateToken(nodeId, input) {
  * (and so never produces one) when `TURNSTILE_SITE_KEY` is unset — see its
  * own doc comment. This is the one action here Turnstile actually guards:
  * `issue_token`/`verify` stay exactly as `/join` already left them.
- * @param {{ submission_id: string, node_id: string, entry: Record<string, any>, email: string, website: string, elapsed_ms: number, turnstile_token?: string }} input
+ *
+ * `review` carries the same content-rule attestations a new submission does
+ * (see `validateAttestations` in submissionValidation.js), so changing a
+ * Node's featured works cannot skip them. Email stays top-level.
+ * @param {{ submission_id: string, node_id: string, entry: Record<string, any>, email: string, review: { ai_attestation: boolean, rights_confirmation: boolean, adult_content: string, adult_content_confirmation: boolean }, website: string, elapsed_ms: number, turnstile_token?: string }} input
  * @returns {Promise<{ reference: string }>}
  */
 export async function submitUpdate(input) {
