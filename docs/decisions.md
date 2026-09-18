@@ -2356,3 +2356,19 @@ arrangement read as redundant to the person filling it in, twice over:
 **Server enforcement ships in two phases** (`CONTENT_ATTESTATIONS_REQUIRED`), because staging
 and production share one n8n instance and the production app only sends the fields after a
 release. Until then Finalize records and displays them without refusing their absence.
+
+## LOCKED: covers are eligible as featured works, 2026-09-18
+
+Partially reverses the rights rule locked in "content rules revision" above: covers are no
+longer excluded. IndieNodes hosts musicians who cover other people's work, and explicitly
+welcomes it where the creator holds a license to perform the cover — the common case in the
+video game music remix scene. Uncleared samples, fan work using characters the creator does
+not own, and client-owned performances are unaffected and remain ineligible.
+
+This is copy-only, not a schema, validation, or webhook change: `rights_confirmation` still
+means "I hold the rights to the works I am featuring, or a license to perform them," just
+without naming covers as automatically disqualifying. The public content rules on `/join`,
+the rights checkbox text (`/join`'s EULA checkbox and `ContentAttestations.svelte`), and
+`docs/submission-form-spec.md` §3/§4 were updated to match. EULA §5.4's own representation
+("hold every right and permission needed to submit and display it") was already broad enough
+to cover a licensed cover and did not need editing.

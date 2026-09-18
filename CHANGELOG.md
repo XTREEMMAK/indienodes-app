@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Covers are now eligible as featured works.** The content rules and the rights checkbox
+  copy on `/join` and `/update` no longer exclude them, and explicitly welcome licensed covers
+  — the common case in the video game music remix scene. Uncleared samples, fan work using
+  characters the creator does not own, and client-owned performances are still ineligible.
+
 ### Removed
 
 - **The PRO membership question is gone from `/join`.** It was never saved to a dedicated

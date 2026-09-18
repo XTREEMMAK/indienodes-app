@@ -1188,9 +1188,11 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 										its own.
 									</li>
 									<li>
-										You must hold the rights to the works you feature on your Node. Covers,
-										uncleared samples, fan work using characters you do not own, and performances
-										owned by a client are not eligible as featured works.
+										You must hold the rights to the works you feature on your Node, or a license to
+										perform them. Covers are welcome, especially where you hold a license for them —
+										a common case in the video game music remix scene. Uncleared samples, fan work
+										using characters you do not own, and performances owned by a client are still
+										not eligible as featured works.
 									</li>
 									<li>
 										IndieNodes features independent creators of music and spoken audio, comics and
@@ -1920,11 +1922,11 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 									onchange={(event) => agreeToEula(event.currentTarget.checked)}
 								/>
 								<span class="option-description consent-text">
-									I hold the rights to the works I am featuring. None of them are covers, uncleared
-									samples, fan work using characters I do not own, or performances owned by a
-									client. By submitting, you also agree that IndieNodes operates on a donation-only
-									basis: it collects no revenue from your work, and you waive any claim to
-									compensation from IndieNodes on that basis.
+									I hold the rights to the works I am featuring, or a license to perform them. None
+									of them are uncleared samples, fan work using characters I do not own, or
+									performances owned by a client. By submitting, you also agree that IndieNodes
+									operates on a donation-only basis: it collects no revenue from your work, and you
+									waive any claim to compensation from IndieNodes on that basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
 									</button>. By submitting, you also agree to the

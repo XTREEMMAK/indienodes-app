@@ -1,8 +1,9 @@
 # IndieNodes — Submission Form Spec
 
-**Version:** v1.2
+**Version:** v1.3
 **Status:** Implemented
 **Scope:** Submission form fields, validation, EULA copy, and data model mapping for the ring.json publishing pipeline. This is an implementation spec, not a legal reasoning document. Safe for the public repo.
+**Changelog (v1.3):** The rights rule no longer excludes covers. The public content rules and the Section 3/4 rights checkbox copy now say a creator must hold the rights to a featured work, or a license to perform it — covers are explicitly welcome, especially licensed ones, which is the common case in the video game music remix scene. Uncleared samples, fan work using characters the creator does not own, and client-owned performances remain ineligible. No schema, validation, or webhook change: this is content-policy wording only, carried in copy, not in code (see `decisions.md`).
 **Changelog (v1.2):** `pro_membership`/`pro_membership_name` are removed from the form entirely — never saved to a dedicated field, never used for reporting or moderation, and the compensation waiver it was originally paired with is already covered by the General EULA (Section 4). Removed from Section 2.2's field table, the Section 3 and Section 4 checkbox copy, the Section 6 validation rule, and the Section 5 field-stripping list. The n8n webhook's legacy `rights_confirmation` gate, which used to key off a stated PRO relationship, now requires `rights_confirmation` unconditionally for every new submission.
 **Changelog (v1.1):** Per the audio-form addendum (`tmp/IndieNode_v2_Addendum_Audio_Form.md`): audio entries now require a `form` field (`music` | `spoken`), since spoken content (narration, audio drama, voice work) is now submitted under the existing `audio` type rather than a new one. The form displays the internal `audio` type as **Audio**, not **Music** — the music/spoken split is what `form` is for. The PRO-disclosure sentence in Section 3 is now shown only when `form` is `music`, since PRO membership means nothing for spoken-word audio.
 **Changelog (v1.0):** Adds Art as a first-class creator type with one to three works and accessible metadata, plus the additive game `trailer_url` used only for click-to-load YouTube embeds. Create, Update, and voluntary Remove are production-verified.
@@ -80,7 +81,7 @@ piece from a soundtrack that happens to share every tag.
 
 **Revised 2026-09-17 (content rules revision).** Required for everyone: it gates Continue and Submit (Section 6). On `/join` it is not a checkbox of its own, because the General EULA checkbox already affirms holding full rights and asking the same thing twice a line apart is not two consents: the wording below opens that one checkbox (Section 4), and ticking it sets both `rights_confirmation` and `eula_agreement`. On `/update`, which has no EULA box, it is its own checkbox on the review step:
 
-> "I hold the rights to the works I am featuring. None of them are covers, uncleared samples, fan work using characters I do not own, or performances owned by a client."
+> "I hold the rights to the works I am featuring, or a license to perform them. None of them are uncleared samples, fan work using characters I do not own, or performances owned by a client."
 
 The third-party compensation language this box used to carry lives on in the General EULA (Section 4).
 
@@ -100,7 +101,7 @@ Since 2026-09-17 this checkbox carries the Section 3 rights statement as well, a
 
 **Short (inline, next to the checkbox):**
 
-> "I hold the rights to the works I am featuring. None of them are covers, uncleared samples, fan work using characters I do not own, or performances owned by a client. By submitting, you also agree that IndieNodes operates on a donation-only basis: it collects no revenue from your work, and you waive any claim to compensation from IndieNodes on that basis."
+> "I hold the rights to the works I am featuring, or a license to perform them. None of them are uncleared samples, fan work using characters I do not own, or performances owned by a client. By submitting, you also agree that IndieNodes operates on a donation-only basis: it collects no revenue from your work, and you waive any claim to compensation from IndieNodes on that basis."
 
 **Full (in the modal):**
 
