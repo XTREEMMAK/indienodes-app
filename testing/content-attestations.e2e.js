@@ -106,10 +106,7 @@ test('a new submission sends every attestation in its review block', async ({ pa
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.locator('#f-email').fill('payload@example.com');
-	await page.locator('#f-pro').selectOption('BMI');
-	// Music with a stated PRO keeps the PRO sentence inside the combined box.
 	const rightsAndEula = page.getByRole('checkbox', { name: /I hold the rights to the works/ });
-	await expect(rightsAndEula).toHaveAccessibleName(/PRO membership does not prevent me/);
 	await page.getByRole('checkbox', { name: /were made by people/ }).check();
 	await rightsAndEula.check();
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();

@@ -18,7 +18,6 @@
 	 *   rightsConfirmation?: boolean,
 	 *   includeRights?: boolean,
 	 *   missing?: Record<string, string>,
-	 *   showMusicProSentence?: boolean,
 	 *   onchange?: () => void
 	 * }} Props
 	 */
@@ -29,7 +28,6 @@
 		rightsConfirmation = $bindable(false),
 		includeRights = false,
 		missing = {},
-		showMusicProSentence = false,
 		onchange
 	} = $props();
 
@@ -53,10 +51,6 @@
 			<span class="option-description attestation-text">
 				I hold the rights to the works I am featuring. None of them are covers, uncleared samples,
 				fan work using characters I do not own, or performances owned by a client.
-				{#if showMusicProSentence}
-					I understand that PRO membership does not prevent me from submitting, but I am disclosing
-					it accurately above.
-				{/if}
 			</span>
 		</label>
 	{/if}

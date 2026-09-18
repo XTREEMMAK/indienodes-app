@@ -30,7 +30,7 @@ This Agreement covers IndieNodes' web submission and client surfaces, including 
 8. Moderation Standard
 9. Media Hosting and Bandwidth
 10. Money and Visibility
-11. Performing Rights Organization (PRO) Disclosure
+11. Performing Rights Organization (PRO)
 12. Personalization and Local-Only Data
 13. Disclaimer of Warranty
 14. Limitation of Liability
@@ -131,15 +131,13 @@ IndieNodes does not rehost creator media. Creator-supplied audio, artwork and co
 
 IndieNodes carries no first-party advertising or analytics tracker and is funded, if at all, through voluntary donations. Donating never changes acceptance, placement, rotation, or visibility. Security checks may use Cloudflare Turnstile, and an optional YouTube trailer contacts YouTube only after the visitor activates it; those providers apply their own privacy practices as described in the Privacy Notice.
 
-## 11. Performing Rights Organization (PRO) Disclosure
+## 11. Performing Rights Organization (PRO)
 
 11.1 IndieNodes' own web clients (widget, reader, field view) operate under blanket web licenses of the kind offered by performing rights organizations, covering the act of streaming linked audio through IndieNodes' interface.
 
 11.2 This blanket coverage applies to IndieNodes' own operation. It does not substitute for a Creator's individual PRO membership obligations, if any, with respect to the media they host and link from their own infrastructure.
 
-11.3 As part of the submission checklist, Creators submitting audio Nodes are asked to disclose PRO membership status (not a member / a named PRO such as ASCAP, BMI, SESAC, or GMR / other / not sure). This is a disclosure step for the Licensor's own visibility into PRO exposure across the ring — it is not a gate on submission eligibility, and no submission is accepted or rejected on the basis of this answer.
-
-11.4 IndieNodes' PRO and rights-organization licensing posture is addressed separately and is outside the scope of this Agreement.
+11.3 IndieNodes' PRO and rights-organization licensing posture is addressed separately and is outside the scope of this Agreement.
 
 ## 12. Personalization and Local-Only Data
 

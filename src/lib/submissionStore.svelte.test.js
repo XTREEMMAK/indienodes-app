@@ -349,7 +349,6 @@ describe("isStepComplete('consent')", () => {
 	/** @param {ReturnType<typeof freshStore>} store */
 	function fillContactFields(store) {
 		store.review.email = 'creator@example.com';
-		store.review.pro_membership = 'Not a member';
 	}
 
 	/**
@@ -387,7 +386,7 @@ describe("isStepComplete('consent')", () => {
 		expect(store.consentGiven).toBe(true);
 	});
 
-	it('requires rights_confirmation even when pro_membership is "Not a member"', () => {
+	it('requires rights_confirmation', () => {
 		const store = freshStore();
 		fillContactFields(store);
 		attestAll(store);
@@ -397,7 +396,7 @@ describe("isStepComplete('consent')", () => {
 		expect(store.stepErrors('consent')).toHaveProperty('rights_confirmation');
 	});
 
-	it('still requires the contact fields themselves (email, pro_membership)', () => {
+	it('still requires the contact fields themselves (email)', () => {
 		const store = freshStore();
 		attestAll(store);
 		store.review.eula_agreement = true;
@@ -444,7 +443,6 @@ describe('the adult-content disclosure, asked on the entry step', () => {
 	it("is no longer one of the consent step's own fields", () => {
 		const store = freshStore();
 		store.review.email = 'creator@example.com';
-		store.review.pro_membership = 'Not a member';
 		store.review.ai_attestation = true;
 		store.review.rights_confirmation = true;
 		store.review.eula_agreement = true;

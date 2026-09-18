@@ -40,7 +40,6 @@
 	import { submissionStore as form, STEPS } from '$lib/submissionStore.svelte.js';
 	import { validateAttestations } from '$lib/submissionValidation.js';
 	import ContentAttestations from '../../../components/ContentAttestations.svelte';
-	import { PRO_OPTIONS } from '$lib/submissionValidation.js';
 	import { uniqueEntryId } from '$lib/slug.js';
 	import {
 		WIDGET_TIERS,
@@ -1887,54 +1886,6 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 								{/snippet}
 							</FormField>
 
-							<FormField
-								id="f-pro"
-								label="Are you a member of a performing rights organization?"
-								hint="Asked for visibility only. It does not affect whether you are accepted."
-								required
-								error={form.reviewErrors.pro_membership}
-							>
-								{#snippet children(describedBy)}
-									<select
-										id="f-pro"
-										class="control"
-										bind:value={review.pro_membership}
-										onchange={() => form.touch()}
-										aria-describedby={describedBy}
-										aria-invalid={Boolean(form.reviewErrors.pro_membership)}
-									>
-										<option value="" disabled>Choose one</option>
-										{#each PRO_OPTIONS as option (option)}
-											<option value={option}>{option}</option>
-										{/each}
-									</select>
-								{/snippet}
-							</FormField>
-
-							<!-- Only "Other" leaves the actual organization unnamed; every
-					     other option (ASCAP, BMI, ...) already named it by being
-					     picked, and "Not a member"/"Not sure" have no name to give. -->
-							{#if review.pro_membership === 'Other'}
-								<FormField
-									id="f-pro-name"
-									label="Which organization?"
-									required
-									error={form.reviewErrors.pro_membership_name}
-								>
-									{#snippet children(describedBy)}
-										<input
-											id="f-pro-name"
-											class="control"
-											type="text"
-											bind:value={review.pro_membership_name}
-											oninput={() => form.touch()}
-											aria-describedby={describedBy}
-											aria-invalid={Boolean(form.reviewErrors.pro_membership_name)}
-										/>
-									{/snippet}
-								</FormField>
-							{/if}
-
 							<!-- Made by people, shared with /update so an update cannot skip it
 						     (see ContentAttestations.svelte). Rendered in full rather than
 						     behind a link: a checkbox under the text it confirms is closer
@@ -1971,14 +1922,9 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 								<span class="option-description consent-text">
 									I hold the rights to the works I am featuring. None of them are covers, uncleared
 									samples, fan work using characters I do not own, or performances owned by a
-									client.
-									{#if entry.type === 'audio' && entry.form === 'music'}
-										I understand that PRO membership does not prevent me from submitting, but I am
-										disclosing it accurately above.
-									{/if}
-									By submitting, you also agree that IndieNodes operates on a donation-only basis: it
-									collects no revenue from your work, and you waive any claim to compensation from IndieNodes
-									on that basis.
+									client. By submitting, you also agree that IndieNodes operates on a donation-only
+									basis: it collects no revenue from your work, and you waive any claim to
+									compensation from IndieNodes on that basis.
 									<button type="button" class="link-button" onclick={() => (eulaModalOpen = true)}>
 										Read the full EULA
 									</button>. By submitting, you also agree to the

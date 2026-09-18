@@ -81,7 +81,6 @@ test('the entry step blocks on the adult-content disclosure, and the consent ste
 	const stillNeeded = page.locator('.still-needed');
 
 	await page.locator('#f-email').fill('consent-test@example.com');
-	await page.locator('#f-pro').selectOption('Not a member');
 
 	// The disclosure is not asked again here.
 	await expect(page.getByRole('radio', { name: 'Yes', exact: true })).toHaveCount(0);

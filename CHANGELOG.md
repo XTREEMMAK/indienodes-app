@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Removed
+
+- **The PRO membership question is gone from `/join`.** It was never saved to a dedicated
+  field, never used for reporting or moderation, and the compensation waiver it was paired
+  with is already covered by the General EULA. The n8n webhook's legacy `rights_confirmation`
+  gate, which used to key off a stated PRO relationship, now requires `rights_confirmation`
+  unconditionally for every new submission instead.
+
 ## [1.9.0] - 2026-09-17
 
 ### Security
