@@ -30,7 +30,7 @@ describe('Stored flags are coerced, not trusted', () => {
 	it('an unknown theme or background falls back to the default', () => {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: 42, background: 'lava' }));
 		const prefs = loadPreferences();
-		expect(prefs.theme).toBe('system');
+		expect(prefs.theme).toBe('dark');
 		expect(prefs.background).toBe('drifty-stars');
 	});
 

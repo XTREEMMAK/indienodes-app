@@ -40,6 +40,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { GRID_COLUMNS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
 	import { columnsForWidth, computeCenteredLayout } from '$lib/fieldLayout.js';
+	import { fieldViewportStore } from '$lib/fieldViewportStore.svelte.js';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	// Static CSS import so the stylesheet is in the build's CSS bundle and
@@ -54,6 +55,14 @@
 	let cellSize = $state({ w: 0, h: 0 });
 	let columnCount = $state(0);
 	let windowWidth = $state(0);
+
+	// Published for `layoutStore.alignForm`, which has no other way to know
+	// how wide the field actually is on screen right now -- see
+	// `fieldViewportStore`'s own doc for why that has to be a shared store
+	// rather than a prop.
+	$effect(() => {
+		fieldViewportStore.setColumns(columnCount);
+	});
 	// True while the stored layout is being re-applied to the engine, so the
 	// change events that causes are not persisted back as if they were edits.
 	let restoring = false;

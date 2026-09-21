@@ -38,7 +38,7 @@
 	// deliberately different, simpler thing from the actual logo. Referenced
 	// by its served root path rather than imported: files under static/ are
 	// not part of the module graph.
-	const LOGO_SRC = '/images/IndieNodes_Logo.webp';
+	const LOGO_SRC = '/images/IndieNodes_Logo_NoOutline.webp';
 
 	/** @type {HTMLElement | null} */
 	let panelEl = $state(null);
@@ -114,7 +114,7 @@
 			transition:flyFade={{ x: 320, duration: 220 }}
 		>
 			<a href={resolve('/')} class="drawer-brand">
-				<img src={LOGO_SRC} alt="" width="32" height="32" />
+				<img src={LOGO_SRC} alt="" width="55" height="45" />
 				<span class="drawer-brand-text">IndieNodes</span>
 			</a>
 			<div class="divider" role="separator"></div>
@@ -359,6 +359,7 @@
 
 	.drawer-brand img {
 		border-radius: var(--radius-sm);
+		filter: brightness(1.3);
 	}
 
 	.drawer-brand-text {

@@ -28,7 +28,6 @@ test('join success shows confirmation and live embed previews', async ({ page },
 	await page.getByRole('button', { name: 'Continue', exact: true }).last().click();
 
 	await page.locator('#f-email').fill('preview@example.com');
-	await page.locator('#f-pro').selectOption('Not a member');
 	// Made by people, then the one Rights and EULA checkbox. The adult-content
 	// disclosure was answered back on the entry step; the whole gate is covered
 	// in join-consent-gate.e2e.js.

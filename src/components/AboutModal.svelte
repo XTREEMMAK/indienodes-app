@@ -11,11 +11,11 @@
 	// A named import lets it be tree-shaken down to the string.
 	import { version } from '../../package.json';
 
-	// static/images/IndieNodes_Logo.webp, referenced by its served root path
+	// static/images/IndieNodes_Logo_NoOutline.webp, referenced by its served root path
 	// rather than imported: files under static/ are not part of the module
 	// graph (they are copied through as-is), the same reason app.html's icon
 	// and manifest links are plain paths rather than imports.
-	const LOGO_SRC = '/images/IndieNodes_Logo.webp';
+	const LOGO_SRC = '/images/IndieNodes_Logo_NoOutline.webp';
 
 	// Release history is parsed from CHANGELOG.md once, at build time (see
 	// src/routes/+layout.js), the same "read the changelog instead of
@@ -51,7 +51,7 @@
 
 <Modal open={aboutModalStore.open} title="About IndieNodes" showTitle={false} onClose={close}>
 	<div class="brand">
-		<img src={LOGO_SRC} alt="" width="112" height="112" />
+		<img src={LOGO_SRC} alt="" width="1728" height="1416" />
 		<p class="brand-name">IndieNodes</p>
 		<p class="brand-version">Version {version}</p>
 	</div>
@@ -492,9 +492,11 @@
 	}
 
 	.brand img {
-		width: 7rem;
-		height: 7rem;
+		width: auto;
+		height: 9rem;
+		aspect-ratio: 1728 / 1416;
 		border-radius: var(--radius-md);
+		filter: brightness(1.3);
 	}
 
 	.brand-name {
@@ -629,6 +631,17 @@
 
 		.brand-version {
 			font-size: var(--text-xs);
+		}
+	}
+
+	/* Below this, the tab row has already wrapped to one tab per line (four
+	   labels, one of them "Source & License", don't fit two-per-row at this
+	   width even with the mobile type scale above). Left-aligned single-file
+	   tabs read as a ragged list rather than a tab bar, so center each
+	   wrapped row instead of adding a whole second way to browse them. */
+	@media (max-width: 453px) {
+		.tabs {
+			justify-content: center;
 		}
 	}
 </style>

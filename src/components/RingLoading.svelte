@@ -19,12 +19,12 @@
 	/** @type {{ message?: string }} */
 	let { message = 'Loading the ring' } = $props();
 
-	const LOGO_SRC = '/images/IndieNodes_Logo.webp';
+	const LOGO_SRC = '/images/IndieNodes_Logo_NoOutline.webp';
 </script>
 
 <div class="ring-loading">
 	<div class="mark">
-		<img src={LOGO_SRC} alt="" width="120" height="120" fetchpriority="high" />
+		<img src={LOGO_SRC} alt="" width="1728" height="1416" fetchpriority="high" />
 	</div>
 	<p class="message">{message}<span class="dots" aria-hidden="true"></span></p>
 </div>
@@ -46,9 +46,11 @@
 	   something approaching rather than something being stretched. */
 	.mark img {
 		display: block;
-		width: 7.5rem;
-		height: 7.5rem;
+		width: auto;
+		height: 11rem;
+		aspect-ratio: 1728 / 1416;
 		border-radius: var(--radius-md);
+		filter: brightness(1.3);
 	}
 
 	.mark {

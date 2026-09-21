@@ -557,10 +557,9 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 			...draft(),
 			email: 'someone@example.com',
 			eula_agreement: true,
-			rights_confirmation: true,
-			pro_membership: 'BMI'
+			rights_confirmation: true
 		});
-		for (const leaked of ['email', 'eula_agreement', 'rights_confirmation', 'pro_membership']) {
+		for (const leaked of ['email', 'eula_agreement', 'rights_confirmation']) {
 			expect(out, `${leaked} must never reach the entry`).not.toHaveProperty(leaked);
 		}
 	});
@@ -678,7 +677,7 @@ const ATTESTED = {
 };
 
 describe('validateReview', () => {
-	const base = { email: 'a@b.co', pro_membership: 'Not a member', ...ATTESTED };
+	const base = { email: 'a@b.co', ...ATTESTED };
 
 	it('accepts a minimal valid review block', () => {
 		expect(validateReview(base)).toEqual({});
@@ -686,25 +685,6 @@ describe('validateReview', () => {
 
 	it('requires an email', () => {
 		expect(validateReview({ ...base, email: '' })).toHaveProperty('email');
-	});
-
-	it('requires an organization name only when "Other" is picked', () => {
-		expect(validateReview({ ...base, pro_membership: 'Other' })).toHaveProperty(
-			'pro_membership_name'
-		);
-		expect(
-			validateReview({ ...base, pro_membership: 'Other', pro_membership_name: 'A local guild' })
-		).toEqual({});
-		expect(validateReview({ ...base, pro_membership: 'Not sure' })).toEqual({});
-	});
-
-	it('never rejects a submission for its PRO membership itself, and does not re-ask for a name a named option already gave', () => {
-		for (const org of ['ASCAP', 'BMI', 'SESAC', 'GMR']) {
-			expect(validateReview({ ...base, pro_membership: org })).toEqual({});
-		}
-		expect(
-			validateReview({ ...base, pro_membership: 'Other', pro_membership_name: 'Other' })
-		).toEqual({});
 	});
 
 	it('includes the content-rule attestations, so the consent step covers them', () => {
@@ -768,16 +748,9 @@ describe('consentGiven', () => {
 		expect(consentGiven({})).toBe(false);
 	});
 
-	it('requires rights for everyone now, not only alongside a stated PRO', () => {
-		for (const pro_membership of ['', 'Not a member', 'BMI']) {
-			expect(
-				consentGiven({
-					eula_agreement: true,
-					...ATTESTED,
-					pro_membership,
-					rights_confirmation: false
-				})
-			).toBe(false);
-		}
+	it('requires rights for everyone, unconditionally', () => {
+		expect(consentGiven({ eula_agreement: true, ...ATTESTED, rights_confirmation: false })).toBe(
+			false
+		);
 	});
 });

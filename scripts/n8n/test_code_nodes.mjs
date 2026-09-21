@@ -553,44 +553,24 @@ check(
 );
 
 // --- Finalize Submission: consent gate --------------------------------------
-// The transition rule, while CONTENT_ATTESTATIONS_REQUIRED is off (clients
-// released before the attestations are still live): Rights only has to be
-// confirmed alongside a stated PRO
-// relationship, so this server-side check must accept the same shapes the
-// form can produce or a real "Not a member" submitter (the common case) gets
-// silently rejected here even though the form told them they were done.
+// While CONTENT_ATTESTATIONS_REQUIRED is off, rights_confirmation is required
+// unconditionally for every new submission. It used to be gated only
+// alongside a stated PRO relationship, but the form no longer asks about PRO
+// membership at all, so that conditional would have silently stopped
+// enforcing anything.
 check(
-	'consent: eula_agreement missing is always rejected, PRO or not',
+	'consent: eula_agreement missing is always rejected',
 	vrun(ROW, { ...BODY, review: { ...BODY.review, eula_agreement: false } })[0].json.error_code,
 	'invalid_request'
 );
 check(
-	'consent: rights_confirmation is not required for "Not a member"',
-	vrun(ROW, {
-		...BODY,
-		review: { ...BODY.review, pro_membership: 'Not a member', rights_confirmation: false }
-	})[0].json.ok,
-	'yes'
-);
-check(
-	'consent: rights_confirmation is not required with no PRO answer at all',
-	vrun(ROW, { ...BODY, review: { ...BODY.review, rights_confirmation: false } })[0].json.ok,
-	'yes'
-);
-check(
-	'consent: rights_confirmation is required once a real PRO is named',
-	vrun(ROW, {
-		...BODY,
-		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: false }
-	})[0].json.error_code,
+	'consent: rights_confirmation is required unconditionally',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, rights_confirmation: false } })[0].json.error_code,
 	'invalid_request'
 );
 check(
-	'consent: a real PRO plus rights_confirmation passes',
-	vrun(ROW, {
-		...BODY,
-		review: { ...BODY.review, pro_membership: 'BMI', rights_confirmation: true }
-	})[0].json.ok,
+	'consent: rights_confirmation true passes',
+	vrun(ROW, { ...BODY, review: { ...BODY.review, rights_confirmation: true } })[0].json.ok,
 	'yes'
 );
 
@@ -694,8 +674,8 @@ check(
 	'invalid_request'
 );
 check(
-	'attestations (phase 2): rights are required without any PRO answer',
-	enforcedCode(attBody({ rights_confirmation: false, pro_membership: 'Not a member' })),
+	'attestations (phase 2): missing rights confirmation is refused',
+	enforcedCode(attBody({ rights_confirmation: false })),
 	'invalid_request'
 );
 check(

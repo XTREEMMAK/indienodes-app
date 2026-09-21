@@ -42,16 +42,6 @@ describe('ContentAttestations', () => {
 		await expect.element(rights).toBeChecked();
 	});
 
-	it('adds the PRO sentence to the rights box only when asked', async () => {
-		const music = render(ContentAttestations, { includeRights: true, showMusicProSentence: true });
-		await expect
-			.element(music.getByRole('checkbox', { name: /PRO membership does not prevent me/ }))
-			.toBeVisible();
-
-		const other = render(ContentAttestations, { includeRights: true });
-		expect(other.container.textContent).not.toContain('PRO membership');
-	});
-
 	it('lists what is still missing, and nothing once complete', async () => {
 		const screen = render(ContentAttestations, {
 			missing: { ai_attestation: 'Please confirm your featured works were made by people.' }

@@ -55,7 +55,7 @@
 	// of the module graph). Not `Logo.svelte`'s abstract four-square mark,
 	// which is the favicon's own icon, a deliberately different, simpler
 	// thing from the actual logo — see docs/decisions.md.
-	const LOGO_SRC = '/images/IndieNodes_Logo.webp';
+	const LOGO_SRC = '/images/IndieNodes_Logo_NoOutline.webp';
 
 	// `data` is not destructured: the layout load returns only `releases`, and
 	// its one consumer (AboutModal) reads it from `page.data` directly rather
@@ -425,7 +425,7 @@
      trigger only exists at desktop width; mobile's nav is the bottom tab
      bar further down, unchanged in kind, just carrying two more items. -->
 	<a href={resolve('/')} class="brand-float glass-panel">
-		<img src={LOGO_SRC} alt="" width="26" height="26" />
+		<img src={LOGO_SRC} alt="" width="44" height="36" />
 		<span class="brand-text">IndieNodes</span>
 		<!-- Inside the existing pill rather than as a banner of its own, for
 	     the same reason the pill is fixed in the first place (see
@@ -799,6 +799,7 @@
 			y={mobileMenuPos.y}
 			onAdd={(type) => layoutStore.add(type)}
 			onReset={() => layoutStore.reset()}
+			onAlign={(direction) => layoutStore.alignForm(direction)}
 			onClose={() => (mobileMenuPos = null)}
 		/>
 	{/if}
@@ -833,6 +834,7 @@
 
 	.brand-float img {
 		border-radius: var(--radius-sm);
+		filter: brightness(1.3);
 	}
 
 	.brand-float:hover,

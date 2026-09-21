@@ -8,6 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-09-21
+
+### Added
+
+- **Align form in the Arrange menu.** Slides the whole arrangement left, right, or to the
+  center of the columns actually on screen, as one block, so every node keeps its position
+  relative to the others. It measures the live column count rather than the authored grid
+  width, so centering and flush-right land on the real edge on wide screens.
+
+### Changed
+
+- **Refreshed logo and icon set.** The loader, top-left mark, navigation drawer, About modal,
+  and README now use the no-outline logo at its true aspect ratio (the loader and top-left
+  mark had been squared), and the favicons are rebuilt from dedicated small-size artwork so
+  they stay legible at 16 and 32px. The PWA icons, Apple touch icon, and social preview image
+  are regenerated from the new masters.
+- **The site now defaults to the dark theme** for visitors who have not chosen one, instead of
+  following the system setting.
+- **Narrow-screen polish.** The About modal's tabs center when they wrap below 453px, and the
+  Get Widget Code page shows a short "use a larger screen" notice at that width instead of a
+  cramped layout.
+- **Covers are now eligible as featured works.** The content rules and the rights checkbox
+  copy on `/join` and `/update` no longer exclude them, and explicitly welcome licensed covers
+  — the common case in the video game music remix scene. Uncleared samples, fan work using
+  characters the creator does not own, and client-owned performances are still ineligible.
+
+### Removed
+
+- **The PRO membership question is gone from `/join`.** It was never saved to a dedicated
+  field, never used for reporting or moderation, and the compensation waiver it was paired
+  with is already covered by the General EULA. The n8n webhook's legacy `rights_confirmation`
+  gate, which used to key off a stated PRO relationship, now requires `rights_confirmation`
+  unconditionally for every new submission instead.
+
 ## [1.9.0] - 2026-09-17
 
 ### Security

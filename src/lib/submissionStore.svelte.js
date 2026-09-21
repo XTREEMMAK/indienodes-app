@@ -154,8 +154,6 @@ function emptyEntry() {
 function emptyReview() {
 	return {
 		email: '',
-		pro_membership: '',
-		pro_membership_name: '',
 		rights_confirmation: false,
 		eula_agreement: false,
 		// Content-rule attestations (see the rules on /join). In memory only,
@@ -449,8 +447,6 @@ export function createSubmissionStore() {
 		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
 		consent: [
 			'email',
-			'pro_membership',
-			'pro_membership_name',
 			'ai_attestation',
 			// Given by the one Rights and EULA checkbox, alongside eula_agreement.
 			'rights_confirmation'
@@ -882,8 +878,6 @@ export function createSubmissionStore() {
 					review: {
 						email: review.email.trim(),
 						rights_confirmation: review.rights_confirmation,
-						pro_membership: review.pro_membership,
-						pro_membership_name: review.pro_membership_name.trim(),
 						eula_agreement: review.eula_agreement,
 						ai_attestation: review.ai_attestation,
 						adult_content: review.adult_content,

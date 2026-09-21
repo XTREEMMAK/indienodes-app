@@ -18,7 +18,6 @@
 	 *   rightsConfirmation?: boolean,
 	 *   includeRights?: boolean,
 	 *   missing?: Record<string, string>,
-	 *   showMusicProSentence?: boolean,
 	 *   onchange?: () => void
 	 * }} Props
 	 */
@@ -29,7 +28,6 @@
 		rightsConfirmation = $bindable(false),
 		includeRights = false,
 		missing = {},
-		showMusicProSentence = false,
 		onchange
 	} = $props();
 
@@ -51,12 +49,9 @@
 		<label class="option attestation">
 			<input type="checkbox" bind:checked={rightsConfirmation} onchange={() => onchange?.()} />
 			<span class="option-description attestation-text">
-				I hold the rights to the works I am featuring. None of them are covers, uncleared samples,
-				fan work using characters I do not own, or performances owned by a client.
-				{#if showMusicProSentence}
-					I understand that PRO membership does not prevent me from submitting, but I am disclosing
-					it accurately above.
-				{/if}
+				I hold the rights to the works I am featuring, or a license to perform them. None of them
+				are uncleared samples, fan work using characters I do not own, or performances owned by a
+				client.
 			</span>
 		</label>
 	{/if}

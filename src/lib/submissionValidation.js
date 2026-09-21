@@ -62,26 +62,6 @@ export const FORM_LABELS = /** @type {const} */ ({
 	spoken: 'Spoken (narration, audio drama, voice work)'
 });
 
-/** Section 2.2. Order is the order the select renders. */
-export const PRO_OPTIONS = /** @type {const} */ ([
-	'Not a member',
-	'ASCAP',
-	'BMI',
-	'SESAC',
-	'GMR',
-	'Other',
-	'Not sure'
-]);
-
-/**
- * The only option that requires naming an organization: every other option
- * either already names the org itself (ASCAP, BMI, ...) or is a submitter
- * who is not a member or does not know, neither of whom can be asked to name
- * one. Asking again for e.g. "BMI" after it was just picked from the list
- * would be re-collecting an answer already given.
- */
-const PRO_NAME_REQUIRED_FOR = 'Other';
-
 /**
  * Answers to "Does your website include adult content?". There is no default:
  * an unanswered question is `''` and blocks submission.
@@ -368,10 +348,6 @@ export function validateEntry(entry) {
  * Validates the Section 2.2 half: the fields a maintainer sees and the ring
  * never does.
  *
- * `pro_membership` is collected and never judged. Spec section 2.2 is
- * explicit that it must not gate anything without a separate decision, so
- * the only rule here is the conditional on `pro_membership_name`.
- *
  * The content-rule attestations are included, so the consent step's own
  * completeness check covers them.
  * @param {Record<string, any>} review
@@ -389,15 +365,6 @@ export function validateReview(review) {
 		// actually valid, and the address is confirmed by a message arriving,
 		// not by a regex.
 		errors.email = 'That does not look like an email address.';
-	}
-
-	if (!PRO_OPTIONS.includes(review?.pro_membership)) {
-		errors.pro_membership = 'Pick one, including "Not sure" if you are not.';
-	} else if (
-		review.pro_membership === PRO_NAME_REQUIRED_FOR &&
-		!review?.pro_membership_name?.trim()
-	) {
-		errors.pro_membership_name = 'Which organization?';
 	}
 
 	return { ...errors, ...validateAttestations(review) };

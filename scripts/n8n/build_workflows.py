@@ -2062,9 +2062,7 @@ const review = {
   adult_content_confirmation: carriesWorks
     ? (adultContent === 'yes' && att.adult_content_confirmation === true)
     : null,
-  eula_agreement: hasEntryBlock ? rv.eula_agreement === true : null,
-  pro_membership: hasEntryBlock ? (rv.pro_membership || null) : null,
-  pro_membership_name: hasEntryBlock ? (rv.pro_membership_name || null) : null
+  eula_agreement: hasEntryBlock ? rv.eula_agreement === true : null
 };
 // The EULA always gates a new submission. The attestations mirror
 // `consentGiven`/`validateAttestations` in src/lib/submissionValidation.js,
@@ -2081,11 +2079,7 @@ if (%(attest_required)s) {
     return bad('invalid_request');
   }
 } else {
-  // Transition rule for clients released before the attestations: rights
-  // were only asked alongside a stated PRO relationship.
-  const rightsSectionApplies =
-    hasEntryBlock && Boolean(review.pro_membership) && review.pro_membership !== 'Not a member';
-  if (rightsSectionApplies && review.rights_confirmation !== true) return bad('invalid_request');
+  if (hasEntryBlock && review.rights_confirmation !== true) return bad('invalid_request');
 }
 
 // The salt is an HMAC credential and the Gotify server is a credential, so
@@ -2834,11 +2828,6 @@ const rightsRow = review.mode === 'update'
   ? '<tr><th scope="row">Rights confirmed</th><td>' + attest(review.rights_confirmation) + '</td></tr>'
   : '<tr><th scope="row">Rights and EULA agreed</th><td>' +
     attest(review.rights_confirmation === true && review.eula_agreement === true) + '</td></tr>';
-const membership = review.pro_membership
-  ? esc(review.pro_membership) +
-    (review.pro_membership_name ? ' (' + esc(review.pro_membership_name) + ')' : '')
-  : 'None';
-
 const yn = (v) => v === null || v === undefined ? 'N/A (update)' : (v === true ? 'Yes' : 'No');
 const tagHtml = tags.length
   ? '<div class="tags">' + tags.map((tag) => '<span class="tag">' + tag + '</span>').join('') + '</div>'
@@ -2901,7 +2890,6 @@ const reviewContent = isRemoval
           <tr><th scope="row">Adult content on site</th><td>${adultAnswer}</td></tr>
           ${review.adult_content === 'yes' ? `<tr><th scope="row">Adult content confirmation</th><td>${attest(review.adult_content_confirmation)}</td></tr>` : ''}
           <tr><th scope="row">Marked explicit</th><td>${entry.explicit === true ? 'Yes' : 'No'}</td></tr>
-          <tr><th scope="row">PRO membership</th><td>${membership}</td></tr>
         </tbody>
       </table>
     </section>`;
