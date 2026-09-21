@@ -11,11 +11,11 @@
 	// A named import lets it be tree-shaken down to the string.
 	import { version } from '../../package.json';
 
-	// static/images/IndieNodes_Logo.webp, referenced by its served root path
+	// static/images/IndieNodes_Logo_NoOutline.webp, referenced by its served root path
 	// rather than imported: files under static/ are not part of the module
 	// graph (they are copied through as-is), the same reason app.html's icon
 	// and manifest links are plain paths rather than imports.
-	const LOGO_SRC = '/images/IndieNodes_Logo.webp';
+	const LOGO_SRC = '/images/IndieNodes_Logo_NoOutline.webp';
 
 	// Release history is parsed from CHANGELOG.md once, at build time (see
 	// src/routes/+layout.js), the same "read the changelog instead of
@@ -51,7 +51,7 @@
 
 <Modal open={aboutModalStore.open} title="About IndieNodes" showTitle={false} onClose={close}>
 	<div class="brand">
-		<img src={LOGO_SRC} alt="" width="160" height="144" />
+		<img src={LOGO_SRC} alt="" width="1728" height="1416" />
 		<p class="brand-name">IndieNodes</p>
 		<p class="brand-version">Version {version}</p>
 	</div>
@@ -492,9 +492,11 @@
 	}
 
 	.brand img {
-		width: 10rem;
+		width: auto;
 		height: 9rem;
+		aspect-ratio: 1728 / 1416;
 		border-radius: var(--radius-md);
+		filter: brightness(1.3);
 	}
 
 	.brand-name {
