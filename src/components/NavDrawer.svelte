@@ -114,7 +114,7 @@
 			transition:flyFade={{ x: 320, duration: 220 }}
 		>
 			<a href={resolve('/')} class="drawer-brand">
-				<img src={LOGO_SRC} alt="" width="32" height="32" />
+				<img src={LOGO_SRC} alt="" width="55" height="46" />
 				<span class="drawer-brand-text">IndieNodes</span>
 			</a>
 			<div class="divider" role="separator"></div>

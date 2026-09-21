@@ -67,7 +67,7 @@
 			(function () {
 				try {
 					var raw = localStorage.getItem('indienode:preferences:v1');
-					var theme = raw ? JSON.parse(raw).theme : 'system';
+					var theme = raw ? JSON.parse(raw).theme : 'dark';
 					if (theme === 'light' || theme === 'dark') {
 						document.documentElement.setAttribute('data-theme', theme);
 					}

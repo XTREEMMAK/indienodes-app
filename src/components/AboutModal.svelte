@@ -51,7 +51,7 @@
 
 <Modal open={aboutModalStore.open} title="About IndieNodes" showTitle={false} onClose={close}>
 	<div class="brand">
-		<img src={LOGO_SRC} alt="" width="112" height="112" />
+		<img src={LOGO_SRC} alt="" width="160" height="144" />
 		<p class="brand-name">IndieNodes</p>
 		<p class="brand-version">Version {version}</p>
 	</div>
@@ -492,8 +492,8 @@
 	}
 
 	.brand img {
-		width: 7rem;
-		height: 7rem;
+		width: 10rem;
+		height: 9rem;
 		border-radius: var(--radius-md);
 	}
 
@@ -629,6 +629,17 @@
 
 		.brand-version {
 			font-size: var(--text-xs);
+		}
+	}
+
+	/* Below this, the tab row has already wrapped to one tab per line (four
+	   labels, one of them "Source & License", don't fit two-per-row at this
+	   width even with the mobile type scale above). Left-aligned single-file
+	   tabs read as a ragged list rather than a tab bar, so center each
+	   wrapped row instead of adding a whole second way to browse them. */
+	@media (max-width: 453px) {
+		.tabs {
+			justify-content: center;
 		}
 	}
 </style>

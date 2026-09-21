@@ -24,7 +24,7 @@
 
 <div class="ring-loading">
 	<div class="mark">
-		<img src={LOGO_SRC} alt="" width="120" height="120" fetchpriority="high" />
+		<img src={LOGO_SRC} alt="" width="1776" height="1488" fetchpriority="high" />
 	</div>
 	<p class="message">{message}<span class="dots" aria-hidden="true"></span></p>
 </div>
@@ -46,8 +46,9 @@
 	   something approaching rather than something being stretched. */
 	.mark img {
 		display: block;
-		width: 7.5rem;
-		height: 7.5rem;
+		width: auto;
+		height: 11rem;
+		aspect-ratio: 1776 / 1488;
 		border-radius: var(--radius-md);
 	}
 

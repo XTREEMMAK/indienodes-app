@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { defaultLayout } from './layoutStore.svelte.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { defaultLayout, layoutStore } from './layoutStore.svelte.js';
 import { GRID_COLUMNS, MAX_H, MAX_W, MIN_W, snapToAllowedShape } from './nodeShape.js';
+import { STORAGE_KEYS } from './storageKeys.js';
+import { fieldViewportStore } from './fieldViewportStore.svelte.js';
 
 /**
  * `defaultLayout` is the arrangement a fresh visitor sees before they have
@@ -82,5 +84,87 @@ describe('defaultLayout', () => {
 			expect(node.h).toBeLessThanOrEqual(MAX_H);
 			expect(node.w).toBeGreaterThanOrEqual(MIN_W);
 		}
+	});
+});
+
+describe('layoutStore.alignForm', () => {
+	afterEach(() => {
+		localStorage.removeItem(STORAGE_KEYS.layout.key);
+	});
+
+	/** @param {string} id @param {number} x @param {number} y */
+	function place(id, x, y) {
+		const { w, h } = snapToAllowedShape('any', MIN_W, MIN_W);
+		return { id, type: 'any', tags: [], x, y, w, h, rotationOverrideMs: null };
+	}
+
+	it('moves every node by the same amount, keeping the composition intact', () => {
+		layoutStore.restore([place('a', 6, 0), place('b', 10, 2)]);
+		layoutStore.alignForm('left');
+		const a = byId(layoutStore.nodes, 'a');
+		const b = byId(layoutStore.nodes, 'b');
+		expect(a).toMatchObject({ x: 0, y: 0 });
+		// The gap between the two nodes, and their relative row, is the shape
+		// of the arrangement -- it has to survive the shift unchanged.
+		expect(b?.x).toBe(4);
+		expect(b?.y).toBe(2);
+	});
+
+	it('flushes the rightmost edge of the block to the authored grid width', () => {
+		layoutStore.restore([place('a', 0, 0), place('b', 4, 0)]);
+		layoutStore.alignForm('right');
+		const maxRight = Math.max(...layoutStore.nodes.map((n) => n.x + n.w));
+		expect(maxRight).toBe(GRID_COLUMNS);
+		// Still one MIN_W apart, same as before the shift.
+		const a = byId(layoutStore.nodes, 'a');
+		const b = byId(layoutStore.nodes, 'b');
+		expect((b?.x ?? 0) - (a?.x ?? 0)).toBe(MIN_W);
+	});
+
+	it('centers the block, splitting the leftover columns evenly', () => {
+		layoutStore.restore([place('a', 0, 0), place('b', 4, 0)]);
+		layoutStore.alignForm('center');
+		const minX = Math.min(...layoutStore.nodes.map((n) => n.x));
+		const maxRight = Math.max(...layoutStore.nodes.map((n) => n.x + n.w));
+		const leftGap = minX;
+		const rightGap = GRID_COLUMNS - maxRight;
+		expect(leftGap).toBe(rightGap);
+	});
+
+	it('is undoable, like every other layout mutation', () => {
+		layoutStore.restore([place('a', 6, 0)]);
+		layoutStore.alignForm('left');
+		expect(byId(layoutStore.nodes, 'a')).toMatchObject({ x: 0 });
+		layoutStore.undo();
+		expect(byId(layoutStore.nodes, 'a')).toMatchObject({ x: 6 });
+	});
+
+	describe('against a screen wider than the authored width', () => {
+		afterEach(() => {
+			fieldViewportStore.setColumns(0);
+		});
+
+		it('flushes right to the real edge on screen, not the authored one', () => {
+			// A block authored within GRID_COLUMNS, on a field FieldGrid has
+			// measured as considerably wider -- the ordinary case on most
+			// desktop screens, since a screen wider than the authored width
+			// still renders the raw authored positions as-is.
+			fieldViewportStore.setColumns(48);
+			layoutStore.restore([place('a', 0, 0), place('b', 4, 0)]);
+			layoutStore.alignForm('right');
+			const maxRight = Math.max(...layoutStore.nodes.map((n) => n.x + n.w));
+			expect(maxRight).toBe(48);
+			expect(maxRight).not.toBe(GRID_COLUMNS);
+		});
+
+		it('centers against the real width on screen, not the authored one', () => {
+			fieldViewportStore.setColumns(48);
+			layoutStore.restore([place('a', 0, 0), place('b', 4, 0)]);
+			layoutStore.alignForm('center');
+			const minX = Math.min(...layoutStore.nodes.map((n) => n.x));
+			const maxRight = Math.max(...layoutStore.nodes.map((n) => n.x + n.w));
+			expect(minX).toBe(48 - maxRight);
+			expect(minX).not.toBe(GRID_COLUMNS - maxRight);
+		});
 	});
 });

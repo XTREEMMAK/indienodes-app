@@ -425,7 +425,7 @@
      trigger only exists at desktop width; mobile's nav is the bottom tab
      bar further down, unchanged in kind, just carrying two more items. -->
 	<a href={resolve('/')} class="brand-float glass-panel">
-		<img src={LOGO_SRC} alt="" width="26" height="26" />
+		<img src={LOGO_SRC} alt="" width="36" height="36" />
 		<span class="brand-text">IndieNodes</span>
 		<!-- Inside the existing pill rather than as a banner of its own, for
 	     the same reason the pill is fixed in the first place (see
@@ -799,6 +799,7 @@
 			y={mobileMenuPos.y}
 			onAdd={(type) => layoutStore.add(type)}
 			onReset={() => layoutStore.reset()}
+			onAlign={(direction) => layoutStore.alignForm(direction)}
 			onClose={() => (mobileMenuPos = null)}
 		/>
 	{/if}

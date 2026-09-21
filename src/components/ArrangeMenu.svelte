@@ -32,7 +32,7 @@
 	import TypeIcon from './TypeIcon.svelte';
 	import { fieldPresetsStore } from '../lib/fieldPresetsStore.svelte.js';
 
-	/** @type {{ x: number, y: number, editMode?: boolean, fitToView?: boolean, onAdd: (type: import('../lib/nodeShape.js').NodeType) => void, onReset: () => void, onExit?: () => void, onEnter?: () => void, onToggleFit?: () => void, onClose: () => void }} */
+	/** @type {{ x: number, y: number, editMode?: boolean, fitToView?: boolean, onAdd: (type: import('../lib/nodeShape.js').NodeType) => void, onReset: () => void, onAlign: (direction: 'left' | 'center' | 'right') => void, onExit?: () => void, onEnter?: () => void, onToggleFit?: () => void, onClose: () => void }} */
 	let {
 		x,
 		y,
@@ -40,6 +40,7 @@
 		fitToView = false,
 		onAdd,
 		onReset,
+		onAlign,
 		onExit,
 		onEnter,
 		onToggleFit,
@@ -178,6 +179,74 @@
 			</svg>
 			<span>Reset layout</span>
 		</button>
+
+		<div class="divider" role="separator"></div>
+		<span class="section-label">Align form</span>
+		<div class="align-group">
+			<button
+				type="button"
+				class="icon-button"
+				aria-label="Align form left"
+				onclick={() => {
+					onAlign('left');
+					onClose();
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="16"
+					height="16"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<path d="M4 6h16M4 12h10M4 18h14" stroke-linecap="round" />
+				</svg>
+			</button>
+			<button
+				type="button"
+				class="icon-button"
+				aria-label="Align form to center"
+				onclick={() => {
+					onAlign('center');
+					onClose();
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="16"
+					height="16"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<path d="M4 6h16M7 12h10M6 18h12" stroke-linecap="round" />
+				</svg>
+			</button>
+			<button
+				type="button"
+				class="icon-button"
+				aria-label="Align form right"
+				onclick={() => {
+					onAlign('right');
+					onClose();
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="16"
+					height="16"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<path d="M4 6h16M10 12h10M6 18h14" stroke-linecap="round" />
+				</svg>
+			</button>
+		</div>
 
 		<div class="divider" role="separator"></div>
 		<span class="section-label">Presets</span>
@@ -482,6 +551,18 @@
 	.divider {
 		height: 1px;
 		background: var(--border);
+	}
+
+	.align-group {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.align-group .icon-button {
+		width: 2.2rem;
+		height: 2.2rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
 	}
 
 	.row-button {

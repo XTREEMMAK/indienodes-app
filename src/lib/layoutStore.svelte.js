@@ -10,6 +10,7 @@ import {
 import { columnsForWidth } from './fieldLayout.js';
 import { normalizeTags, pruneTagsForType } from './nodeChannel.js';
 import { ROTATION_MIN_MS, ROTATION_MAX_MS } from './preferences.js';
+import { fieldViewportStore } from './fieldViewportStore.svelte.js';
 
 /**
  * The visitor's arranged field: which nodes exist, where they sit, how big
@@ -355,6 +356,42 @@ function createLayoutStore() {
 				pushHistory(before);
 				persist();
 			}
+		},
+
+		/**
+		 * Slides the whole arrangement left, right, or to the middle of the
+		 * columns actually on screen right now, as one rigid block: every
+		 * node keeps its position relative to every other node, and only the
+		 * block's shared horizontal offset changes. Aligning each node to a
+		 * common edge individually would flatten the composition this is
+		 * meant to reposition, not redesign.
+		 *
+		 * Measured against `fieldViewportStore.columns` rather than
+		 * `GRID_COLUMNS`: a screen wider than the authored width still shows
+		 * the raw authored positions as-is (see FieldGrid's `showsAuthored`),
+		 * so the visible field is routinely wider than the authored column
+		 * count and centering -- or flushing right -- against that fixed
+		 * number left the block short of the real edge on exactly the
+		 * screens most visitors have. Falls back to `GRID_COLUMNS` only
+		 * before the field has mounted and measured itself even once.
+		 * @param {'left' | 'center' | 'right'} direction
+		 */
+		alignForm(direction) {
+			if (!nodes.length) return;
+			const columns = fieldViewportStore.columns || GRID_COLUMNS;
+			const minX = Math.min(...nodes.map((node) => node.x));
+			const maxRight = Math.max(...nodes.map((node) => node.x + node.w));
+			const formWidth = maxRight - minX;
+
+			let dx;
+			if (direction === 'left') dx = -minX;
+			else if (direction === 'right') dx = columns - maxRight;
+			else dx = Math.floor((columns - formWidth) / 2) - minX;
+			if (dx === 0) return;
+
+			record();
+			nodes = nodes.map((node) => ({ ...node, x: node.x + dx }));
+			persist();
 		},
 
 		/**

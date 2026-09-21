@@ -246,6 +246,16 @@
 	</GlassPanel>
 </div>
 
+<!-- Below 453px, the tab-switching preview/code layout above has no room to
+     be anything but cramped, and setting up an embed is a copy-paste task
+     nobody is doing from a phone anyway. Rather than shrink the type scale
+     to fit two columns of code snippets into a phone width, this swaps the
+     whole page for a one-line redirect to a bigger screen. -->
+<div class="mobile-notice">
+	<p class="eyebrow">Get Widget Code</p>
+	<p>This page needs a bigger screen. Open it on a tablet or desktop to copy the embed snippets.</p>
+</div>
+
 <style>
 	.widget-page {
 		width: min(72rem, 100%);
@@ -479,6 +489,28 @@
 	}
 	.loading {
 		color: var(--text-muted);
+	}
+	.mobile-notice {
+		display: none;
+	}
+	@media (max-width: 453px) {
+		.widget-page {
+			display: none;
+		}
+		.mobile-notice {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 0.6rem;
+			min-height: 50vh;
+			padding: 2rem 1.5rem;
+			text-align: center;
+		}
+		.mobile-notice p:last-child {
+			max-width: 22rem;
+			color: var(--text-muted);
+		}
 	}
 	@media (max-width: 48rem) {
 		.tab-panel {

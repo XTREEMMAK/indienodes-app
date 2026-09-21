@@ -663,6 +663,7 @@
 			fitToView={preferencesStore.fitToView}
 			onAdd={addNodeAtMenu}
 			onReset={() => layoutStore.reset()}
+			onAlign={(direction) => layoutStore.alignForm(direction)}
 			onExit={() => editModeStore.disable()}
 			onEnter={() => editModeStore.enable()}
 			onToggleFit={() => preferencesStore.toggleFitToView()}
