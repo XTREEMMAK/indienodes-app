@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import {
+	MAX_CRAFT_PAGES,
 	MAX_EXCERPTS,
 	MAX_ARTWORKS,
 	MAX_FEEDS,
@@ -241,6 +242,53 @@ const cases = [
 			pages: Array.from({ length: 4 }, (_, i) => ({
 				image_url: `https://example.com/p${i}.png`
 			}))
+		}),
+		formValid: false
+	},
+	{
+		name: 'a craft entry with one captioned photo',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png', caption: 'Full piece, wool on linen' }]
+		}),
+		formValid: true
+	},
+	{
+		name: 'a craft entry with five captioned photos',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: Array.from({ length: 5 }, (_, i) => ({
+				image_url: `https://example.com/p${i}.png`,
+				caption: `View ${i}`
+			}))
+		}),
+		formValid: true
+	},
+	{
+		name: 'a craft entry with six photos',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: Array.from({ length: 6 }, (_, i) => ({
+				image_url: `https://example.com/p${i}.png`,
+				caption: `View ${i}`
+			}))
+		}),
+		formValid: false
+	},
+	{
+		name: 'a craft entry with no photos',
+		entry: draft({ type: 'craft', excerpts: undefined, pages: [] }),
+		formValid: false
+	},
+	{
+		name: 'a craft entry whose photo has no caption',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png' }]
 		}),
 		formValid: false
 	},
@@ -468,8 +516,18 @@ describe('the media caps match the schema', () => {
 		expect(MAX_ARTWORKS).toBe(schema.properties.artworks.maxItems);
 	});
 
-	it('caps pages where the schema does', () => {
-		expect(MAX_PAGES).toBe(schema.properties.pages.maxItems);
+	/** @param {string} type */
+	const pagesRule = (type) =>
+		schema.allOf.find((/** @type {any} */ rule) => rule.if.properties.type.const === type).then
+			.properties.pages;
+
+	it('caps comic pages where the schema does', () => {
+		expect(MAX_PAGES).toBe(pagesRule('comic').maxItems);
+	});
+
+	it('caps craft pages where the schema does', () => {
+		expect(MAX_CRAFT_PAGES).toBe(pagesRule('craft').maxItems);
+		expect(MAX_CRAFT_PAGES).toBe(schema.properties.pages.maxItems);
 	});
 
 	it('caps feeds where the schema does', () => {

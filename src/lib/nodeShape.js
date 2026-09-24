@@ -12,7 +12,7 @@
  * exists to avoid. Comic, text, and art tolerate a banner shape.
  */
 
-/** @typedef {'audio' | 'comic' | 'text' | 'game' | 'art' | 'any'} NodeType */
+/** @typedef {'audio' | 'comic' | 'text' | 'game' | 'art' | 'craft' | 'any'} NodeType */
 
 /**
  * Columns the grid is authored against.
@@ -67,6 +67,7 @@ export const ALLOWED_RATIOS = {
 	comic: WIDE_AND_TALL,
 	text: WIDE_AND_TALL,
 	art: WIDE_AND_TALL,
+	craft: WIDE_AND_TALL,
 	any: WIDE_AND_TALL
 };
 

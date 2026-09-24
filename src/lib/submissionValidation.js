@@ -33,7 +33,14 @@ import { stripHtml, sanitizeExcerptHtml } from './ring.js';
 /** @typedef {Record<string, string>} ErrorMap */
 
 /** Matches the schema's `type` enum. */
-export const ENTRY_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art']);
+export const ENTRY_TYPES = /** @type {const} */ ([
+	'audio',
+	'comic',
+	'text',
+	'game',
+	'art',
+	'craft'
+]);
 
 /**
  * Creator-facing labels for the schema values above. The stored value names
@@ -46,7 +53,8 @@ export const ENTRY_TYPE_LABELS = /** @type {const} */ ({
 	comic: 'Comic',
 	text: 'Text',
 	game: 'Game',
-	art: 'Art'
+	art: 'Art',
+	craft: 'Craft'
 });
 
 /** Matches the schema's `form` enum. Audio only, required. */
@@ -147,6 +155,12 @@ export const MAX_ARTWORKS = 3;
  * below and both `/join`/`/update` forms' own "Add a page" guard.
  */
 export const MAX_PAGES = 3;
+/**
+ * Craft reuses `pages` for photographs of a made object (a full view, then
+ * detail shots), so it gets a larger cap than comic. The schema holds the two
+ * apart with an `allOf` rule; this is that rule's client-side twin.
+ */
+export const MAX_CRAFT_PAGES = 5;
 
 /** Schema cap on `feeds`: a sanity bound, matching tags's own cap's reasoning, not a product target. */
 export const MAX_FEEDS = 10;
@@ -327,6 +341,25 @@ export function validateEntry(entry) {
 			if (error) errors[`pages.${i}.image_url`] = error;
 		});
 	}
+	if (type === 'craft') {
+		const pages = Array.isArray(entry?.pages) ? entry.pages : [];
+		const filled = pages.filter((p) => p?.image_url?.trim());
+		if (filled.length === 0) errors.pages = 'A craft entry needs at least one photo.';
+		if (pages.length > MAX_CRAFT_PAGES) {
+			errors.pages = `Five photos maximum; you have ${pages.length}. Remove one rather than letting it be dropped for you.`;
+		}
+		pages.forEach((page, i) => {
+			if (!page?.image_url?.trim()) return;
+			const error = mediaUrlError(page.image_url, 'The photo');
+			if (error) errors[`pages.${i}.image_url`] = error;
+			// The caption carries materials and scale, and is the photo's text
+			// alternative, so unlike a comic page it is required.
+			if (!page?.caption?.trim()) {
+				errors[`pages.${i}.caption`] =
+					'Describe this photo (materials, size, or what it shows) for visitors who cannot see it.';
+			}
+		});
+	}
 	if (type === 'art') {
 		const artworks = Array.isArray(entry?.artworks) ? entry.artworks : [];
 		/** @param {Record<string, any>} artwork */
@@ -470,7 +503,7 @@ export function toRingEntry(entry) {
 		.map((/** @type {any} */ f) => ({ type: f.type.trim().toLowerCase(), url: f.url.trim() }));
 	if (feeds.length) out.feeds = feeds;
 
-	if (entry.type === 'comic') {
+	if (entry.type === 'comic' || entry.type === 'craft') {
 		out.pages = (entry.pages ?? [])
 			.filter((/** @type {any} */ p) => p?.image_url?.trim())
 			.map((/** @type {any} */ p) => {
