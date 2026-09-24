@@ -26,7 +26,7 @@
 	import { tagsForType } from '$lib/nodeChannel.js';
 	import { ROTATION_MIN_MS, ROTATION_MAX_MS } from '$lib/preferences.js';
 
-	/** @type {{ nodeId: string, nodeType: 'audio'|'comic'|'text'|'game'|'art'|'any', nodeTags?: string[], nodeRotationOverrideMs?: number | null, onTypeChange?: (type: any) => void, onTagsChange?: (tags: string[]) => void, onRotationOverrideChange?: (ms: number | null) => void, onRemove?: () => void }} */
+	/** @type {{ nodeId: string, nodeType: 'audio'|'comic'|'text'|'game'|'art'|'craft'|'any', nodeTags?: string[], nodeRotationOverrideMs?: number | null, onTypeChange?: (type: any) => void, onTagsChange?: (tags: string[]) => void, onRotationOverrideChange?: (ms: number | null) => void, onRemove?: () => void }} */
 	let {
 		nodeId,
 		nodeType,
@@ -158,6 +158,7 @@
 					<option value="audio">Audio</option>
 					<option value="comic">Comic</option>
 					<option value="art">Art</option>
+					<option value="craft">Craft</option>
 					<option value="text">Text</option>
 					<option value="game">Game</option>
 					<option value="any">Any</option>

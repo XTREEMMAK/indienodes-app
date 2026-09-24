@@ -80,7 +80,14 @@
 	import { skinStore } from '../skins/skinStore.svelte.js';
 	import TextSpeechButton from './TextSpeechButton.svelte';
 
-	const TYPE_LABEL = { audio: 'Audio', comic: 'Comic', text: 'Text', game: 'Game', art: 'Art' };
+	const TYPE_LABEL = {
+		audio: 'Audio',
+		comic: 'Comic',
+		text: 'Text',
+		game: 'Game',
+		art: 'Art',
+		craft: 'Craft'
+	};
 	const FORM_LABEL = { music: 'Music', spoken: 'Spoken' };
 	let trailerPlaying = $state(false);
 	let trailerPausedTrackKey = /** @type {string | null} */ (null);
@@ -168,7 +175,8 @@
 	// is prose, not imagery, and the comic/art viewer's pan-and-zoom gesture
 	// engine has nothing to offer it.
 	const viewable = $derived(
-		(entry.type === 'comic' && (entry.pages ?? []).some((page) => Boolean(page?.image_url))) ||
+		((entry.type === 'comic' || entry.type === 'craft') &&
+			(entry.pages ?? []).some((page) => Boolean(page?.image_url))) ||
 			(entry.type === 'art' &&
 				(entry.artworks ?? []).some((artwork) => Boolean(artwork?.image_url))) ||
 			(entry.type === 'text' &&
@@ -580,10 +588,12 @@
 								type="button"
 								class="read-button"
 								onclick={handleView}
-								aria-label={entry.type === 'art'
+								aria-label={entry.type === 'art' || entry.type === 'craft'
 									? `View ${entry.creator}'s gallery`
 									: `Read ${entry.creator}`}
-								title={entry.type === 'art' ? 'View gallery' : 'Read here'}
+								title={entry.type === 'art' || entry.type === 'craft'
+									? 'View gallery'
+									: 'Read here'}
 							>
 								<svg
 									viewBox="0 0 24 24"
@@ -864,6 +874,10 @@
 
 	.node[data-type='art'] {
 		--node-color: var(--type-art);
+	}
+
+	.node[data-type='craft'] {
+		--node-color: var(--type-craft);
 	}
 
 	/* A card with a real cover image doesn't need the color wash behind it,

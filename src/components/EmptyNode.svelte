@@ -20,7 +20,7 @@
 	 * the job here is only to say each one in a way that names what would fix
 	 * it. `null`/omitted keeps the original generic message (every matching
 	 * entry is already on screen elsewhere).
-	 * @type {{ node: { id: string, type: 'audio'|'comic'|'text'|'game'|'art'|'any', tags?: string[], x: number, y: number, w: number, h: number }, editMode?: boolean, cause?: 'ring-empty' | 'node-tags-empty' | 'global-tags-empty' | 'hidden-exhausted' | null }}
+	 * @type {{ node: { id: string, type: 'audio'|'comic'|'text'|'game'|'art'|'craft'|'any', tags?: string[], x: number, y: number, w: number, h: number }, editMode?: boolean, cause?: 'ring-empty' | 'node-tags-empty' | 'global-tags-empty' | 'hidden-exhausted' | null }}
 	 */
 	let { node, editMode = false, cause = null } = $props();
 
@@ -39,6 +39,7 @@
 		text: 'writing',
 		game: 'game',
 		art: 'art',
+		craft: 'craft',
 		any: 'ring'
 	};
 
@@ -51,6 +52,7 @@
 		text: 'Text',
 		game: 'Game',
 		art: 'Art',
+		craft: 'Craft',
 		any: 'Any'
 	};
 </script>
@@ -144,6 +146,10 @@
 	}
 	.empty-node[data-type='art'] {
 		--node-color: var(--type-art);
+	}
+
+	.empty-node[data-type='craft'] {
+		--node-color: var(--type-craft);
 	}
 	.empty-node[data-type='any'] {
 		--node-color: var(--text-muted);

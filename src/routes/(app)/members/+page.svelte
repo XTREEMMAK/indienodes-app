@@ -29,7 +29,14 @@
 
 	let { data } = $props();
 
-	const TYPE_LABEL = { audio: 'Audio', comic: 'Comic', text: 'Text', game: 'Game', art: 'Art' };
+	const TYPE_LABEL = {
+		audio: 'Audio',
+		comic: 'Comic',
+		text: 'Text',
+		game: 'Game',
+		art: 'Art',
+		craft: 'Craft'
+	};
 
 	// Server-rendered `data.entries` for first paint (this page's whole job is
 	// being crawlable, so it must render without JavaScript), then the live
@@ -556,6 +563,10 @@
 	}
 	.member[data-type='art'] {
 		--member-color: var(--type-art);
+	}
+
+	.member[data-type='craft'] {
+		--member-color: var(--type-craft);
 	}
 
 	.thumb {

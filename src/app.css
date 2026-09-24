@@ -50,6 +50,15 @@
 	     is new alongside it rather than part of the four-color lock above. */
 	--type-art: #ec4899;
 	--type-art-soft: #ec48991a;
+	/* PENDING: craft, comic, and text colors are to be chosen together. Must
+	   stay distinguishable from audio (blue), game (green), and art.
+	   The value below is a placeholder (teal). This token is the one place
+	   the app reads it from; when the final color is chosen, also update the
+	   hardcoded copies the app cannot share this variable with: the widget
+	   (src/lib/widgetTiers.js and static/embed*.js), the favicon, and the
+	   landing page in indienodes-ring (site/styles.css). */
+	--type-craft: #14b8a6;
+	--type-craft-soft: #14b8a61a;
 }
 
 /* ------------------------------------------------------------ light theme --

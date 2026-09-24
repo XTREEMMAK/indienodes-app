@@ -36,6 +36,10 @@
 		<rect class="art-frame" x="3.5" y="4" width="17" height="15.5" rx="1.2" />
 		<circle class="art-sun" cx="16.8" cy="8.2" r="1.5" />
 		<path class="art-landscape" d="m5.8 17 4.3-5 2.8 3 2-2.2 3.3 4.2H5.8Z" />
+	{:else if type === 'craft'}
+		<ellipse class="craft-flange" cx="12" cy="6" rx="6" ry="2.2" />
+		<ellipse class="craft-flange" cx="12" cy="18" rx="6" ry="2.2" />
+		<path class="craft-thread" d="M6 6v12M18 6v12M6 10.5c4 1.5 8 1.5 12 0M6 14c4 1.5 8 1.5 12 0" />
 	{:else if type === 'game'}
 		<path
 			class="game-body"

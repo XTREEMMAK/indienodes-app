@@ -48,6 +48,12 @@
 		<path d="M4 4.5h16v15H4Z" />
 		<path d="m5 16.5 4.5-5.5 3 3.5 3-4 3.5 6" />
 		<circle cx="9" cy="8.5" r="1.6" />
+	{:else if type === 'craft'}
+		<!-- Spool of thread with a loose end: a made, hand-held object, and
+		     distinct from art's framed landscape at 16px. -->
+		<ellipse cx="12" cy="6" rx="6" ry="2.2" />
+		<ellipse cx="12" cy="18" rx="6" ry="2.2" />
+		<path d="M6 6v12M18 6v12M6 10.5c4 1.5 8 1.5 12 0M6 14c4 1.5 8 1.5 12 0" />
 	{:else if type === 'game'}
 		<path d="M7.5 7.5h9a5.5 5.5 0 0 1 0 11h-9a5.5 5.5 0 0 1 0-11Z" />
 		<path d="M10 11v3.5M8.25 12.75h3.5" />

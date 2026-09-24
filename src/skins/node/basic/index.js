@@ -3,6 +3,7 @@ import ComicStage from './stages/ComicStage.svelte';
 import TextStage from './stages/TextStage.svelte';
 import GameStage from './stages/GameStage.svelte';
 import ArtStage from './stages/ArtStage.svelte';
+import CraftStage from './stages/CraftStage.svelte';
 
 /** @type {import('../../contracts.js').NodeSkinModule['stages']} */
 export const stages = {
@@ -10,5 +11,6 @@ export const stages = {
 	comic: ComicStage,
 	text: TextStage,
 	game: GameStage,
-	art: ArtStage
+	art: ArtStage,
+	craft: CraftStage
 };

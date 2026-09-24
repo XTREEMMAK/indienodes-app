@@ -175,7 +175,7 @@
 	 */
 	const poolsByChannel = $derived.by(() => {
 		/** @type {Record<string, import('$lib/ring.js').RingEntry[]>} */
-		const byType = { audio: [], comic: [], text: [], game: [], art: [] };
+		const byType = { audio: [], comic: [], text: [], game: [], art: [], craft: [] };
 		for (const entry of eligibleEntries) byType[entry.type]?.push(entry);
 		byType.any = eligibleEntries;
 
