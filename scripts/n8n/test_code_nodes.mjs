@@ -759,6 +759,55 @@ check(
 	'invalid_request'
 );
 
+const CRAFT_ROW = { ...ROW, type: 'craft' };
+const craftPages = (count) =>
+	Array.from({ length: count }, (_, i) => ({
+		image_url: `https://example.com/piece-${i}.webp`,
+		caption: `View ${i + 1}, 24 x 36 in, wool on linen`
+	}));
+const craftBody = (pages) => ({
+	...BODY,
+	entry: {
+		creator: 'Fictional Loom Works',
+		type: 'craft',
+		why: 'Hand-woven wall hangings.',
+		tags: ['weaving'],
+		pages
+	}
+});
+check(
+	'finalize accepts a craft entry with one photo',
+	vrun(CRAFT_ROW, craftBody(craftPages(1)))[0].json.ok,
+	'yes'
+);
+check(
+	'finalize accepts a craft entry with five photos',
+	vrun(CRAFT_ROW, craftBody(craftPages(5)))[0].json.ok,
+	'yes'
+);
+check(
+	'finalize rejects a craft entry with six photos',
+	vrun(CRAFT_ROW, craftBody(craftPages(6)))[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'finalize rejects a craft entry with no photos',
+	vrun(CRAFT_ROW, craftBody([]))[0].json.error_code,
+	'invalid_request'
+);
+const uncaptioned = craftPages(2);
+delete uncaptioned[1].caption;
+check(
+	'finalize rejects a craft photo without a caption',
+	vrun(CRAFT_ROW, craftBody(uncaptioned))[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'finalize rejects an unknown field on a craft photo',
+	vrun(CRAFT_ROW, craftBody([{ ...craftPages(1)[0], alt: 'x' }]))[0].json.error_code,
+	'invalid_request'
+);
+
 // feeds and layout: optional on every type, and the server-side twin of the
 // client rules. `verified` in particular can never be asserted by a submitter.
 const withExtras = (extras) => ({ ...BODY, entry: { ...BODY.entry, ...extras } });
@@ -1352,6 +1401,22 @@ check(
 	true
 );
 check('Art review escapes artwork title', artHtml.includes('<script>Night Signal</script>'), false);
+const craftHtml = prun({
+	submission_id: 'craft1',
+	node_id: '',
+	source_url: 'https://example.com/',
+	type: 'craft',
+	entry: JSON.stringify({
+		type: 'craft',
+		creator: 'Fictional Loom Works',
+		why: 'Hand-woven wall hangings.',
+		tags: ['weaving'],
+		pages: [{ image_url: 'https://example.com/piece.webp', caption: '<b>Full piece</b>' }]
+	}),
+	review: JSON.stringify({ email: 'a@b.co', rights_confirmation: true, eula_agreement: true })
+});
+check('Craft review renders the photos section', craftHtml.includes('Photos'), true);
+check('Craft review escapes the caption', craftHtml.includes('<b>Full piece</b>'), false);
 const feedHtml = prun({
 	submission_id: 'feed1',
 	node_id: '',

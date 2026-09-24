@@ -1104,7 +1104,7 @@ function mediaUrls(entry) {
 }
 """.strip()
 
-# Well above what the schema allows (3 pages or 3 artworks, a cover and a
+# Well above what the schema allows (5 craft photos or 3 artworks, a cover and a
 # preview), and low enough that a crafted payload cannot turn one finalize
 # call into hundreds of outbound requests.
 MAX_MEDIA_URLS = 8
@@ -1497,8 +1497,11 @@ const type = S(b.type, 32);
 if (sid === null || nodeId === null || srcUrl === null || type === null) return err('invalid_request');
 
 if (action === 'issue_token') {
-  const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
+  const TYPES = ['audio', 'comic', 'text', 'game', 'art', 'craft'];
   if (!TYPES.includes(type)) return err('invalid_request');
+  // The site generator has no craft template, so a craft token is only ever
+  // issued for a site the submitter already has (a non-empty source_url).
+  if (type === 'craft' && !srcUrl) return err('invalid_request');
   // A null/empty source_url is legitimate here and only here: the site
   // generator bakes the token into an export before the site exists anywhere.
   // bind_source_url is the second half of that flow.
@@ -1937,7 +1940,7 @@ if (!isRemoval) {
 
 // Structural check against schema/ring.schema.json, so a reviewer never sees a
 // submission that cannot pass validate:publish after approval.
-const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
+const TYPES = ['audio', 'comic', 'text', 'game', 'art', 'craft'];
 const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 if (!str(entry.creator, 200)) return bad('invalid_request');
 if (!TYPES.includes(entry.type)) return bad('invalid_request');
@@ -1973,6 +1976,19 @@ if (entry.type === 'art') {
       externalMedia(artwork.image_url) && str(artwork.alt, 2000) &&
       ['title', 'year', 'medium'].every((key) => artwork[key] === undefined || str(artwork[key], 2000)) &&
       (artwork.external_url === undefined || https(artwork.external_url)))) {
+    return bad('invalid_request');
+  }
+}
+if (entry.type === 'craft') {
+  // Mirrors the schema's craft rule: one to five photos, each an external
+  // image with a required caption (the caption is the photo's text
+  // alternative). Unlike comic pages, nothing else is allowed on a page.
+  const pageFields = ['image_url', 'caption'];
+  if (!Array.isArray(entry.pages) || entry.pages.length < 1 ||
+      entry.pages.length > 5) return bad('invalid_request');
+  if (!entry.pages.every((page) => page && typeof page === 'object' &&
+      !Array.isArray(page) && Object.keys(page).every((key) => pageFields.includes(key)) &&
+      externalMedia(page.image_url) && str(page.caption, 200))) {
     return bad('invalid_request');
   }
 }
@@ -2785,7 +2801,7 @@ const esc = (v) => (v === undefined || v === null ? '' : v.toString())
 
 const isRemoval = review.mode === 'remove';
 const isUpdate = Boolean(row.node_id) && !isRemoval;
-const safeTypes = ['audio', 'game', 'comic', 'text', 'art'];
+const safeTypes = ['audio', 'game', 'comic', 'text', 'art', 'craft'];
 const submittedType = entry.type || row.type;
 const type = safeTypes.indexOf(submittedType) === -1 ? 'unknown' : submittedType;
 const safeForms = ['music', 'spoken'];
@@ -2803,6 +2819,12 @@ if (entry.type === 'audio' && Array.isArray(entry.tracks) && entry.tracks.length
   mediaHtml = '<section class="section"><p class="section-label">Pages</p><div class="media-grid">' +
     entry.pages.map((pg) =>
       '<figure class="media-card"><img src="' + esc(pg.image_url) + '" alt="" loading="lazy">' +
+      (pg.caption ? '<figcaption>' + esc(pg.caption) + '</figcaption>' : '') + '</figure>'
+    ).join('') + '</div></section>';
+} else if (entry.type === 'craft' && Array.isArray(entry.pages) && entry.pages.length) {
+  mediaHtml = '<section class="section"><p class="section-label">Photos</p><div class="media-grid">' +
+    entry.pages.map((pg) =>
+      '<figure class="media-card"><img src="' + esc(pg.image_url) + '" alt="' + esc(pg.caption) + '" loading="lazy">' +
       (pg.caption ? '<figcaption>' + esc(pg.caption) + '</figcaption>' : '') + '</figure>'
     ).join('') + '</div></section>';
 } else if (entry.type === 'art' && Array.isArray(entry.artworks) && entry.artworks.length) {
