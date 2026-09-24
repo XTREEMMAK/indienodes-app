@@ -48,6 +48,7 @@
 		LAYOUT_OPTIONS,
 		LAYOUT_LABELS,
 		MAX_ARTWORKS,
+		MAX_CRAFT_PAGES,
 		MAX_EXCERPTS,
 		MAX_FEEDS,
 		MAX_PAGES,
@@ -74,7 +75,7 @@
 	// forms' preview behavior identical rather than one being a richer
 	// simulation than the other for no functional reason.
 	const previewType = $derived(
-		/** @type {'audio' | 'comic' | 'text' | 'game' | 'art'} */ (entry.type || 'audio')
+		/** @type {'audio' | 'comic' | 'text' | 'game' | 'art' | 'craft'} */ (entry.type || 'audio')
 	);
 	const previewSize = $derived(snapToAllowedShape(previewType, 8, 8));
 	const previewEntry = $derived({
@@ -842,6 +843,64 @@
 								{/each}
 								{#if entry.pages.length < MAX_PAGES}
 									<button type="button" class="btn btn-ghost" onclick={addPage}>Add a page</button>
+								{/if}
+							{/if}
+
+							{#if entry.type === 'craft'}
+								<h3>Photos</h3>
+								<p class="note">
+									One to {MAX_CRAFT_PAGES}. Include a full view and, if you can, a detail shot; the
+									last photo is the detail shown on the field.
+								</p>
+								{#each entry.pages as pageRow, i (pageRow.uid)}
+									<div class="repeat-row" use:scrollNewRowIntoView={pageRow.uid}>
+										<FormField
+											id="f-craft-image-{pageRow.uid}"
+											label="Photo {i + 1} image"
+											error={form.entryErrors[`pages.${i}.image_url`]}
+										>
+											{#snippet children(describedBy)}
+												<input
+													id="f-craft-image-{pageRow.uid}"
+													class="control"
+													type="url"
+													placeholder="https://"
+													bind:value={pageRow.image_url}
+													oninput={() => form.touch()}
+													aria-describedby={describedBy}
+													aria-invalid={Boolean(form.entryErrors[`pages.${i}.image_url`])}
+												/>
+											{/snippet}
+										</FormField>
+										<FormField
+											id="f-craft-caption-{pageRow.uid}"
+											label="Caption"
+											hint="Materials, size, or what the photo shows. It is also the photo's text description."
+											error={form.entryErrors[`pages.${i}.caption`]}
+										>
+											{#snippet children(describedBy)}
+												<input
+													id="f-craft-caption-{pageRow.uid}"
+													class="control"
+													type="text"
+													bind:value={pageRow.caption}
+													oninput={() => form.touch()}
+													aria-describedby={describedBy}
+													aria-invalid={Boolean(form.entryErrors[`pages.${i}.caption`])}
+												/>
+											{/snippet}
+										</FormField>
+										<button
+											type="button"
+											class="clear-button"
+											onclick={() => removePage(pageRow.uid)}
+										>
+											Remove photo {i + 1}
+										</button>
+									</div>
+								{/each}
+								{#if entry.pages.length < MAX_CRAFT_PAGES}
+									<button type="button" class="btn btn-ghost" onclick={addPage}>Add a photo</button>
 								{/if}
 							{/if}
 

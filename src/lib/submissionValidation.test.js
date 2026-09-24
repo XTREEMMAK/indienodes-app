@@ -293,6 +293,19 @@ const cases = [
 		formValid: false
 	},
 	{
+		name: 'a craft entry from the site generator branch',
+		entry: draft({
+			type: 'craft',
+			has_own_site: 'no',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png', caption: 'Full piece' }]
+		}),
+		// Not a schema rule: the generator has no craft template yet, so the
+		// form refuses the combination while the schema has no opinion on it.
+		formValid: false,
+		formOnly: true
+	},
+	{
 		name: 'an Art entry with one described artwork',
 		entry: draft({
 			type: 'art',

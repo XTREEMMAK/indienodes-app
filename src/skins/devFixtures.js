@@ -60,6 +60,30 @@ export const SKIN_LAB_ENTRIES = [
 		verification_token: 'skin-lab'
 	},
 	{
+		id: 'skin-lab-craft',
+		creator: 'Fictional Loom Works',
+		type: 'craft',
+		why: 'Hand-woven wall hangings in wool and linen.',
+		source_url: 'https://example.com/craft',
+		tags: ['weaving', 'textile'],
+		pages: [{ image_url: ART, caption: 'Full piece, 24 x 36 in, wool on linen warp' }],
+		verification_token: 'skin-lab'
+	},
+	{
+		id: 'skin-lab-craft-set',
+		creator: 'Imaginary Kiln Studio',
+		type: 'craft',
+		why: 'Stoneware cups and bowls, thrown and glazed in small batches.',
+		source_url: 'https://example.com/craft-set',
+		tags: ['ceramics', 'stoneware'],
+		pages: [
+			{ image_url: ART, caption: 'Full view, 8 in tall, glazed stoneware' },
+			{ image_url: ART, caption: 'Rim and glaze pooling' },
+			{ image_url: ART, caption: 'Detail of the thumb-pressed foot' }
+		],
+		verification_token: 'skin-lab'
+	},
+	{
 		id: 'skin-lab-game',
 		creator: 'Tin Roof Studio',
 		type: 'game',

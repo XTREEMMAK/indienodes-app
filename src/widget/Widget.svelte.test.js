@@ -77,3 +77,23 @@ describe('Widget explicit-content gate', () => {
 		await expect.element(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
 	});
 });
+
+describe('Widget with craft entries', () => {
+	it('navigates through a craft entry like any other type', async () => {
+		const craft = {
+			...entry('maker'),
+			type: 'craft',
+			pages: [{ image_url: 'https://maker.example/a.png', caption: 'Full piece' }]
+		};
+		const open = serve([entry('own'), craft, entry('b')]);
+		const screen = render(Widget, { siteId: 'own' });
+		const next = screen.getByRole('button', { name: /Next/ });
+		await expect.element(next).toBeEnabled();
+
+		await next.click();
+		expect(opened(open)).toContain('https://maker.example/');
+		const random = screen.getByRole('button', { name: /Random/ });
+		for (let i = 0; i < 6; i++) await random.click();
+		expect(opened(open).length).toBeGreaterThan(1);
+	});
+});

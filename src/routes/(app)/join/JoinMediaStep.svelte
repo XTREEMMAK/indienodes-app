@@ -33,6 +33,7 @@
 	import { generatorDraftStore } from '$lib/generator/generatorDraftStore.svelte.js';
 	import {
 		MAX_ARTWORKS,
+		MAX_CRAFT_PAGES,
 		MAX_EXCERPTS,
 		MAX_FEEDS,
 		MAX_PAGES,
@@ -82,7 +83,8 @@
 			comic: 'Your pages',
 			text: 'Your text samples',
 			game: 'Your screenshots',
-			art: 'Your artwork'
+			art: 'Your artwork',
+			craft: 'Your photos'
 		})[entry.type] ?? 'The work itself'
 	);
 
@@ -765,6 +767,65 @@
 	{/each}
 	{#if entry.pages.length < MAX_PAGES}
 		<button type="button" class="btn btn-ghost" onclick={addPage}>Add a page</button>
+	{/if}
+{:else if entry.type === 'craft'}
+	<p>
+		At least one photo, up to {MAX_CRAFT_PAGES}. Include one full view and, if you can, a detail
+		shot; the last photo is used as the detail on the field. Each is an image you host.
+	</p>
+	{#if form.entryErrors.pages}
+		<p class="inline-error" role="alert">{form.entryErrors.pages}</p>
+	{/if}
+	{#each entry.pages as page, i (page.uid)}
+		<div class="repeat-row" use:scrollNewRowIntoView={page.uid}>
+			<FormField
+				id="f-craft-url-{page.uid}"
+				label="Photo {i + 1} image"
+				hint={form.mediaCheckPending(`pages.${i}.image_url`)
+					? CHECKING
+					: 'The image file itself, not the page it appears on: right-click the photo and choose "Copy image address".'}
+				required
+				error={form.entryErrors[`pages.${i}.image_url`]}
+			>
+				{#snippet children(describedBy)}
+					<input
+						id="f-craft-url-{page.uid}"
+						class="control"
+						type="url"
+						placeholder="https://"
+						bind:value={page.image_url}
+						oninput={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors[`pages.${i}.image_url`])}
+					/>
+				{/snippet}
+			</FormField>
+			<FormField
+				id="f-craft-cap-{page.uid}"
+				label="Caption"
+				hint="Materials, size, or what the photo shows. It is also the photo's text description."
+				required
+				error={form.entryErrors[`pages.${i}.caption`]}
+			>
+				{#snippet children(describedBy)}
+					<input
+						id="f-craft-cap-{page.uid}"
+						class="control"
+						type="text"
+						bind:value={page.caption}
+						oninput={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors[`pages.${i}.caption`])}
+					/>
+				{/snippet}
+			</FormField>
+			<button type="button" class="clear-button" onclick={() => removePage(page.uid)}>
+				Remove photo {i + 1}
+			</button>
+		</div>
+	{/each}
+	{#if entry.pages.length < MAX_CRAFT_PAGES}
+		<button type="button" class="btn btn-ghost" onclick={addPage}>Add a photo</button>
 	{/if}
 {:else if entry.type === 'art'}
 	<p>

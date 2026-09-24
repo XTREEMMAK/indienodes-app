@@ -256,6 +256,14 @@ export function validateEntry(entry) {
 		errors.has_own_site = 'Let us know if you already have a site.';
 	}
 
+	// Craft is not offered by the site generator yet, so a craft entry has to
+	// come from a site the submitter already has. Surfaced on `type` because
+	// that is the field they can change.
+	if (type === 'craft' && entry?.has_own_site === 'no') {
+		errors.type =
+			'Craft entries need a site you already have for now. Our page builder does not support them yet.';
+	}
+
 	// Required unless the submitter has explicitly said they have no site
 	// yet (the site-generator branch): source_url for that branch is filled
 	// in later, once the generated site has somewhere real to live, not
