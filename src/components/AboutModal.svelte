@@ -49,7 +49,13 @@
 	}
 </script>
 
-<Modal open={aboutModalStore.open} title="About IndieNodes" showTitle={false} onClose={close}>
+<Modal
+	open={aboutModalStore.open}
+	title="About IndieNodes"
+	showTitle={false}
+	dialogClass="about-modal-dialog"
+	onClose={close}
+>
 	<div class="brand">
 		<img src={LOGO_SRC} alt="" width="1728" height="1416" />
 		<p class="brand-name">IndieNodes</p>
@@ -642,6 +648,24 @@
 	@media (max-width: 453px) {
 		.tabs {
 			justify-content: center;
+		}
+	}
+
+	/* Modal's own default 48rem is snug enough that all four tab labels --
+	   "Overview", "Principles", "Source & License", "Support" -- wrap to a
+	   second row instead of sitting on one line. There's headroom to spare
+	   well past that on a 1500px+ viewport, so widen the dialog there rather
+	   than shrinking labels or icons to force a fit at the default size.
+	   dialogClass is the escape hatch Modal documents for exactly this: one
+	   caller needing its own sizing (see Modal's own doc comment). */
+	@media (min-width: 1500px) {
+		:global(.about-modal-dialog) {
+			/* !important to beat Modal's own scoped `.dialog` rule, which
+			   compiles to a two-class selector (its own class plus Svelte's
+			   scoping class) and so outranks a plain single-class override on
+			   specificity alone -- the same reason every other dialogClass
+			   override in this app needs it too. */
+			max-width: 62rem !important;
 		}
 	}
 </style>
