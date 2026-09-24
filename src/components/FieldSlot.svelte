@@ -53,6 +53,7 @@
 	import NodeConfig from './NodeConfig.svelte';
 	import { comicViewerStore } from '$lib/comicViewerStore.svelte.js';
 	import { textViewerStore } from '$lib/textViewerStore.svelte.js';
+	import { hiddenStore } from '$lib/hiddenStore.svelte.js';
 
 	/** Progress repaint cadence. Matches FieldNode's fill transition duration. */
 	const TICK_MS = 120;
@@ -60,6 +61,15 @@
 	const STAGGER_MS = 2200;
 	/** Fraction of the base interval each cycle is randomly stretched/shrunk by. */
 	const JITTER = 0.25;
+	/**
+	 * How long a just-dismissed card holds before this slot moves on. A flat
+	 * cap, not a countdown that hovering can extend: press "Not for me" again
+	 * within this window (the same toggle, now offering "Show again") and the
+	 * entry stays; do nothing and the slot advances at the three-second mark
+	 * regardless of pointer or focus, which is what makes it a bounded undo
+	 * window rather than the ordinary paused-while-engaged rotation below.
+	 */
+	const DISMISS_COMMIT_MS = 3000;
 
 	/** @param {number} base */
 	function jittered(base) {
@@ -96,7 +106,15 @@
 	// is mounted at the root layout, so opening it moves focus out of the slot
 	// entirely.
 	const readerOpen = $derived(comicViewerStore.open || textViewerStore.open);
-	const paused = $derived(hovering || focused || !pageVisible || !onScreen || readerOpen);
+	// This slot's current entry, dismissed while still on screen (FieldNode's
+	// own "quiet" state). Folded into `paused` so the ordinary countdown holds
+	// rather than racing the fixed dismiss timer below to the same advance —
+	// two triggers landing at once would consume an extra deck entry for
+	// nothing. The dismiss timer is what actually moves this slot on.
+	const dismissed = $derived(hiddenStore.isHidden(entry.id));
+	const paused = $derived(
+		hovering || focused || !pageVisible || !onScreen || readerOpen || dismissed
+	);
 	const progress = $derived(rotating ? Math.min(1, elapsed / target) : null);
 
 	// Every rendered slot used to keep its interval running even off-screen,
@@ -115,6 +133,22 @@
 		);
 		observer.observe(el);
 		return () => observer.disconnect();
+	});
+
+	// Commits a dismissal after `DISMISS_COMMIT_MS`, undo window included.
+	// Tracked directly on `dismissed`, unlike the rotation effect below: an
+	// undo (pressing the toggle again) flips `dismissed` back to false, which
+	// is exactly the signal that should tear this down, so letting Svelte
+	// re-run the effect on that change and rely on its own cleanup is the
+	// whole mechanism — no separate cancel path to keep in sync. `onadvance`
+	// itself now knows to blank the slot rather than hold the dismissed entry
+	// when there's nothing left to promote it to (see `advance` in
+	// `+page.svelte`), which is what "advance, or go blank" actually means
+	// here.
+	$effect(() => {
+		if (!dismissed) return;
+		const id = setTimeout(() => onadvance?.(), DISMISS_COMMIT_MS);
+		return () => clearTimeout(id);
 	});
 
 	$effect(() => {

@@ -300,18 +300,33 @@
 	/**
 	 * Promotes a node's warmed queue entry into view, then queues and warms
 	 * the next. Falls back to picking fresh when nothing was queued, which
-	 * happens when a type's pool is barely larger than the nodes using it.
+	 * happens when a type's pool is barely larger than the nodes using it, or
+	 * when the queued entry has since been hidden — `eligibleEntries` stops
+	 * *offering* a hidden entry to new picks immediately (see its own comment
+	 * above), but a pick already sitting in `queued` was made before that and
+	 * is never re-checked, so it needs the same exclusion here rather than
+	 * being promoted anyway.
+	 *
+	 * When nothing at all can be promoted, the slot is now explicitly left
+	 * empty rather than left holding whatever was there. That matters for the
+	 * caller this function didn't originally have: FieldSlot's own dismiss
+	 * timer, which forces this three seconds after a visitor dismisses the
+	 * entry currently on screen. There, "nothing to rotate to" has to mean an
+	 * empty slot, not a card stuck on the entry the visitor just said they
+	 * don't want, which is the bug that timer exists to prevent.
 	 * @param {string} nodeId
 	 */
 	function advance(nodeId) {
 		const node = nodes.find((n) => n.id === nodeId);
 		if (!node) return;
 
-		const promoted = queued[nodeId] ?? takeNext(node, spokenFor());
-		if (!promoted) return;
+		const queuedId = queued[nodeId];
+		const stillEligible = queuedId && !hiddenStore.isHidden(queuedId);
+		const promoted = (stillEligible ? queuedId : null) ?? takeNext(node, spokenFor());
 
 		assigned = { ...assigned, [nodeId]: promoted };
 		queued = { ...queued, [nodeId]: null };
+		if (!promoted) return;
 
 		const following = takeNext(node, spokenFor());
 		queued = { ...queued, [nodeId]: following };
@@ -326,6 +341,19 @@
 	 * node, and a single rotation reassigns `assigned` and so re-runs all of
 	 * them. Scanning the pool per node made that O(nodes squared * ring size)
 	 * per rotation; counting here makes it a comparison.
+	 *
+	 * A quiet-in-place entry (dismissed while still occupying its slot, see
+	 * `entries`' comment above) is deliberately left out of this count even
+	 * though it is still assigned. It has already left `eligibleEntries`, and
+	 * so already left `poolFor(node)`'s count on the other side of `canRotate`'s
+	 * comparison; counting it here too double-charges it — a channel with
+	 * exactly one spare entry beyond what's shown would see the pool shrink by
+	 * one on dismissal while the shown count stayed the same, making
+	 * `canRotate` false and freezing the quiet card in place forever, with no
+	 * timer left running to ever swap it out (only a full page reload, whose
+	 * fresh reconcile draws straight from the pool, would notice the spare
+	 * entry). Excluding it here is what lets that last spare entry actually
+	 * count as somewhere to rotate to.
 	 */
 	const shownCountByChannel = $derived.by(() => {
 		/** @type {import('$lib/ring.js').RingEntry[]} */
@@ -333,7 +361,7 @@
 		for (const id of Object.values(assigned)) {
 			if (!id) continue;
 			const entry = byId.get(id);
-			if (entry) shown.push(entry);
+			if (entry && !hiddenStore.isHidden(entry.id)) shown.push(entry);
 		}
 		return new Map(
 			[...channels].map(([key, channel]) => [
