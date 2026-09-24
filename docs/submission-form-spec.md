@@ -30,14 +30,14 @@ Defines the fields, validation rules, and required consent copy for the entry su
 | id           | system-generated               | n/a         | Not asked for. See below.                                                                                               |
 | creator      | text                           | yes         | Display name                                                                                                            |
 | creator_id   | system-generated               | n/a         | Not asked for. Links this creator's own nodes. See below.                                                               |
-| type         | enum                           | yes         | audio, comic, text, game, art                                                                                           |
+| type         | enum                           | yes         | audio, comic, text, game, art, craft                                                                                    |
 | form         | enum                           | conditional | Required if type is audio: music or spoken. Must not appear for any other type.                                         |
 | why          | text                           | yes         | One line, capped at 75 characters. Introduction and pitch combined; no separate title field.                            |
 | has_own_site | yes/no radio                   | yes         | Not a ring.json field. See below.                                                                                       |
 | source_url   | url                            | conditional | Required if has_own_site is yes. See below for the no branch.                                                           |
 | tags         | multi-select or free tag input | yes         | At least one tag                                                                                                        |
 | tracks       | repeatable group               | optional    | Audio only. Max 3. Each has label + media_url                                                                           |
-| pages        | repeatable group               | conditional | Required if type is comic. Each has image_url + caption                                                                 |
+| pages        | repeatable group               | conditional | Required if type is comic (1–3) or craft (1–5). Each has image_url + caption; caption is required for craft             |
 | artworks     | repeatable group               | conditional | Art only. 1–3 works; image_url and alt required, metadata optional                                                      |
 | feeds        | repeatable group               | optional    | Every type. Up to 10 { type, url }; `verified` is never collected (see Section 6)                                       |
 | layout       | select                         | optional    | Every type. `mobile-friendly` or `desktop-first`, self-declared and presentational only                                 |
@@ -78,6 +78,17 @@ piece from a soundtrack that happens to share every tag.
 | eula_agreement             | checkbox         | yes         | See Section 4                                                                                                                            |
 
 **`email` is scoped narrowly, and the scope is the whole point of it.** It exists only for this one submission's own back-and-forth: telling a submitter their reachability check failed if they've already navigated away, or that their entry was approved or rejected. It is not an account (nothing is gated behind it, nothing persists it as an identity), and it is not a mailing list (it is never used to reach a submitter about anything other than the specific submission that collected it). It is retained only until that submission is resolved, approved or rejected, and deleted after. It is visible to maintainers during review (Section 5) and is never written to `ring.json` and never appears in the pull request Section 5 eventually opens.
+
+### 2.3 Submitting a craft entry
+
+`craft` is a made physical object: weaving, textiles, ceramics, sculpture, leatherwork, woodwork, jewelry, or a 3D-printed piece. It reuses the `pages` shape and the shared image viewer; there are no dedicated `materials` or `dimensions` fields, so put those in captions and `tags`.
+
+- Include one full view and at least one detail shot (guidance, not a schema rule). The field view pans across the last photo.
+- Up to 5 photos. Each is served from the creator's own hosting; images are never rehosted.
+- **Art or craft?** If a visitor would expect to look at it, it is art. If they would expect to hold it, wear it, or set it on a shelf, it is craft. Borderline work (fiber art, painted ceramics, relief prints) is filed under the submitter's choice, and a borderline filing is not grounds for rejection. Review only rejects an obvious mismatch, such as `craft` declared with `tracks` and no `pages`.
+- 3D printing: photos of the finished physical piece qualify as craft. A link to a model file (Printables, MakerWorld, and similar) belongs in `source_url`. No 3D model viewer exists.
+- Shop links are fine as `source_url`. The ring links out, never takes a cut, and never ranks or rotates by sales.
+- Ownership uses the same self-owned-space flow as every other type (Section 5). A one-page site on a free static host counts. Third-party shop or profile tokens (an Etsy announcement, an Instagram bio) are the deprecated path and are not accepted; see the open question in `open-questions.md`.
 
 ## 3. Rights Warranty (checkbox label text)
 
@@ -141,6 +152,7 @@ Since 2026-09-17 this checkbox carries the Section 3 rights statement as well, a
 - `source_url` must be a valid, reachable URL at submission time.
 - `tags`: at least one. Now enforced by the schema (`minItems: 1`) rather than by this sentence alone. An untagged entry is invisible to the tag filters and to the tag list in Settings, so it would join the ring already unfindable by every route except scrolling past it.
 - `tracks` array: max length 3 for type audio. Reject or truncate with a clear message if exceeded, do not silently drop entries.
+- `pages` for craft: one to five photos. Every photo requires an external `image_url` and a non-empty `caption` (at most 200 characters), because the caption carries materials and scale and is the photo's text alternative. Comic pages stay capped at three with an optional caption. A craft entry cannot come from the site-generator branch yet (no craft template), so the form and the intake workflow refuse `has_own_site: no` with `type: craft`.
 - `feeds`: up to ten, every type, entirely optional. Each needs a `type` (a free-form word; rss, atom, jsonfeed, bluesky, mastodon, youtube and podcast are the ones a reader labels distinctly) and an external https `url`. Shape validation only: a feed is legitimately RSS, Atom or an HTML profile page, so it is never put through the image/preview content-type check. `verified` (the feed's own profile links back to `source_url` with a two-way `rel="me"`) is in the schema but deliberately not a form field: nothing here checks it yet, and letting a submitter assert it would defeat the point.
 - `discoverable` is a schema field with no form control: a creator's own opt-out from rotating discovery (false keeps the Node in the ring, the directory and widget navigation), omitted meaning true. It is set in the member's record, never by a reviewer or by ranking.
 - `artworks`: one to three for Art. Every work requires an external `image_url` and meaningful `alt`; `title`, `year`, `medium`, and a work-level `external_url` are optional.

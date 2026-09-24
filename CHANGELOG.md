@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`craft` entry type.** A made physical object shown in photographs, reusing the comic
+  `pages` shape (1 to 5 photos, caption required). Includes a Craft node stage that pans a
+  detail photo, a craft variant of the shared image viewer with prominent captions, join and
+  update editors, and intake validation. Not yet available to creators without a site of their
+  own. See `docs/decisions.md`.
+
 ## [1.11.0] - 2026-09-28
 
 ### Added

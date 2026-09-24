@@ -161,3 +161,12 @@ release-required.
   is only whether the minting rule should be host-match (what the propagation step already
   assumes) or something narrower — the two-node cap is already LOCKED, and the reader-side
   `type` badge that distinguishes a creator's two nodes is already built.
+
+- **Craft makers without a site of their own have no path in yet.** The site generator has
+  no craft template (craft is excluded from that branch for now), and third-party-profile
+  token verification (an Etsy announcement, an Instagram bio) was deprecated in v0.5 in favor
+  of self-owned space. Many makers sell only through a shop or social profile, so that is the
+  type's most likely audience. Options: build a craft generator template (reuses `pages`),
+  or deliberately re-admit a narrow third-party-profile check for craft. The submission note
+  currently tells makers a one-page site on a free static host counts. Decide before craft is
+  promoted, because the two options change what `/join` asks.
