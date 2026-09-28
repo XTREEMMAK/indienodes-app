@@ -34,6 +34,7 @@
 	const TABS = [
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'principles', label: 'Principles' },
+		{ id: 'posture', label: 'Posture' },
 		{ id: 'source', label: 'Source & License' },
 		...(KOFI_URL ? [{ id: 'support', label: 'Support' }] : [])
 	];
@@ -101,6 +102,19 @@
 					>
 						<path d="M12 3l7 3v6c0 4.4-2.9 7.7-7 9-4.1-1.3-7-4.6-7-9V6z" stroke-linejoin="round" />
 						<path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+				{:else if tab.id === 'posture'}
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						aria-hidden="true"
+					>
+						<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" stroke-linejoin="round" />
+						<circle cx="12" cy="12" r="3" />
 					</svg>
 				{:else if tab.id === 'source'}
 					<svg
@@ -277,6 +291,27 @@
 								<span>No AI artists. Every entry is the work of a person.</span>
 							</li>
 						</ul>
+					</div>
+				{:else if activeTab === 'posture'}
+					<div role="tabpanel" id="about-panel-posture" aria-labelledby="about-tab-posture">
+						<!-- Written to match what the product actually asks and does, not a
+						     simpler promise: joining does ask two things of a member's own site
+						     (an ownership tag, and a ring link on the page they submitted; see
+						     the curation policy's "Continuing participation"), and leaving is a
+						     verified request a person reviews (EULA 5.5), not an instant switch.
+						     "No ranking" is true as written: the directory is alphabetical and
+						     the field's rotation is random. -->
+						<section class="posture">
+							<h3>Our posture</h3>
+							<p>
+								IndieNodes is a stage for creators who chose to be seen: every Node is opt-in, and
+								nothing is listed for a site that did not ask to be here. Joining asks two small
+								things of your own site, an ownership tag and a link back to the ring, and adds a
+								Node in the field, the ring widget and badge, and a page builder if you have no
+								site. You can ask to leave at any time from the Update page. There is no ranking of
+								any kind, and no paid placement.
+							</p>
+						</section>
 					</div>
 				{:else if activeTab === 'source'}
 					<div role="tabpanel" id="about-panel-source" aria-labelledby="about-tab-source">
@@ -515,7 +550,8 @@
 		margin-top: 1.6rem;
 	}
 
-	.releases h3 {
+	.releases h3,
+	.posture h3 {
 		margin-bottom: 0.6rem;
 		color: var(--text-muted);
 		font-size: var(--text-xs);
