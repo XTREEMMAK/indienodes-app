@@ -128,7 +128,7 @@ The "art" type this table assumes now exists. It was added to `schema/ring.schem
 
 Not built yet, in the order they matter:
 
-1. **Deploy the n8n change for `feeds` and `layout`.** The generator now validates, publishes and reviews both (approved 2026-09-28), but nothing reaches production until `build_workflows.py --push` and `--export` are run, as their own deploy and never with an app image. Until then a creator can fill both in on a build that ships this app and they are dropped at publish, so do not release the app ahead of it.
+1. ~~**Deploy the n8n change for `feeds` and `layout`.**~~ **Done (2026-09-28).** The generator validates, publishes and reviews both, and it is live, so the app can now be released without values being dropped at publish.
 2. **A real check for `feeds[].verified`.** A two-way `rel="me"` between a feed's profile and `source_url`, run by the member-health tooling rather than asserted by the submitter. Until it exists the field is only ever absent.
 3. **A form control for `discoverable`,** and this app's own rotation honoring it. It is a schema field today with no UI, and the field and ambient rotation do not read it; YipDen does.
 4. **A consumer for `layout`.** It is collected and carried, and nothing acts on it.
