@@ -53,6 +53,19 @@ export const ENTRY_TYPE_LABELS = /** @type {const} */ ({
 export const FORM_OPTIONS = /** @type {const} */ (['music', 'spoken']);
 
 /**
+ * Matches the schema's `layout` enum. Every type, optional, and self-declared
+ * — a hint about how the creator's own `source_url` is best experienced.
+ * Presentational only: no client is required to act on it, unlike `form`.
+ */
+export const LAYOUT_OPTIONS = /** @type {const} */ (['mobile-friendly', 'desktop-first']);
+
+/** Creator-facing labels for `layout`. */
+export const LAYOUT_LABELS = /** @type {const} */ ({
+	'mobile-friendly': 'Mobile-friendly',
+	'desktop-first': 'Desktop-first'
+});
+
+/**
  * Creator-facing labels for `form`. Declared so playback queues never mix
  * music and spoken-word content, which tags alone can't separate (a spoken
  * fantasy drama and a fantasy soundtrack can share every tag).
@@ -135,6 +148,9 @@ export const MAX_ARTWORKS = 3;
  */
 export const MAX_PAGES = 3;
 
+/** Schema cap on `feeds`: a sanity bound, matching tags's own cap's reasoning, not a product target. */
+export const MAX_FEEDS = 10;
+
 /** Keeps `why` to the "one line" the schema's description asks for. */
 export const WHY_MAX_LENGTH = 75;
 
@@ -212,6 +228,12 @@ export function validateEntry(entry) {
 		errors.form = 'Pick Music or Spoken.';
 	}
 
+	// Optional and every type. An empty string (not chosen) is a valid state,
+	// unlike `form` above: this is a hint, not a requirement.
+	if (entry?.layout && !LAYOUT_OPTIONS.includes(entry.layout)) {
+		errors.layout = 'Pick one of the listed options.';
+	}
+
 	// Not a ring.json field itself (toRingEntry never emits it), but it
 	// gates whether source_url is asked for now or produced later by the
 	// site-generator branch, so it needs its own completeness check here
@@ -268,6 +290,27 @@ export function validateEntry(entry) {
 		} else {
 			const error = mediaUrlError(track.media_url, 'The audio file');
 			if (error) errors[`tracks.${i}.media_url`] = error;
+		}
+	});
+
+	// Feeds are every type and entirely optional, same as tracks structurally
+	// (validated unconditionally here; only ever emitted for the type that
+	// wants them, which for feeds is every type). `verified` is never set by
+	// this form -- it means the feed's own profile links back to source_url
+	// with a two-way rel="me", which nothing here checks, so the field is
+	// left for a future automated pass rather than let a submitter assert it.
+	const feeds = Array.isArray(entry?.feeds) ? entry.feeds : [];
+	if (feeds.length > MAX_FEEDS) {
+		errors.feeds = `Ten feeds maximum; you have ${feeds.length}. Remove one rather than letting it be dropped for you.`;
+	}
+	feeds.forEach((feed, i) => {
+		if (!feed?.type?.trim() && !feed?.url?.trim()) return; // empty row, ignored
+		if (!feed?.type?.trim()) errors[`feeds.${i}.type`] = 'Say what kind of feed this is.';
+		if (!feed?.url?.trim()) {
+			errors[`feeds.${i}.url`] = 'Needs a link to the feed.';
+		} else {
+			const error = mediaUrlError(feed.url, 'The feed link');
+			if (error) errors[`feeds.${i}.url`] = error;
 		}
 	});
 
@@ -419,6 +462,13 @@ export function toRingEntry(entry) {
 		.map((/** @type {any} */ t) => ({ label: t.label.trim(), media_url: t.media_url.trim() }));
 	if (entry.type === 'audio') out.form = entry.form;
 	if (entry.type === 'audio' && tracks.length) out.tracks = tracks;
+
+	if (entry.layout && LAYOUT_OPTIONS.includes(entry.layout)) out.layout = entry.layout;
+
+	const feeds = (entry.feeds ?? [])
+		.filter((/** @type {any} */ f) => f?.type?.trim() && f?.url?.trim())
+		.map((/** @type {any} */ f) => ({ type: f.type.trim().toLowerCase(), url: f.url.trim() }));
+	if (feeds.length) out.feeds = feeds;
 
 	if (entry.type === 'comic') {
 		out.pages = (entry.pages ?? [])

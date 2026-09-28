@@ -32,6 +32,11 @@
  *
  * Tracks and excerpt audio are deliberately absent: they are audio, and this
  * check is about images (plus a game's preview, which may also be a video).
+ * `feeds[].url` is deliberately absent too, for the same reason: a feed is
+ * legitimately `application/rss+xml`, `application/atom+xml`, or an HTML
+ * profile page, none of which this image/preview check would accept. Feeds
+ * get shape validation only (`submissionValidation.js`'s `mediaUrlError`),
+ * no backend content-type check.
  * @param {Record<string, any>} entry
  * @returns {MediaUrlField[]}
  */
