@@ -111,7 +111,11 @@ function emptyEntry() {
 		thumb_position: { x: 50, y: 50 },
 		preview_url: '',
 		trailer_url: '',
-		explicit: false
+		explicit: false,
+		// Self-declared, every type, optional. See LAYOUT_OPTIONS.
+		layout: '',
+		/** @type {{ uid: string, type: string, url: string }[]} */
+		feeds: []
 	};
 }
 
@@ -310,6 +314,11 @@ export function createUpdateStore() {
 			medium: artwork.medium ?? '',
 			external_url: artwork.external_url ?? ''
 		});
+	}
+
+	/** @param {{ type: string, url: string, verified?: boolean }} feed */
+	function seedFeed(feed) {
+		return row({ type: feed.type, url: feed.url });
 	}
 
 	/** @param {{ title?: string, text: string, audio_url?: string }} sample */
@@ -545,6 +554,8 @@ export function createUpdateStore() {
 				tracks: (found.tracks ?? []).map(seedTrack),
 				pages: (found.pages ?? []).map(seedPage),
 				artworks: (found.artworks ?? []).map(seedArtwork),
+				feeds: (found.feeds ?? []).map(seedFeed),
+				layout: found.layout ?? '',
 				// Legacy plain-string samples (an older ring.json entry) are
 				// lifted into the current shape first, the same way `ring.js`'s
 				// `normalizeEntry` does for display. A node with no excerpts at
