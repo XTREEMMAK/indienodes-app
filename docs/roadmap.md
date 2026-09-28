@@ -122,6 +122,18 @@ See `skin-authoring.md` for the complete contract and workflow.
 
 The "art" type this table assumes now exists. It was added to `schema/ring.schema.json` in 1.2.0 as a first-class type with its own `artworks` array, its own field stage, and five generator templates, so Retro Love's easel is a skin's own work rather than a schema change waiting on one.
 
+## Feeds, discoverability, and the YipDen bridge
+
+**Built (2026-09-28).** The ring schema carries optional `feeds[]`, `discoverable` and `layout` on an entry and `generated_at` on the document, matching what YipDen's `ring-client` already reads. `/join` and `/update` collect `feeds` and `layout`; `/members` offers a "Follow in YipDen" link once `VITE_YIPDEN_URL` is set; the About modal has a short Posture tab. See `decisions.md` for the shapes, why `generated_at` is stamped at publish time, and why `verified` is not a form field.
+
+Not built yet, in the order they matter:
+
+1. ~~**Deploy the n8n change for `feeds` and `layout`.**~~ **Done (2026-09-28).** The generator validates, publishes and reviews both, and it is live, so the app can now be released without values being dropped at publish.
+2. **A real check for `feeds[].verified`.** A two-way `rel="me"` between a feed's profile and `source_url`, run by the member-health tooling rather than asserted by the submitter. Until it exists the field is only ever absent.
+3. **A form control for `discoverable`,** and this app's own rotation honoring it. It is a schema field today with no UI, and the field and ambient rotation do not read it; YipDen does.
+4. **A consumer for `layout`.** It is collected and carried, and nothing acts on it.
+5. **Deciding whether the Posture wording can be strengthened.** It stops short of "never required to change" and "one click" because the curation policy and EULA say otherwise; making those claims true is a policy change, not a copy edit.
+
 ## Kiosk mode
 
 The installable baseline is built: `static/manifest.webmanifest` and the install icons

@@ -24,7 +24,8 @@
 	import { preferencesStore } from '$lib/preferencesStore.svelte.js';
 	import { reducedMotion } from '$lib/motion.svelte.js';
 	import { updateStore } from '$lib/updateStore.svelte.js';
-	import { EARLY_ACCESS } from '$lib/config.js';
+	import { EARLY_ACCESS, YIPDEN_URL } from '$lib/config.js';
+	import { yipdenFollowUrl } from '$lib/yipden.js';
 
 	let { data } = $props();
 
@@ -239,6 +240,7 @@
 			{#each visible as entry (entry.id)}
 				{@const cover = coverImageUrl(entry)}
 				{@const hasCover = Boolean(cover) && !failedCovers.has(entry.id)}
+				{@const yipdenHref = yipdenFollowUrl(YIPDEN_URL, entry.source_url)}
 				<li class="member" class:has-cover={hasCover} data-type={entry.type}>
 					<div class="thumb" aria-hidden="true">
 						{#if hasCover}
@@ -271,6 +273,18 @@
 						<a class="visit" href={entry.source_url} target="_blank" rel="noopener noreferrer">
 							Visit &rarr;
 						</a>
+						{#if yipdenHref}
+							<!-- Only when this deployment has YipDen configured (VITE_YIPDEN_URL):
+							     an opt-in convenience for someone who wants to follow this creator's
+							     own feed, never a requirement, and absent entirely until YipDen is
+							     published. Quiet like "This is mine" because it is secondary to
+							     Visit. -->
+							<!-- eslint-disable svelte/no-navigation-without-resolve -- external product, not an app route -->
+							<a class="yipden" href={yipdenHref} target="_blank" rel="noopener noreferrer">
+								Follow in YipDen
+							</a>
+							<!-- eslint-enable svelte/no-navigation-without-resolve -->
+						{/if}
 						<!-- The node id is shown nowhere else in this app, so this link is
 						     how a creator who no longer remembers theirs reaches the change
 						     form at all. Quiet on purpose: it is for the one person on this
@@ -609,14 +623,17 @@
 		letter-spacing: 0.03em;
 	}
 
-	.claim {
+	.claim,
+	.yipden {
 		color: var(--text-muted);
 		font-size: var(--text-xs);
 		text-decoration: none;
 	}
 
 	.claim:hover,
-	.claim:focus-visible {
+	.claim:focus-visible,
+	.yipden:hover,
+	.yipden:focus-visible {
 		color: var(--accent);
 		text-decoration: underline;
 	}
@@ -699,7 +716,8 @@
 			color: white;
 		}
 
-		.member.has-cover .claim {
+		.member.has-cover .claim,
+		.member.has-cover .yipden {
 			color: rgb(255 255 255 / 0.78);
 		}
 

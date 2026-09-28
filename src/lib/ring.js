@@ -15,11 +15,14 @@ import DOMPurify from 'isomorphic-dompurify';
  * @property {{ image_url: string, alt: string, title?: string, year?: string, medium?: string, external_url?: string }[]} [artworks]
  * @property {{ title?: string, text: string, audio_url?: string }[]} [excerpts]
  * @property {string} [excerpt] Legacy single-sample input, normalized to excerpts.
+ * @property {{ type: string, url: string, verified?: boolean }[]} [feeds] Additive; a creator's own feeds elsewhere. This app does not render them yet (see docs/decisions.md) but carries them through unmodified, the same as every field a client does not yet act on.
  * @property {string} [thumb_url]
  * @property {{ x: number, y: number }} [thumb_position]
  * @property {string} [preview_url]
  * @property {string} [trailer_url]
  * @property {boolean} [explicit]
+ * @property {boolean} [discoverable] Additive; a creator's own opt-out from a rotation-style discovery surface. Defaults to true. This app's own field/ambient rotation does not read it yet (see docs/decisions.md); it is normalized and carried through so a future surface, or another client such as YipDen, sees it exactly as published.
+ * @property {'mobile-friendly' | 'desktop-first'} [layout] Additive, self-declared, presentational only.
  * @property {string} [verification_token] Required by the ring schema; approval publishes the checked token.
  */
 
@@ -45,6 +48,7 @@ function normalizeEntry(entry) {
 		tracks: Array.isArray(entry.tracks) ? entry.tracks.filter(isRecord) : [],
 		pages: Array.isArray(entry.pages) ? entry.pages.filter(isRecord) : [],
 		artworks: Array.isArray(entry.artworks) ? entry.artworks.filter(isRecord) : [],
+		feeds: Array.isArray(entry.feeds) ? entry.feeds.filter(isRecord) : [],
 		// `excerpts` moved from a plain string array to `{ text, audio_url? }`
 		// objects. Real ring.json entries still on disk predate that change,
 		// and the older single-`excerpt` string predates `excerpts` entirely,
@@ -58,7 +62,12 @@ function normalizeEntry(entry) {
 		)
 			.map((sample) => (typeof sample === 'string' ? { text: sample } : sample))
 			.filter(isRecord),
-		explicit: entry.explicit === true
+		explicit: entry.explicit === true,
+		// Matches YipDen's own ring-client normalize(): absent or anything but
+		// a literal `false` means discoverable, so a malformed value fails
+		// toward staying visible rather than toward being silently dropped
+		// from rotation.
+		discoverable: entry.discoverable !== false
 	};
 }
 
@@ -321,7 +330,8 @@ function withSafeMedia(entry, allowedHttpOrigin = null) {
 		excerpts: (entry.excerpts ?? []).filter(
 			(excerpt) =>
 				excerpt.audio_url === undefined || isSafeUrl(excerpt.audio_url, allowedHttpOrigin)
-		)
+		),
+		feeds: (entry.feeds ?? []).filter((feed) => isSafeUrl(feed.url, allowedHttpOrigin))
 	};
 }
 

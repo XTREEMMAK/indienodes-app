@@ -192,3 +192,22 @@ export const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
  * be absent, so absent must mean out.
  */
 export const EARLY_ACCESS = import.meta.env.VITE_EARLY_ACCESS === 'true';
+
+/**
+ * YipDen's own deployed origin, if this deployment wants to offer a "Follow
+ * in YipDen" link on `/members`.
+ *
+ * Same "unset means off, not broken" posture as `KOFI_URL` and `RING_REPO_URL`
+ * above: YipDen is a separate, independently released product (a mobile
+ * reader that follows creators' feeds rather than sampling their featured
+ * work), and it is not published yet. Leaving this unset is the expected
+ * state until it is, and the link disappears entirely rather than pointing
+ * at something that does not resolve -- there is no way for this static site
+ * to check that the target is live at build time, so the absence of the flag
+ * is what stands in for that check.
+ *
+ * No path convention is assumed beyond the bare origin: the link appends
+ * `?follow=<source_url>` and lets YipDen's own routing decide what to do
+ * with it, since that contract belongs to YipDen, not to this repo.
+ */
+export const YIPDEN_URL = import.meta.env.VITE_YIPDEN_URL || '';

@@ -146,7 +146,11 @@ function emptyEntry() {
 		thumb_position: { x: 50, y: 50 },
 		preview_url: '',
 		trailer_url: '',
-		explicit: false
+		explicit: false,
+		// Self-declared, every type, optional. See LAYOUT_OPTIONS.
+		layout: '',
+		/** @type {{ uid: string, type: string, url: string }[]} */
+		feeds: []
 	};
 }
 
@@ -210,6 +214,11 @@ export function newArtwork() {
 /** @returns {{ uid: string, title: string, text: string, audio_url: string }} */
 export function newExcerpt() {
 	return row({ title: '', text: '', audio_url: '' });
+}
+
+/** @returns {{ uid: string, type: string, url: string }} */
+export function newFeed() {
+	return row({ type: '', url: '' });
 }
 
 /**
@@ -277,6 +286,7 @@ function loadDraft() {
 			tracks: Array.isArray(parsed.tracks) ? parsed.tracks.map(rekeyed) : [],
 			pages: Array.isArray(parsed.pages) ? parsed.pages.map(rekeyed) : [],
 			artworks: Array.isArray(parsed.artworks) ? parsed.artworks.map(rekeyed) : [],
+			feeds: Array.isArray(parsed.feeds) ? parsed.feeds.map(rekeyed) : [],
 			// A draft persisted before excerpts gained a uid/audio_url shape
 			// still has the old plain-string form; lift each into the current
 			// shape the same way `ring.js`'s `normalizeEntry` does for
@@ -440,11 +450,12 @@ export function createSubmissionStore() {
 			'source_url',
 			'thumb_url',
 			'tags',
+			'layout',
 			// Review-only, but asked on this step beside the explicit checkbox.
 			'adult_content',
 			'adult_content_confirmation'
 		],
-		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url'],
+		media: ['tracks', 'pages', 'artworks', 'excerpts', 'preview_url', 'trailer_url', 'feeds'],
 		consent: [
 			'email',
 			'ai_attestation',

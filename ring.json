@@ -2,12 +2,46 @@
 	"version": "1.0",
 	"entries": [
 		{
+			"id": "art-slime-pond",
+			"creator": "Slime Pond",
+			"type": "art",
+			"why": "Various art pieces and webcomic",
+			"tags": [
+				"art",
+				"comedy",
+				"comic",
+				"fantasy"
+			],
+			"artworks": [
+				{
+					"image_url": "https://candyether.space/personal/gallery/bg_fishermint_green.png",
+					"alt": "dragonite and goomy",
+					"year": "2023",
+					"medium": "pixel art"
+				},
+				{
+					"image_url": "https://candyether.space/personal/gallery/sappylitwikpix.png",
+					"alt": "litwick",
+					"medium": "pixel art"
+				}
+			],
+			"source_url": "https://candyether.space/",
+			"verification_token": "be34ef62e6a42aaa35e4b08b19dfeeed",
+			"joined_at": "2026-09-22T15:17:27.977Z"
+		},
+		{
 			"id": "audio-george-r-powell",
 			"creator": "George R. Powell",
 			"type": "audio",
 			"form": "music",
 			"why": "I'm a composer for film, animation, and video games!",
-			"tags": ["orchestral", "vgm", "fantasy", "film scores", "digital rock"],
+			"tags": [
+				"orchestral",
+				"vgm",
+				"fantasy",
+				"film scores",
+				"digital rock"
+			],
 			"tracks": [
 				{
 					"label": "True Tail - Battle",
@@ -23,7 +57,10 @@
 				}
 			],
 			"thumb_url": "https://pages.kjnet.us/georgerpowell/assets/profile.avif",
-			"thumb_position": { "x": 50, "y": 50 },
+			"thumb_position": {
+				"x": 50,
+				"y": 50
+			},
 			"source_url": "https://pages.kjnet.us/georgerpowell/",
 			"verification_token": "0f122804c60f4a115840a5d482f3aed6",
 			"joined_at": "2026-09-14T02:55:12.915Z"
@@ -34,7 +71,16 @@
 			"type": "audio",
 			"form": "music",
 			"why": "I compose in a multitude of styles including VGM, Hip-Hop, Rock and more!",
-			"tags": ["vgm", "hip-hop", "orchestral", "vgmr", "r&b", "edm", "house", "dnb"],
+			"tags": [
+				"vgm",
+				"hip-hop",
+				"orchestral",
+				"vgmr",
+				"r&b",
+				"edm",
+				"house",
+				"dnb"
+			],
 			"tracks": [
 				{
 					"label": "Should I Stay",
@@ -50,7 +96,10 @@
 				}
 			],
 			"thumb_url": "https://keyjay.neocities.org/assets/indienodes-keyjay/IMG_0481.JPG",
-			"thumb_position": { "x": 50, "y": 50 },
+			"thumb_position": {
+				"x": 50,
+				"y": 50
+			},
 			"source_url": "https://keyjay.neocities.org",
 			"verification_token": "b44d66453a90b0b287a95edb2bece2cc",
 			"joined_at": "2026-09-01T21:33:43.026Z"
@@ -60,7 +109,14 @@
 			"creator": "Nori Jammy",
 			"type": "comic",
 			"why": "Horror cartoonist, musician, and writer from Appalachia.",
-			"tags": ["horror", "drama", "comedy", "comic", "art", "animation"],
+			"tags": [
+				"horror",
+				"drama",
+				"comedy",
+				"comic",
+				"art",
+				"animation"
+			],
 			"pages": [
 				{
 					"image_url": "https://frammyjammy.com/suzu-and-jack/img/comics/pg29.png",
@@ -76,10 +132,68 @@
 				}
 			],
 			"thumb_url": "https://frammyjammy.com/graphics/bg-art/rainbow-baby-blue.png",
-			"thumb_position": { "x": 50, "y": 50 },
+			"thumb_position": {
+				"x": 50,
+				"y": 50
+			},
 			"source_url": "https://frammyjammy.com/suzu-and-jack/",
 			"verification_token": "79ca089920914acf2e0b242d93238419",
 			"joined_at": "2026-09-13T02:03:07.444Z"
+		},
+		{
+			"id": "comic-sam-fencer-3",
+			"creator": "Sam Fencer <3",
+			"type": "comic",
+			"why": "I'm very passionate about making stupid silly comics and I NEVER hold back!",
+			"tags": [
+				"comedy",
+				"comic"
+			],
+			"pages": [
+				{
+					"image_url": "https://maddox79.neocities.org/art-gallery/PUHSQAE_CH1_coverR.jpg",
+					"caption": "Cover of the first chapter of my comic"
+				}
+			],
+			"thumb_url": "https://maddox79.neocities.org/art-gallery/artwork_MonicaH_pfp.png",
+			"thumb_position": {
+				"x": 50,
+				"y": 50
+			},
+			"source_url": "https://maddox79.neocities.org/",
+			"verification_token": "fa964ce4e32815e36ffe2d6a619606fb",
+			"joined_at": "2026-09-22T17:28:22.028Z"
+		},
+		{
+			"id": "comic-yuna2k",
+			"creator": "yuna2k",
+			"type": "comic",
+			"why": "Currently developing MVNDY [techno, dreams and other dimensions]",
+			"tags": [
+				"comic",
+				"techno",
+				"blog"
+			],
+			"pages": [
+				{
+					"image_url": "https://mvndy.cl/images/Mvndypage_1.png"
+				},
+				{
+					"image_url": "https://mvndy.cl/images/Mvndypage_2.png"
+				},
+				{
+					"image_url": "https://mvndy.cl/images/Mvndypage_3.png"
+				}
+			],
+			"thumb_url": "https://mvndy.cl/images/indienodes_cover.png",
+			"thumb_position": {
+				"x": 50,
+				"y": 50
+			},
+			"source_url": "https://mvndy.cl/",
+			"verification_token": "5ba239317a7ed085c66f5db617ac5b3d",
+			"joined_at": "2026-09-23T17:46:42.426Z"
 		}
-	]
+	],
+	"generated_at": "2026-09-28T16:27:15.850Z"
 }

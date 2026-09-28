@@ -982,11 +982,13 @@ Removal prep → id known? → resolve member-file SHA → SHA verdict → file 
 
 ### The public allowlist
 
-`creator, type, form, why, tags, tracks, pages, artworks, excerpts, thumb_url, thumb_position, preview_url, trailer_url, explicit`, plus
+`creator, type, form, why, tags, tracks, pages, artworks, excerpts, thumb_url, thumb_position, preview_url, trailer_url, explicit, feeds, layout`, plus
 backend-assigned `id`, `source_url`, `verification_token`, and optional `creator_id`. This
 matches `toRingEntry` in `src/lib/submissionValidation.js` field for field. It is an allowlist,
 never a denylist: a field added to the form later must be deliberately published, not published
 by default.
+
+`feeds` and `layout` are validated at intake (finalize): `layout` must be one of the two enum values, and a feed item may carry exactly `type` and `url`, so a request cannot assert `verified`. `discoverable` is deliberately not on the list: it is the creator's own switch, set in their member record. Feed URLs are never fetched by n8n, so `feeds[].url` is absent from the media check by design.
 
 `verification_token` is **required** by the canonical schema and is the row's own token — the one
 `verify` checked and finalize re-checked. It stays on the row through review (a

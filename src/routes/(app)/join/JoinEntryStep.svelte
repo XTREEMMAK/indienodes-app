@@ -29,6 +29,8 @@
 		ENTRY_TYPE_LABELS,
 		FORM_OPTIONS,
 		FORM_LABELS,
+		LAYOUT_OPTIONS,
+		LAYOUT_LABELS,
 		WHY_MAX_LENGTH
 	} from '$lib/submissionValidation.js';
 	import { ALLOWED_RATIOS, MIN_W, snapToAllowedShape } from '$lib/nodeShape.js';
@@ -293,6 +295,29 @@
 				{/snippet}
 			</FormField>
 		{/if}
+
+		<FormField
+			id="f-layout"
+			label="Layout (optional)"
+			hint="A hint about how your site is best experienced. Presentational only: nothing here requires or checks it."
+			error={form.entryErrors.layout}
+		>
+			{#snippet children(describedBy)}
+				<select
+					id="f-layout"
+					class="control"
+					bind:value={entry.layout}
+					onchange={() => form.touch()}
+					aria-describedby={describedBy}
+					aria-invalid={Boolean(form.entryErrors.layout)}
+				>
+					<option value="">Not sure / no preference</option>
+					{#each LAYOUT_OPTIONS as option (option)}
+						<option value={option}>{LAYOUT_LABELS[option]}</option>
+					{/each}
+				</select>
+			{/snippet}
+		</FormField>
 
 		{#if entry.has_own_site !== 'no'}
 			<FormField

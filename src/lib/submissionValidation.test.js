@@ -29,11 +29,14 @@ import addFormats from 'ajv-formats';
 import {
 	MAX_EXCERPTS,
 	MAX_ARTWORKS,
+	MAX_FEEDS,
 	MAX_PAGES,
 	MAX_TRACKS,
 	WHY_MAX_LENGTH,
 	ENTRY_TYPES,
 	ENTRY_TYPE_LABELS,
+	LAYOUT_OPTIONS,
+	LAYOUT_LABELS,
 	validateEntry,
 	toRingEntry,
 	validateReview,
@@ -104,6 +107,53 @@ function schemaVerdict(entry) {
  */
 const cases = [
 	{ name: 'a complete text entry', entry: draft(), formValid: true },
+	{
+		name: 'a layout hint',
+		entry: draft({ layout: 'mobile-friendly' }),
+		formValid: true
+	},
+	{
+		// toRingEntry silently drops an invalid layout rather than emitting it
+		// (same reasoning as a half-filled repeatable row), so the schema never
+		// sees the bad value to reject it -- a real form-only asymmetry.
+		name: 'a layout value outside the enum',
+		entry: draft({ layout: 'responsive' }),
+		formValid: false,
+		formOnly: true
+	},
+	{
+		name: 'feeds with a known and an unknown type, one unverified',
+		entry: draft({
+			feeds: [
+				{ type: 'rss', url: 'https://example.com/feed.xml' },
+				{ type: 'gemini-capsule', url: 'https://example.com/feed.gmi' }
+			]
+		}),
+		formValid: true
+	},
+	{
+		// toRingEntry drops a feed row missing its type before it ever reaches
+		// the schema, the same as any other half-filled repeatable row.
+		name: 'a feed missing its type',
+		entry: draft({ feeds: [{ type: '', url: 'https://example.com/feed.xml' }] }),
+		formValid: false,
+		formOnly: true
+	},
+	{
+		name: 'a feed with a non-https url',
+		entry: draft({ feeds: [{ type: 'rss', url: 'http://example.com/feed.xml' }] }),
+		formValid: false
+	},
+	{
+		name: 'eleven feeds',
+		entry: draft({
+			feeds: Array.from({ length: 11 }, (_, i) => ({
+				type: 'rss',
+				url: `https://example.com/feed-${i}.xml`
+			}))
+		}),
+		formValid: false
+	},
 	{
 		name: 'audio with no tracks (link-only member, a supported shape)',
 		entry: draft({ type: 'audio', form: 'music', excerpts: undefined }),
@@ -421,6 +471,17 @@ describe('the media caps match the schema', () => {
 	it('caps pages where the schema does', () => {
 		expect(MAX_PAGES).toBe(schema.properties.pages.maxItems);
 	});
+
+	it('caps feeds where the schema does', () => {
+		expect(MAX_FEEDS).toBe(schema.properties.feeds.maxItems);
+	});
+});
+
+describe('LAYOUT_OPTIONS matches the schema enum', () => {
+	it('carries exactly the values ring.schema.json declares for layout', () => {
+		expect(LAYOUT_OPTIONS).toEqual(schema.properties.layout.enum);
+		for (const option of LAYOUT_OPTIONS) expect(LAYOUT_LABELS[option]).toBeTypeOf('string');
+	});
 });
 
 describe('published entries stay valid across the excerpt shape change', () => {
@@ -562,6 +623,14 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 		for (const leaked of ['email', 'eula_agreement', 'rights_confirmation']) {
 			expect(out, `${leaked} must never reach the entry`).not.toHaveProperty(leaked);
 		}
+	});
+
+	it('never lets a submitter set feeds[].verified, even if a hand-built draft carried one', () => {
+		const out = toRingEntry(
+			draft({ feeds: [{ type: 'rss', url: 'https://example.com/feed.xml', verified: true }] })
+		);
+		expect(out.feeds).toEqual([{ type: 'rss', url: 'https://example.com/feed.xml' }]);
+		expect(validateAgainstSchema({ ...out, ...BACKEND_FIELDS })).toBe(true);
 	});
 
 	it('drops half-filled repeatable rows rather than emitting invalid ones', () => {
