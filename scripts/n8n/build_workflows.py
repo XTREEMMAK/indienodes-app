@@ -1078,6 +1078,12 @@ return [{ json: { proceed: 'yes', url, token } }];
 # image or a video). Ring PR #30 is the reason this exists: a comic went out
 # with `?pg=29#showComic` reader-page URLs in pages[].image_url, which pass
 # every https/host rule and render as a broken image for every reader.
+# `feeds[].url` is deliberately NOT listed in mediaUrls() below. This workflow
+# makes an outbound request for every URL it lists, and a feed is legitimately
+# RSS/Atom/HTML, which its image check would reject anyway. Leaving feeds out
+# also means a submitter-supplied feed address never becomes a server-side
+# fetch from n8n (no new SSRF surface); the schema and validate-ring.js's
+# static URL check are the guards for it.
 MEDIA_URLS_JS = r"""
 // The typed media URLs in one ring entry, keyed by the same field paths
 // src/lib/submissionValidation.js reports errors under, so a refusal can name
@@ -1970,6 +1976,23 @@ if (entry.type === 'art') {
     return bad('invalid_request');
   }
 }
+// Optional, every type. `layout` is a closed enum. `feeds` items may carry
+// exactly `type` and `url`: any other key, `verified` above all, is refused
+// here so a hand-built request cannot assert what only a check may set (the
+// form never offers it and toRingEntry never emits it). Feed URLs are held to
+// the schema's 2000 characters and are never fetched by this workflow.
+if (entry.layout !== undefined && !['mobile-friendly', 'desktop-first'].includes(entry.layout)) {
+  return bad('invalid_request');
+}
+if (entry.feeds !== undefined) {
+  const feedFields = ['type', 'url'];
+  if (!Array.isArray(entry.feeds) || entry.feeds.length > 10) return bad('invalid_request');
+  if (!entry.feeds.every((feed) => feed && typeof feed === 'object' &&
+      !Array.isArray(feed) && Object.keys(feed).every((key) => feedFields.includes(key)) &&
+      str(feed.type, 40) && externalMedia(feed.url) && feed.url.length <= 2000)) {
+    return bad('invalid_request');
+  }
+}
 if (entry.type === 'game') {
   if (entry.preview_url !== undefined && !externalMedia(entry.preview_url)) {
     return bad('invalid_request');
@@ -2811,6 +2834,21 @@ if (entry.type === 'audio' && Array.isArray(entry.tracks) && entry.tracks.length
       '" target="_blank" rel="noopener">Open &nearr;</a></li>').join('') + '</ul></section>';
 }
 
+// Every submitter string goes through esc(). A feed is only linked when it is
+// https, so a malformed stored entry renders as plain text rather than as a
+// clickable non-https address. Never fetched from here.
+let feedsHtml = '';
+if (Array.isArray(entry.feeds) && entry.feeds.length) {
+  feedsHtml = '<section class="section"><p class="section-label">Feeds</p><ul class="media-list">' +
+    entry.feeds.map((feed) => {
+      const url = feed && feed.url ? String(feed.url) : '';
+      const label = esc(feed && feed.type ? feed.type : 'feed');
+      return url.toLowerCase().startsWith('https://')
+        ? '<li><span>' + label + '</span><a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a></li>'
+        : '<li><span>' + label + '</span><span>' + esc(url) + '</span></li>';
+    }).join('') + '</ul></section>';
+}
+
 const thumb = entry.thumb_url
   ? '<img class="cover" style="object-position:' + esc(thumbX) + '% ' + esc(thumbY) + '%" src="' + esc(entry.thumb_url) + '" alt="" loading="lazy">'
   : '';
@@ -2865,6 +2903,7 @@ const reviewContent = isRemoval
       ${thumb}
     </section>
     ${mediaHtml}
+    ${feedsHtml}
     <section class="section">
       <p class="section-label">Review criteria (EULA &sect;8)</p>
       <ul class="criteria">
@@ -2890,6 +2929,7 @@ const reviewContent = isRemoval
           <tr><th scope="row">Adult content on site</th><td>${adultAnswer}</td></tr>
           ${review.adult_content === 'yes' ? `<tr><th scope="row">Adult content confirmation</th><td>${attest(review.adult_content_confirmation)}</td></tr>` : ''}
           <tr><th scope="row">Marked explicit</th><td>${entry.explicit === true ? 'Yes' : 'No'}</td></tr>
+          ${entry.layout ? `<tr><th scope="row">Layout hint</th><td>${esc(entry.layout)}</td></tr>` : ''}
         </tbody>
       </table>
     </section>`;
@@ -3035,8 +3075,12 @@ const gen = $json;
 // Explicit allowlist, matching toRingEntry in src/lib/submissionValidation.js
 // field for field. Never a denylist: a field added to the form later must be
 // deliberately published, not published by default.
+// `feeds` and `layout` are validated at intake above. `discoverable` is
+// deliberately absent: it is the creator's own switch, set in the member's
+// record, and nothing a submission may assert.
 const allowed = ['creator', 'type', 'form', 'why', 'tags', 'tracks', 'pages', 'artworks',
-                 'excerpts', 'thumb_url', 'thumb_position', 'preview_url', 'trailer_url', 'explicit'];
+                 'excerpts', 'thumb_url', 'thumb_position', 'preview_url', 'trailer_url', 'explicit',
+                 'feeds', 'layout'];
 const out = { id: gen.id };
 for (const k of allowed) if (entry[k] !== undefined) out[k] = entry[k];
 

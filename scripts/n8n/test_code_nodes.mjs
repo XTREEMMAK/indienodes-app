@@ -759,6 +759,59 @@ check(
 	'invalid_request'
 );
 
+// feeds and layout: optional on every type, and the server-side twin of the
+// client rules. `verified` in particular can never be asserted by a submitter.
+const withExtras = (extras) => ({ ...BODY, entry: { ...BODY.entry, ...extras } });
+const feedOk = { type: 'rss', url: 'https://example.com/feed.xml' };
+check(
+	'finalize accepts feeds and a layout hint on any type',
+	vrun(
+		ROW,
+		withExtras({
+			feeds: [feedOk, { type: 'gemini', url: 'https://example.com/f.gmi' }],
+			layout: 'mobile-friendly'
+		})
+	)[0].json.ok,
+	'yes'
+);
+check('finalize accepts an entry with neither', vrun(ROW, BODY)[0].json.ok, 'yes');
+for (const [name, extras] of [
+	['a layout outside the enum', { layout: 'responsive' }],
+	['feeds that is not an array', { feeds: 'https://example.com/feed.xml' }],
+	[
+		'eleven feeds',
+		{
+			feeds: Array.from({ length: 11 }, (_, i) => ({
+				type: 'rss',
+				url: `https://example.com/${i}.xml`
+			}))
+		}
+	],
+	['a feed asserting verified', { feeds: [{ ...feedOk, verified: true }] }],
+	['a feed with an unknown key', { feeds: [{ ...feedOk, weight: 9 }] }],
+	['a feed without a type', { feeds: [{ url: feedOk.url }] }],
+	['a feed with an empty type', { feeds: [{ type: '  ', url: feedOk.url }] }],
+	['a feed with an over-long type', { feeds: [{ type: 'x'.repeat(41), url: feedOk.url }] }],
+	['a feed without a url', { feeds: [{ type: 'rss' }] }],
+	['a non-https feed', { feeds: [{ type: 'rss', url: 'http://example.com/feed.xml' }] }],
+	['a javascript: feed', { feeds: [{ type: 'rss', url: 'javascript:alert(1)' }] }],
+	[
+		'a feed hosted on IndieNodes',
+		{ feeds: [{ type: 'rss', url: 'https://app.indienodes.us/feed.xml' }] }
+	],
+	[
+		'a feed url past the schema length',
+		{ feeds: [{ type: 'rss', url: `https://example.com/${'a'.repeat(1990)}` }] }
+	],
+	['a null feed item', { feeds: [null] }]
+]) {
+	check(
+		`finalize rejects ${name}`,
+		vrun(ROW, withExtras(extras))[0].json.error_code,
+		'invalid_request'
+	);
+}
+
 const GAME_ROW = { ...ROW, type: 'game' };
 const GAME_BODY = {
 	...BODY,
@@ -1174,6 +1227,32 @@ check(
 	generatedMember(memberFormatCases[0]).includes('"form": "music"'),
 	true
 );
+const publishedWithExtras = JSON.parse(
+	generatedMember({
+		creator: 'Feed Maker',
+		type: 'text',
+		why: 'Exercises the additive fields against the publish allowlist.',
+		tags: ['essay'],
+		excerpts: [{ text: 'One sample.' }],
+		feeds: [{ type: 'rss', url: 'https://example.com/feed.xml' }],
+		layout: 'desktop-first',
+		// Neither of these is something a submission may set.
+		discoverable: false,
+		verified: true
+	})
+);
+check(
+	'publish keeps feeds',
+	JSON.stringify(publishedWithExtras.feeds),
+	JSON.stringify([{ type: 'rss', url: 'https://example.com/feed.xml' }])
+);
+check('publish keeps layout', publishedWithExtras.layout, 'desktop-first');
+check(
+	'publish never carries discoverable from a submission (the creator sets it)',
+	'discoverable' in publishedWithExtras,
+	false
+);
+check('publish never carries a top-level verified', 'verified' in publishedWithExtras, false);
 check(
 	'generated short tags use the compact form that PR #9 requires',
 	generatedMember(memberFormatCases[0]).includes(
@@ -1273,6 +1352,39 @@ check(
 	true
 );
 check('Art review escapes artwork title', artHtml.includes('<script>Night Signal</script>'), false);
+const feedHtml = prun({
+	submission_id: 'feed1',
+	node_id: '',
+	source_url: 'https://example.com/',
+	type: 'audio',
+	entry: JSON.stringify({
+		type: 'audio',
+		form: 'music',
+		creator: 'Feed Maker',
+		why: 'Feeds on the review page.',
+		tags: ['ambient'],
+		layout: '<b>desktop-first</b>',
+		feeds: [
+			{ type: '<script>alert(1)</script>', url: 'https://example.com/feed.xml?a=1&b="2"' },
+			{ type: 'rss', url: 'javascript:alert(1)' }
+		]
+	}),
+	review: JSON.stringify({ email: 'a@b.co', rights_confirmation: true, eula_agreement: true })
+});
+check('review renders a feeds section', feedHtml.includes('>Feeds<'), true);
+check(
+	'review links an https feed, with quotes and ampersands escaped',
+	feedHtml.includes('href="https://example.com/feed.xml?a=1&amp;b=&quot;2&quot;"'),
+	true
+);
+check('review escapes a feed type', feedHtml.includes('<script>alert(1)</script>'), false);
+check(
+	'review never links a non-https feed url',
+	feedHtml.includes('href="javascript:alert(1)"'),
+	false
+);
+check('review escapes the layout hint', feedHtml.includes('<b>desktop-first</b>'), false);
+check('review shows the layout hint', feedHtml.includes('Layout hint'), true);
 check('XSS: track label is escaped, not live markup', html.includes('<b>x</b>'), false);
 
 const removalHtml = prun({
