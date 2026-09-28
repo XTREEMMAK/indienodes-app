@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-09-28
+
+### Added
+
+- **Optional feeds and a layout hint on `/join` and `/update`.** A creator can list up to ten
+  feeds elsewhere (RSS, Atom, a JSON Feed, Bluesky, Mastodon, YouTube, a podcast, or their own
+  kind) and say whether their site is best mobile-friendly or desktop-first. Both are optional
+  and offered for every type. They are checked in the browser, by the submission workflow, and
+  against the ring schema, and they are published with the entry. Feeds are only ever linked,
+  never fetched, and a submitter cannot mark one verified. Nothing in this app acts on either
+  field yet; the ring schema also gains `discoverable` (a creator's own opt-out from rotating
+  discovery) and a publish-time `generated_at`, both carried through unchanged.
+- **A "Follow in YipDen" link on `/members`,** shown only when `VITE_YIPDEN_URL` is set, so it
+  stays absent until YipDen is published.
+- **A Posture tab in About** stating how site owners are treated: every Node is opt-in, joining
+  asks two small things of your own site, you can leave at any time, and nothing is ranked.
+
+### Changed
+
+- **The About dialog is wider on large screens** (1500px and up) so its tabs stay on one row.
+- **Dismissing an entry with "Not for me" now moves its slot on after three seconds.** During
+  that window the same button offers "Show again"; if nothing else is available the slot is
+  left empty, and a queued entry that was hidden in the meantime is skipped rather than shown.
+
 ## [1.10.0] - 2026-09-21
 
 ### Added

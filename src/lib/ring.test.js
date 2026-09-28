@@ -94,7 +94,35 @@ describe('loadRing', () => {
 
 	it('fills optional collections so callers can iterate without guarding', async () => {
 		const [loaded] = await loadRing(respondWith([entry]));
-		expect(loaded).toMatchObject({ tracks: [], pages: [], artworks: [], excerpts: [] });
+		expect(loaded).toMatchObject({ tracks: [], pages: [], artworks: [], excerpts: [], feeds: [] });
+	});
+
+	it('defaults discoverable to true and keeps an explicit false', async () => {
+		const [unset] = await loadRing(respondWith([entry]));
+		expect(unset.discoverable).toBe(true);
+		const [off] = await loadRing(respondWith([{ ...entry, discoverable: false }]));
+		expect(off.discoverable).toBe(false);
+		// A malformed value fails toward staying visible, not toward being
+		// silently dropped from rotation.
+		const [malformed] = await loadRing(respondWith([{ ...entry, discoverable: 'no' }]));
+		expect(malformed.discoverable).toBe(true);
+	});
+
+	it('carries feeds through, dropping only an unsafe url', async () => {
+		const [loaded] = await loadRing(
+			respondWith([
+				{
+					...entry,
+					feeds: [
+						{ type: 'rss', url: 'https://example.com/feed.xml', verified: true },
+						{ type: 'bluesky', url: 'http://example.com/insecure' }
+					]
+				}
+			])
+		);
+		expect(loaded.feeds).toEqual([
+			{ type: 'rss', url: 'https://example.com/feed.xml', verified: true }
+		]);
 	});
 
 	it('throws on a failed response when no fallback was named', async () => {

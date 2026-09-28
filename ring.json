@@ -6,12 +6,7 @@
 			"creator": "Slime Pond",
 			"type": "art",
 			"why": "Various art pieces and webcomic",
-			"tags": [
-				"art",
-				"comedy",
-				"comic",
-				"fantasy"
-			],
+			"tags": ["art", "comedy", "comic", "fantasy"],
 			"artworks": [
 				{
 					"image_url": "https://candyether.space/personal/gallery/bg_fishermint_green.png",
@@ -35,13 +30,7 @@
 			"type": "audio",
 			"form": "music",
 			"why": "I'm a composer for film, animation, and video games!",
-			"tags": [
-				"orchestral",
-				"vgm",
-				"fantasy",
-				"film scores",
-				"digital rock"
-			],
+			"tags": ["orchestral", "vgm", "fantasy", "film scores", "digital rock"],
 			"tracks": [
 				{
 					"label": "True Tail - Battle",
@@ -71,16 +60,7 @@
 			"type": "audio",
 			"form": "music",
 			"why": "I compose in a multitude of styles including VGM, Hip-Hop, Rock and more!",
-			"tags": [
-				"vgm",
-				"hip-hop",
-				"orchestral",
-				"vgmr",
-				"r&b",
-				"edm",
-				"house",
-				"dnb"
-			],
+			"tags": ["vgm", "hip-hop", "orchestral", "vgmr", "r&b", "edm", "house", "dnb"],
 			"tracks": [
 				{
 					"label": "Should I Stay",
@@ -109,14 +89,7 @@
 			"creator": "Nori Jammy",
 			"type": "comic",
 			"why": "Horror cartoonist, musician, and writer from Appalachia.",
-			"tags": [
-				"horror",
-				"drama",
-				"comedy",
-				"comic",
-				"art",
-				"animation"
-			],
+			"tags": ["horror", "drama", "comedy", "comic", "art", "animation"],
 			"pages": [
 				{
 					"image_url": "https://frammyjammy.com/suzu-and-jack/img/comics/pg29.png",
@@ -145,10 +118,7 @@
 			"creator": "Sam Fencer <3",
 			"type": "comic",
 			"why": "I'm very passionate about making stupid silly comics and I NEVER hold back!",
-			"tags": [
-				"comedy",
-				"comic"
-			],
+			"tags": ["comedy", "comic"],
 			"pages": [
 				{
 					"image_url": "https://maddox79.neocities.org/art-gallery/PUHSQAE_CH1_coverR.jpg",
@@ -169,11 +139,7 @@
 			"creator": "yuna2k",
 			"type": "comic",
 			"why": "Currently developing MVNDY [techno, dreams and other dimensions]",
-			"tags": [
-				"comic",
-				"techno",
-				"blog"
-			],
+			"tags": ["comic", "techno", "blog"],
 			"pages": [
 				{
 					"image_url": "https://mvndy.cl/images/Mvndypage_1.png"

@@ -26,11 +26,18 @@
 		submissionStore as form,
 		newArtwork,
 		newExcerpt,
+		newFeed,
 		newPage,
 		newTrack
 	} from '$lib/submissionStore.svelte.js';
 	import { generatorDraftStore } from '$lib/generator/generatorDraftStore.svelte.js';
-	import { MAX_ARTWORKS, MAX_EXCERPTS, MAX_PAGES, MAX_TRACKS } from '$lib/submissionValidation.js';
+	import {
+		MAX_ARTWORKS,
+		MAX_EXCERPTS,
+		MAX_FEEDS,
+		MAX_PAGES,
+		MAX_TRACKS
+	} from '$lib/submissionValidation.js';
 	import { ACCEPTED_IMAGE_TYPES, rejectionReason } from '$lib/generator/assets.js';
 	import { createNewRowFocus, focusHeading } from '$lib/formRowFocus.svelte.js';
 	import { uid } from '$lib/uid.js';
@@ -103,6 +110,10 @@
 	function removeArtwork(uid) {
 		entry.artworks = entry.artworks.filter((row) => isNotUid(row, uid));
 	}
+	/** @param {string} uid */
+	function removeFeed(uid) {
+		entry.feeds = entry.feeds.filter((row) => isNotUid(row, uid));
+	}
 
 	function addExcerpt() {
 		if (entry.excerpts.length >= MAX_EXCERPTS) return;
@@ -130,6 +141,13 @@
 		const page = newPage();
 		entry.pages = [...entry.pages, page];
 		markNewRow(page.uid);
+	}
+
+	function addFeed() {
+		if (entry.feeds.length >= MAX_FEEDS) return;
+		const feed = newFeed();
+		entry.feeds = [...entry.feeds, feed];
+		markNewRow(feed.uid);
 	}
 
 	function addArtwork() {
@@ -919,6 +937,63 @@
 	     linking out, to where), not back at the step that only asks what kind of
 	     work this is. -->
 	<AudioHostingHelp />
+{/if}
+
+{#if entry.type}
+	<!-- Every type, not one of the branches above: this is where a creator
+	     keeps publishing, not the sampler featured on this Node. Optional, and
+	     never gates Continue on anything beyond the two rows lining up. -->
+	<h3>Feeds elsewhere (optional)</h3>
+	<p class="note">
+		RSS, Atom, a JSON Feed, Bluesky, Mastodon, YouTube, a podcast, or something else. Up to
+		{MAX_FEEDS}.
+	</p>
+	{#if form.entryErrors.feeds}
+		<p class="inline-error" role="alert">{form.entryErrors.feeds}</p>
+	{/if}
+	{#each entry.feeds as feed, i (feed.uid)}
+		<div class="repeat-row" use:scrollNewRowIntoView={feed.uid}>
+			<FormField
+				id="f-feed-type-{feed.uid}"
+				label="Kind"
+				hint="rss, atom, jsonfeed, bluesky, mastodon, youtube, podcast, or your own word for it."
+				error={form.entryErrors[`feeds.${i}.type`]}
+			>
+				{#snippet children(describedBy)}
+					<input
+						id="f-feed-type-{feed.uid}"
+						class="control"
+						type="text"
+						placeholder="rss"
+						bind:value={feed.type}
+						oninput={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors[`feeds.${i}.type`])}
+					/>
+				{/snippet}
+			</FormField>
+			<FormField id="f-feed-url-{feed.uid}" label="Link" error={form.entryErrors[`feeds.${i}.url`]}>
+				{#snippet children(describedBy)}
+					<input
+						id="f-feed-url-{feed.uid}"
+						class="control"
+						type="url"
+						placeholder="https://"
+						bind:value={feed.url}
+						oninput={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors[`feeds.${i}.url`])}
+					/>
+				{/snippet}
+			</FormField>
+			<button type="button" class="clear-button" onclick={() => removeFeed(feed.uid)}>
+				Remove feed {i + 1}
+			</button>
+		</div>
+	{/each}
+	{#if entry.feeds.length < MAX_FEEDS}
+		<button type="button" class="btn btn-ghost" onclick={addFeed}>Add a feed</button>
+	{/if}
 {/if}
 
 <div class="actions">

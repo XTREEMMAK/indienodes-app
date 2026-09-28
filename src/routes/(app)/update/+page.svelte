@@ -34,13 +34,22 @@
 	import { hasBackend, useMock } from '$lib/submissionApi.js';
 	import { flyFade, outFade } from '$lib/transitions.js';
 	import { updateStore as form, UPDATE_STEPS } from '$lib/updateStore.svelte.js';
-	import { newArtwork, newExcerpt, newTrack, newPage } from '$lib/submissionStore.svelte.js';
+	import {
+		newArtwork,
+		newExcerpt,
+		newFeed,
+		newTrack,
+		newPage
+	} from '$lib/submissionStore.svelte.js';
 	import { snapToAllowedShape } from '$lib/nodeShape.js';
 	import {
 		FORM_OPTIONS,
 		FORM_LABELS,
+		LAYOUT_OPTIONS,
+		LAYOUT_LABELS,
 		MAX_ARTWORKS,
 		MAX_EXCERPTS,
+		MAX_FEEDS,
 		MAX_PAGES,
 		MAX_TRACKS,
 		WHY_MAX_LENGTH
@@ -141,6 +150,10 @@
 	function removeArtwork(uid) {
 		entry.artworks = entry.artworks.filter((row) => isNotUid(row, uid));
 	}
+	/** @param {string} uid */
+	function removeFeed(uid) {
+		entry.feeds = entry.feeds.filter((row) => isNotUid(row, uid));
+	}
 
 	function addExcerpt() {
 		if (entry.excerpts.length >= MAX_EXCERPTS) return;
@@ -169,6 +182,12 @@
 		const artwork = newArtwork();
 		entry.artworks = [...entry.artworks, artwork];
 		markNewRow(artwork.uid);
+	}
+	function addFeed() {
+		if (entry.feeds.length >= MAX_FEEDS) return;
+		const feed = newFeed();
+		entry.feeds = [...entry.feeds, feed];
+		markNewRow(feed.uid);
 	}
 
 	function onNodeIdInput() {
@@ -666,6 +685,29 @@
 								</ul>
 							{/if}
 
+							<FormField
+								id="f-layout"
+								label="Layout (optional)"
+								hint="A hint about how your site is best experienced. Presentational only: nothing here requires or checks it."
+								error={form.entryErrors.layout}
+							>
+								{#snippet children(describedBy)}
+									<select
+										id="f-layout"
+										class="control"
+										bind:value={entry.layout}
+										onchange={() => form.touch()}
+										aria-describedby={describedBy}
+										aria-invalid={Boolean(form.entryErrors.layout)}
+									>
+										<option value="">Not sure / no preference</option>
+										{#each LAYOUT_OPTIONS as option (option)}
+											<option value={option}>{LAYOUT_LABELS[option]}</option>
+										{/each}
+									</select>
+								{/snippet}
+							</FormField>
+
 							<AdultContentSection
 								bind:explicit={entry.explicit}
 								bind:adultContent={form.adultContent}
@@ -1018,6 +1060,63 @@
 										/>
 									{/snippet}
 								</FormField>
+							{/if}
+
+							<h3>Feeds elsewhere (optional)</h3>
+							<p class="note">
+								RSS, Atom, a JSON Feed, Bluesky, Mastodon, YouTube, a podcast, or something else. Up
+								to
+								{MAX_FEEDS}.
+							</p>
+							{#if form.entryErrors.feeds}
+								<p class="inline-error" role="alert">{form.entryErrors.feeds}</p>
+							{/if}
+							{#each entry.feeds as feed, i (feed.uid)}
+								<div class="repeat-row" use:scrollNewRowIntoView={feed.uid}>
+									<FormField
+										id="f-feed-type-{feed.uid}"
+										label="Kind"
+										hint="rss, atom, jsonfeed, bluesky, mastodon, youtube, podcast, or your own word for it."
+										error={form.entryErrors[`feeds.${i}.type`]}
+									>
+										{#snippet children(describedBy)}
+											<input
+												id="f-feed-type-{feed.uid}"
+												class="control"
+												type="text"
+												placeholder="rss"
+												bind:value={feed.type}
+												oninput={() => form.touch()}
+												aria-describedby={describedBy}
+												aria-invalid={Boolean(form.entryErrors[`feeds.${i}.type`])}
+											/>
+										{/snippet}
+									</FormField>
+									<FormField
+										id="f-feed-url-{feed.uid}"
+										label="Link"
+										error={form.entryErrors[`feeds.${i}.url`]}
+									>
+										{#snippet children(describedBy)}
+											<input
+												id="f-feed-url-{feed.uid}"
+												class="control"
+												type="url"
+												placeholder="https://"
+												bind:value={feed.url}
+												oninput={() => form.touch()}
+												aria-describedby={describedBy}
+												aria-invalid={Boolean(form.entryErrors[`feeds.${i}.url`])}
+											/>
+										{/snippet}
+									</FormField>
+									<button type="button" class="clear-button" onclick={() => removeFeed(feed.uid)}>
+										Remove feed {i + 1}
+									</button>
+								</div>
+							{/each}
+							{#if entry.feeds.length < MAX_FEEDS}
+								<button type="button" class="btn btn-ghost" onclick={addFeed}>Add a feed</button>
 							{/if}
 
 							<div class="actions">
