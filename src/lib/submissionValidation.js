@@ -33,7 +33,14 @@ import { stripHtml, sanitizeExcerptHtml } from './ring.js';
 /** @typedef {Record<string, string>} ErrorMap */
 
 /** Matches the schema's `type` enum. */
-export const ENTRY_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art']);
+export const ENTRY_TYPES = /** @type {const} */ ([
+	'audio',
+	'comic',
+	'text',
+	'game',
+	'art',
+	'craft'
+]);
 
 /**
  * Creator-facing labels for the schema values above. The stored value names
@@ -46,7 +53,8 @@ export const ENTRY_TYPE_LABELS = /** @type {const} */ ({
 	comic: 'Comic',
 	text: 'Text',
 	game: 'Game',
-	art: 'Art'
+	art: 'Art',
+	craft: 'Craft'
 });
 
 /** Matches the schema's `form` enum. Audio only, required. */
@@ -147,6 +155,12 @@ export const MAX_ARTWORKS = 3;
  * below and both `/join`/`/update` forms' own "Add a page" guard.
  */
 export const MAX_PAGES = 3;
+/**
+ * Craft reuses `pages` for photographs of a made object (a full view, then
+ * detail shots), so it gets a larger cap than comic. The schema holds the two
+ * apart with an `allOf` rule; this is that rule's client-side twin.
+ */
+export const MAX_CRAFT_PAGES = 5;
 
 /** Schema cap on `feeds`: a sanity bound, matching tags's own cap's reasoning, not a product target. */
 export const MAX_FEEDS = 10;
@@ -176,6 +190,48 @@ function isHttpsUrl(value) {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * The one host IndieNodes' generated sites live on. Every generated page
+ * shares it, so "the same site as your page" means nothing there: any other
+ * member's generated page would qualify.
+ */
+const GENERATED_SITE_HOST = 'pages.kjnet.us';
+
+/** @param {string} value @returns {string | null} hostname, `www.`-insensitive */
+function siteHost(value) {
+	try {
+		return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Validates the optional `ring_page_url` against the entry's `source_url`
+ * and returns an error message, or null.
+ *
+ * Same site only. The health checker counts a ring embed found at this URL
+ * as the member's own, and a badge or `/go/random` link carries no site-id,
+ * so an off-site page (anyone's page that already has the ring on it) would
+ * pass the check for someone who never added it. The same rule runs at
+ * intake and at approval in `build_workflows.py`, and in the ring's checker.
+ * @param {string} ringPageUrl
+ * @param {string} sourceUrl
+ * @returns {string | null}
+ */
+export function ringPageUrlError(ringPageUrl, sourceUrl) {
+	if (!isHttpsUrl(ringPageUrl)) return 'Must be a full https:// URL.';
+	const host = siteHost(ringPageUrl);
+	if (host === GENERATED_SITE_HOST) {
+		return 'Pages we build for you already carry the ring, so leave this blank.';
+	}
+	const sourceHost = siteHost(sourceUrl);
+	if (sourceHost && host !== sourceHost) {
+		return `Must be a page on the same site as your entry (${sourceHost}).`;
+	}
+	return null;
 }
 
 /**
@@ -242,6 +298,14 @@ export function validateEntry(entry) {
 		errors.has_own_site = 'Let us know if you already have a site.';
 	}
 
+	// Craft is not offered by the site generator yet, so a craft entry has to
+	// come from a site the submitter already has. Surfaced on `type` because
+	// that is the field they can change.
+	if (type === 'craft' && entry?.has_own_site === 'no') {
+		errors.type =
+			'Craft entries need a site you already have for now. Our page builder does not support them yet.';
+	}
+
 	// Required unless the submitter has explicitly said they have no site
 	// yet (the site-generator branch): source_url for that branch is filled
 	// in later, once the generated site has somewhere real to live, not
@@ -252,6 +316,13 @@ export function validateEntry(entry) {
 		} else if (!isHttpsUrl(entry.source_url)) {
 			errors.source_url = 'Must be a full https:// URL.';
 		}
+	}
+
+	// Optional. Only asked when the submitter has a site of their own: a
+	// generated page carries the ring itself.
+	if (entry?.has_own_site !== 'no' && entry?.ring_page_url?.trim()) {
+		const error = ringPageUrlError(entry.ring_page_url.trim(), entry.source_url?.trim() ?? '');
+		if (error) errors.ring_page_url = error;
 	}
 
 	// minItems: 1 in the schema. An untagged entry joins the ring already
@@ -325,6 +396,25 @@ export function validateEntry(entry) {
 			if (!page?.image_url?.trim()) return;
 			const error = mediaUrlError(page.image_url, 'The page image');
 			if (error) errors[`pages.${i}.image_url`] = error;
+		});
+	}
+	if (type === 'craft') {
+		const pages = Array.isArray(entry?.pages) ? entry.pages : [];
+		const filled = pages.filter((p) => p?.image_url?.trim());
+		if (filled.length === 0) errors.pages = 'A craft entry needs at least one photo.';
+		if (pages.length > MAX_CRAFT_PAGES) {
+			errors.pages = `Five photos maximum; you have ${pages.length}. Remove one rather than letting it be dropped for you.`;
+		}
+		pages.forEach((page, i) => {
+			if (!page?.image_url?.trim()) return;
+			const error = mediaUrlError(page.image_url, 'The photo');
+			if (error) errors[`pages.${i}.image_url`] = error;
+			// The caption carries materials and scale, and is the photo's text
+			// alternative, so unlike a comic page it is required.
+			if (!page?.caption?.trim()) {
+				errors[`pages.${i}.caption`] =
+					'Describe this photo (materials, size, or what it shows) for visitors who cannot see it.';
+			}
 		});
 	}
 	if (type === 'art') {
@@ -464,13 +554,16 @@ export function toRingEntry(entry) {
 	if (entry.type === 'audio' && tracks.length) out.tracks = tracks;
 
 	if (entry.layout && LAYOUT_OPTIONS.includes(entry.layout)) out.layout = entry.layout;
+	// Omitted when it names the page itself: the checker reads that one anyway.
+	const ringPageUrl = entry.ring_page_url?.trim();
+	if (ringPageUrl && ringPageUrl !== out.source_url) out.ring_page_url = ringPageUrl;
 
 	const feeds = (entry.feeds ?? [])
 		.filter((/** @type {any} */ f) => f?.type?.trim() && f?.url?.trim())
 		.map((/** @type {any} */ f) => ({ type: f.type.trim().toLowerCase(), url: f.url.trim() }));
 	if (feeds.length) out.feeds = feeds;
 
-	if (entry.type === 'comic') {
+	if (entry.type === 'comic' || entry.type === 'craft') {
 		out.pages = (entry.pages ?? [])
 			.filter((/** @type {any} */ p) => p?.image_url?.trim())
 			.map((/** @type {any} */ p) => {

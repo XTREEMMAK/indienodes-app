@@ -41,7 +41,7 @@
 	 *   creator?: string,
 	 *   entryId?: string,
 	 *   initialPage?: number,
-	 *   kind?: 'comic' | 'art',
+	 *   kind?: 'comic' | 'art' | 'craft',
 	 *   onClose?: () => void
 	 * }}
 	 */
@@ -155,7 +155,11 @@
 	const zoomed = $derived(zoomLevel > 1);
 	const zoomPercent = $derived(Math.round(zoomLevel * 100));
 	const isArt = $derived(kind === 'art');
-	const itemLabel = $derived(isArt ? 'artwork' : 'page');
+	// Craft pages are photographs of one made object, and their captions carry
+	// materials and scale, so the caption is shown larger and unclamped
+	// rather than as the small two-line footnote a comic page gets.
+	const isCraft = $derived(kind === 'craft');
+	const itemLabel = $derived(isArt ? 'artwork' : isCraft ? 'photo' : 'page');
 	const pageCaption = $derived(
 		page?.caption ??
 			(isArt ? [page?.title, page?.medium, page?.year].filter(Boolean).join(' · ') : '')
@@ -163,9 +167,11 @@
 	const pageAlt = $derived(
 		isArt
 			? page?.alt || page?.title || `Artwork ${currentPage + 1}`
-			: pageCaption
-				? `Page ${currentPage + 1}: ${pageCaption}`
-				: `Page ${currentPage + 1}`
+			: isCraft
+				? pageCaption || `Photo ${currentPage + 1}`
+				: pageCaption
+					? `Page ${currentPage + 1}: ${pageCaption}`
+					: `Page ${currentPage + 1}`
 	);
 
 	// Reset to a known state whenever the viewer opens, so reopening never
@@ -690,10 +696,12 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={creator
-			? `${creator}, ${isArt ? 'art gallery' : 'comic reader'}`
+			? `${creator}, ${isArt ? 'art gallery' : isCraft ? 'craft gallery' : 'comic reader'}`
 			: isArt
 				? 'Art gallery'
-				: 'Comic reader'}
+				: isCraft
+					? 'Craft gallery'
+					: 'Comic reader'}
 		transition:fade={{ duration: reducedMotion.current ? 0 : 160 }}
 	>
 		<header class="bar top">
@@ -764,8 +772,8 @@
 					class:on={showAllPages}
 					onclick={() => (showAllPages = !showAllPages)}
 					aria-pressed={showAllPages}
-					aria-label={isArt ? 'All artworks' : 'All pages'}
-					title={`${isArt ? 'All artworks' : 'All pages'} (G)`}
+					aria-label={isArt ? 'All artworks' : isCraft ? 'All photos' : 'All pages'}
+					title={`${isArt ? 'All artworks' : isCraft ? 'All photos' : 'All pages'} (G)`}
 				>
 					<svg
 						viewBox="0 0 24 24"
@@ -827,7 +835,7 @@
 					type="button"
 					class="tool"
 					onclick={close}
-					aria-label={isArt ? 'Close gallery' : 'Close reader'}
+					aria-label={isArt || isCraft ? 'Close gallery' : 'Close reader'}
 					title="Close (Esc)"
 				>
 					<svg
@@ -853,7 +861,7 @@
 						class="thumb"
 						class:current={i === currentPage}
 						onclick={() => goToPage(i)}
-						aria-label={`${isArt ? 'Artwork' : 'Page'} ${i + 1}`}
+						aria-label={`${isArt ? 'Artwork' : isCraft ? 'Photo' : 'Page'} ${i + 1}`}
 						aria-current={i === currentPage}
 					>
 						<img
@@ -877,7 +885,7 @@
 			<div
 				class="stage"
 				role="application"
-				aria-label={`${isArt ? 'Artwork' : 'Comic page'}. Arrow keys to move between ${isArt ? 'works' : 'pages'}, plus to zoom, zero to reset.`}
+				aria-label={`${isArt ? 'Artwork' : isCraft ? 'Photo' : 'Comic page'}. Arrow keys to move between ${isArt ? 'works' : isCraft ? 'photos' : 'pages'}, plus to zoom, zero to reset.`}
 				onwheel={handleWheel}
 				onmousedown={handleMouseDown}
 				ontouchstart={handleTouchStart}
@@ -956,6 +964,7 @@
 					<button
 						type="button"
 						class="caption"
+						class:prominent={isCraft}
 						class:expanded={captionExpanded}
 						onclick={() => (captionExpanded = !captionExpanded)}
 						aria-expanded={captionExpanded}
@@ -1232,6 +1241,22 @@
 	}
 
 	.caption.expanded {
+		-webkit-line-clamp: unset;
+		line-clamp: unset;
+	}
+
+	/* Craft: materials and scale live here, so it reads as content. Three
+	   lines rather than two, still expandable, and brighter and larger. */
+	.caption.prominent {
+		max-width: 52rem;
+		color: rgb(255 255 255 / 0.96);
+		font-size: var(--text-base);
+		line-height: 1.4;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+	}
+
+	.caption.prominent.expanded {
 		-webkit-line-clamp: unset;
 		line-clamp: unset;
 	}

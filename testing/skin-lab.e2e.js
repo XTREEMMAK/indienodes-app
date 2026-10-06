@@ -8,11 +8,13 @@ test('skin laboratory renders every type and exercises boundary controls', async
 
 	await expect(page.getByRole('heading', { name: 'Skin Laboratory' })).toBeVisible();
 	await expect(page.locator('html')).toHaveAttribute('data-ui-skin', 'glassmorphic');
-	await expect(page.locator('.node')).toHaveCount(5);
+	await expect(page.locator('.node')).toHaveCount(7);
 	await expect(page.getByText('Midnight Receiver')).toBeVisible();
 	await expect(page.getByText('Paper Lantern Comics')).toBeVisible();
 	await expect(page.getByText('Loose Leaf Press')).toBeVisible();
 	await expect(page.getByText('North Window Studio')).toBeVisible();
+	await expect(page.getByText('Fictional Loom Works')).toBeVisible();
+	await expect(page.getByText('Imaginary Kiln Studio')).toBeVisible();
 	await expect(page.getByText('Tin Roof Studio')).toBeVisible();
 
 	await page.getByLabel('Simulate reduced motion').check();

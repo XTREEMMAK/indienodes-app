@@ -197,7 +197,7 @@
 	// semantics remain distinct inside it: sequential pages versus independent
 	// works.
 	const visualReadable = $derived(
-		(visualEntry?.type === 'comic' &&
+		((visualEntry?.type === 'comic' || visualEntry?.type === 'craft') &&
 			(visualEntry?.pages ?? []).some((page) => Boolean(page?.image_url))) ||
 			(visualEntry?.type === 'art' &&
 				(visualEntry?.artworks ?? []).some((artwork) => Boolean(artwork?.image_url)))

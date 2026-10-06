@@ -72,7 +72,7 @@
 	let previewWidth = $state(8);
 	let previewRatio = $state('1:1');
 	const previewType = $derived(
-		/** @type {'audio' | 'comic' | 'text' | 'game' | 'art'} */ (entry.type || 'audio')
+		/** @type {'audio' | 'comic' | 'text' | 'game' | 'art' | 'craft'} */ (entry.type || 'audio')
 	);
 	const previewRatios = $derived(entry.type ? ALLOWED_RATIOS[previewType] : []);
 	$effect(() => {
@@ -291,6 +291,26 @@
 						oninput={() => form.sourceUrlChanged()}
 						aria-describedby={describedBy}
 						aria-invalid={Boolean(form.entryErrors.source_url)}
+					/>
+				{/snippet}
+			</FormField>
+			<FormField
+				id="f-ring-page"
+				label="Where is the ring embed? (optional)"
+				hint="Only if it lives on a different page of the same site, such as a links or webrings page. We look there, and at your home page, when checking it is still up."
+				error={form.entryErrors.ring_page_url}
+			>
+				{#snippet children(describedBy)}
+					<input
+						id="f-ring-page"
+						class="control"
+						type="url"
+						inputmode="url"
+						placeholder="https://"
+						bind:value={entry.ring_page_url}
+						oninput={() => form.touch()}
+						aria-describedby={describedBy}
+						aria-invalid={Boolean(form.entryErrors.ring_page_url)}
 					/>
 				{/snippet}
 			</FormField>

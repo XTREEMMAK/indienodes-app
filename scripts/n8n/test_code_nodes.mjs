@@ -759,6 +759,55 @@ check(
 	'invalid_request'
 );
 
+const CRAFT_ROW = { ...ROW, type: 'craft' };
+const craftPages = (count) =>
+	Array.from({ length: count }, (_, i) => ({
+		image_url: `https://example.com/piece-${i}.webp`,
+		caption: `View ${i + 1}, 24 x 36 in, wool on linen`
+	}));
+const craftBody = (pages) => ({
+	...BODY,
+	entry: {
+		creator: 'Fictional Loom Works',
+		type: 'craft',
+		why: 'Hand-woven wall hangings.',
+		tags: ['weaving'],
+		pages
+	}
+});
+check(
+	'finalize accepts a craft entry with one photo',
+	vrun(CRAFT_ROW, craftBody(craftPages(1)))[0].json.ok,
+	'yes'
+);
+check(
+	'finalize accepts a craft entry with five photos',
+	vrun(CRAFT_ROW, craftBody(craftPages(5)))[0].json.ok,
+	'yes'
+);
+check(
+	'finalize rejects a craft entry with six photos',
+	vrun(CRAFT_ROW, craftBody(craftPages(6)))[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'finalize rejects a craft entry with no photos',
+	vrun(CRAFT_ROW, craftBody([]))[0].json.error_code,
+	'invalid_request'
+);
+const uncaptioned = craftPages(2);
+delete uncaptioned[1].caption;
+check(
+	'finalize rejects a craft photo without a caption',
+	vrun(CRAFT_ROW, craftBody(uncaptioned))[0].json.error_code,
+	'invalid_request'
+);
+check(
+	'finalize rejects an unknown field on a craft photo',
+	vrun(CRAFT_ROW, craftBody([{ ...craftPages(1)[0], alt: 'x' }]))[0].json.error_code,
+	'invalid_request'
+);
+
 // feeds and layout: optional on every type, and the server-side twin of the
 // client rules. `verified` in particular can never be asserted by a submitter.
 const withExtras = (extras) => ({ ...BODY, entry: { ...BODY.entry, ...extras } });
@@ -808,6 +857,40 @@ for (const [name, extras] of [
 	check(
 		`finalize rejects ${name}`,
 		vrun(ROW, withExtras(extras))[0].json.error_code,
+		'invalid_request'
+	);
+}
+
+// ring_page_url: optional, every type, and the same site as the row's
+// source_url (https://example.com/). The checker counts an id-less badge there
+// as the member's own, so an off-site page must never get through.
+for (const [name, url] of [
+	['a page on the same site', 'https://example.com/webrings'],
+	['a page that differs only by www.', 'https://www.example.com/links'],
+	['a page with a port and query', 'https://example.com:443/links?tab=rings']
+]) {
+	check(
+		`finalize accepts a ring page: ${name}`,
+		vrun(ROW, withExtras({ ring_page_url: url }))[0].json.ok,
+		'yes'
+	);
+}
+for (const [name, url] of [
+	['on another site', 'https://someone-else.net/webrings'],
+	['on a subdomain', 'https://blog.example.com/webrings'],
+	['on a look-alike domain', 'https://example.com.evil.net/'],
+	['over http', 'http://example.com/webrings'],
+	['as javascript:', 'javascript:alert(1)'],
+	['with userinfo naming the right host', 'https://evil.net@example.com/'],
+	['with a backslash authority trick', 'https://evil.net\\@example.com/'],
+	['with whitespace', 'https://example.com/ webrings'],
+	['on the generated-site host', 'https://pages.kjnet.us/someone/'],
+	['that is not a string', 42],
+	['past the schema length', `https://example.com/${'a'.repeat(1990)}`]
+]) {
+	check(
+		`finalize rejects a ring page ${name}`,
+		vrun(ROW, withExtras({ ring_page_url: url }))[0].json.error_code,
 		'invalid_request'
 	);
 }
@@ -1247,6 +1330,24 @@ check(
 	JSON.stringify([{ type: 'rss', url: 'https://example.com/feed.xml' }])
 );
 check('publish keeps layout', publishedWithExtras.layout, 'desktop-first');
+const ringPageEntry = (ring_page_url) => ({
+	creator: 'Ring Keeper',
+	type: 'text',
+	why: 'Keeps the ring on a links page.',
+	tags: ['essay'],
+	excerpts: [{ text: 'One sample.' }],
+	ring_page_url
+});
+check(
+	'publish keeps a same-site ring_page_url',
+	JSON.parse(generatedMember(ringPageEntry('https://example.com/links'))).ring_page_url,
+	'https://example.com/links'
+);
+check(
+	'publish drops a ring_page_url that is off-site from the published source_url',
+	'ring_page_url' in JSON.parse(generatedMember(ringPageEntry('https://elsewhere.net/links'))),
+	false
+);
 check(
 	'publish never carries discoverable from a submission (the creator sets it)',
 	'discoverable' in publishedWithExtras,
@@ -1352,6 +1453,22 @@ check(
 	true
 );
 check('Art review escapes artwork title', artHtml.includes('<script>Night Signal</script>'), false);
+const craftHtml = prun({
+	submission_id: 'craft1',
+	node_id: '',
+	source_url: 'https://example.com/',
+	type: 'craft',
+	entry: JSON.stringify({
+		type: 'craft',
+		creator: 'Fictional Loom Works',
+		why: 'Hand-woven wall hangings.',
+		tags: ['weaving'],
+		pages: [{ image_url: 'https://example.com/piece.webp', caption: '<b>Full piece</b>' }]
+	}),
+	review: JSON.stringify({ email: 'a@b.co', rights_confirmation: true, eula_agreement: true })
+});
+check('Craft review renders the photos section', craftHtml.includes('Photos'), true);
+check('Craft review escapes the caption', craftHtml.includes('<b>Full piece</b>'), false);
 const feedHtml = prun({
 	submission_id: 'feed1',
 	node_id: '',
@@ -1385,6 +1502,33 @@ check(
 );
 check('review escapes the layout hint', feedHtml.includes('<b>desktop-first</b>'), false);
 check('review shows the layout hint', feedHtml.includes('Layout hint'), true);
+const ringPageHtml = (ring_page_url) =>
+	prun({
+		submission_id: 'ring1',
+		node_id: '',
+		source_url: 'https://example.com/',
+		type: 'text',
+		entry: JSON.stringify({
+			type: 'text',
+			creator: 'Ring Keeper',
+			why: 'Ring page on the review page.',
+			tags: ['essay'],
+			ring_page_url
+		}),
+		review: JSON.stringify({ email: 'a@b.co', rights_confirmation: true, eula_agreement: true })
+	});
+check(
+	'review links the ring page, escaped',
+	ringPageHtml('https://example.com/links?a=1&b="2"').includes(
+		'href="https://example.com/links?a=1&amp;b=&quot;2&quot;"'
+	),
+	true
+);
+check(
+	'review never renders a non-https ring page',
+	ringPageHtml('javascript:alert(1)').includes('Ring embed on'),
+	false
+);
 check('XSS: track label is escaped, not live markup', html.includes('<b>x</b>'), false);
 
 const removalHtml = prun({

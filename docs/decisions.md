@@ -2373,6 +2373,16 @@ the rights checkbox text (`/join`'s EULA checkbox and `ContentAttestations.svelt
 ("hold every right and permission needed to submit and display it") was already broad enough
 to cover a licensed cover and did not need editing.
 
+## LOCKED: `craft` is a sixth entry type that reuses `pages`, 2026-09-23
+
+`craft` is a made physical object, shown in photographs (weaving, textiles, ceramics, sculpture, leatherwork, woodwork, jewelry, 3D-printed pieces). The boundary with art is the visitor's expectation: if they would expect to look at it, it is art; if they would expect to hold, wear, or shelve it, it is craft. Borderline work is filed by the submitter and validation rejects only obvious mismatches.
+
+- **Data shape:** the existing comic `pages` array, no new fields. Craft allows 1 to 5 pages and requires a caption on each; comic stays at 3 with an optional caption. The schema holds the two apart with `allOf` rules while the property-level cap is the larger 5. The caption is required (stricter than "warn on empty") because pages have no `alt`, and the shared viewer already uses the caption as the image's text alternative; captions also carry materials and scale.
+- **Rendering:** the same `ComicViewer` with `kind="craft"`, which shows captions larger and less clamped. The field card uses `CraftStage`, a slow pan across the last page (the detail shot), gated by `CRAFT_PAN_ENABLED` in `src/lib/craftMotion.js` and stopped under `prefers-reduced-motion`. Whether the pan ships is still open.
+- **Color:** `--type-craft` is a placeholder teal in `app.css`, marked PENDING. Copies the app cannot share the variable with (the widget, the favicon, the ring landing page) must be updated with it.
+- **Site generator:** craft is excluded for now. `/join` refuses `has_own_site: no` with craft, and the intake workflow refuses a generated-site token for it.
+- **Rollout:** the app, widget bundle and n8n workflows must be deployed before the first craft entry is added to `indienodes-ring`, because older clients silently drop unknown types. The n8n half (Finalize's craft validation, the review page's Photos section) was written alongside the feeds/layout change below and rebased onto it; see that entry's own deploy note for whether it has shipped yet.
+
 ## LOCKED: feeds, discoverable, layout and generated_at are additive ring fields, 2026-09-28
 
 Four additions, none changing an existing field's meaning: `feeds[]` (`{ type, url, verified? }`, up to ten), `discoverable` (a creator's own opt-out from rotating discovery, omitted means true), `layout` (`mobile-friendly` or `desktop-first`, self-declared and presentational), and `generated_at` on the document envelope. The shapes were taken from YipDen's `ring-client` (`types.ts`, `normalize.ts`), which already reads them, so the two clients agree without a translation step; `feeds[].type` is deliberately a free-form string rather than an enum for the same reason YipDen falls back to a generic feed for a kind it does not know.

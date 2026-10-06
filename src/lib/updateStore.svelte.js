@@ -96,6 +96,7 @@ function emptyEntry() {
 		why: '',
 		has_own_site: 'yes',
 		source_url: '',
+		ring_page_url: '',
 		/** @type {string[]} */
 		tags: [],
 		/** @type {{ uid: string, label: string, media_url: string }[]} */
@@ -550,6 +551,7 @@ export function createUpdateStore() {
 				why: found.why ?? '',
 				has_own_site: 'yes',
 				source_url: found.source_url ?? '',
+				ring_page_url: found.ring_page_url ?? '',
 				tags: [...(found.tags ?? [])],
 				tracks: (found.tracks ?? []).map(seedTrack),
 				pages: (found.pages ?? []).map(seedPage),

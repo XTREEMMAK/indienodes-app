@@ -46,7 +46,9 @@ const VERSION = 1;
  *
  * The ladder is ordered by how long the medium takes, not by preference:
  * audio is the quickest sample, text needs a moment to parse an excerpt,
- * comic needs longest since the card is now cycling pages of its own. `any`
+ * comic needs longest since the card is now cycling pages of its own. Craft
+ * sits with text: a photo of an object and its caption are quick to take in,
+ * but the caption (materials, scale) is worth reading. `any`
  * sits mid-range because such a node could be showing anything.
  *
  * These are defaults, not limits. The visitor can change them in Settings.
@@ -58,7 +60,8 @@ export const DEFAULT_ROTATION_MS = {
 	art: 14000,
 	any: 14000,
 	text: 16000,
-	comic: 22000
+	comic: 22000,
+	craft: 16000
 };
 
 /** Bounds for the visitor-facing control, in milliseconds. */

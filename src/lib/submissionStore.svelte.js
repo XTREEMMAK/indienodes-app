@@ -131,6 +131,9 @@ function emptyEntry() {
 		// generator flow (the `site` step) and only typed in once it exists.
 		has_own_site: '',
 		source_url: '',
+		// Optional: another page on the same site that carries the ring embed,
+		// for members whose ring lives on a links or webrings page.
+		ring_page_url: '',
 		/** @type {string[]} */
 		tags: [],
 		/** @type {{ uid: string, label: string, media_url: string }[]} */

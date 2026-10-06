@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadRing, ringEntries } from './ring.js';
+import { coverImageUrl, loadRing, ringEntries } from './ring.js';
 
 /**
  * The ring document's shape is a public contract, and the reader is the half
@@ -90,6 +90,24 @@ describe('loadRing', () => {
 		const fromArray = await loadRing(respondWith([entry]));
 		const fromEnvelope = await loadRing(respondWith({ version: 1, entries: [entry] }));
 		expect(fromArray).toEqual(fromEnvelope);
+	});
+
+	it('accepts craft entries and drops craft photos with unsafe URLs', async () => {
+		const craft = {
+			...entry,
+			id: 'craft-x',
+			type: 'craft',
+			pages: [
+				{ image_url: 'https://maker.example/full.png', caption: 'Full view' },
+				{ image_url: 'http://maker.example/insecure.png', caption: 'Detail' }
+			]
+		};
+		const [loaded] = await loadRing(respondWith([craft]));
+		expect(loaded.type).toBe('craft');
+		expect(loaded.pages).toEqual([
+			{ image_url: 'https://maker.example/full.png', caption: 'Full view' }
+		]);
+		expect(coverImageUrl(loaded)).toBe('https://maker.example/full.png');
 	});
 
 	it('fills optional collections so callers can iterate without guarding', async () => {

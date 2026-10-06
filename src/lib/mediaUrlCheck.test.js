@@ -24,6 +24,12 @@ describe('mediaUrlFields', () => {
 		]);
 	});
 
+	it('lists every craft photo like comic pages', () => {
+		expect(
+			mediaUrlFields({ type: 'craft', pages: [{ image_url: 'https://e.com/1.png', caption: 'x' }] })
+		).toEqual([{ field: 'pages.0.image_url', url: 'https://e.com/1.png', kind: 'image' }]);
+	});
+
 	it('lists artworks for art, and a preview (image or video) for games', () => {
 		expect(
 			mediaUrlFields({ type: 'art', artworks: [{ image_url: 'https://e.com/a.webp' }] })
