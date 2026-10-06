@@ -52,7 +52,7 @@ export function mediaUrlFields(entry) {
 		if (typeof url === 'string' && url.trim()) out.push({ field, url: url.trim(), kind });
 	};
 	const type = entry?.type;
-	if (type === 'comic') {
+	if (type === 'comic' || type === 'craft') {
 		(entry.pages ?? []).forEach((/** @type {any} */ p, /** @type {number} */ i) =>
 			add(`pages.${i}.image_url`, p?.image_url, 'image')
 		);

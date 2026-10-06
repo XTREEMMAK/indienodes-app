@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import {
+	MAX_CRAFT_PAGES,
 	MAX_EXCERPTS,
 	MAX_ARTWORKS,
 	MAX_FEEDS,
@@ -245,6 +246,66 @@ const cases = [
 		formValid: false
 	},
 	{
+		name: 'a craft entry with one captioned photo',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png', caption: 'Full piece, wool on linen' }]
+		}),
+		formValid: true
+	},
+	{
+		name: 'a craft entry with five captioned photos',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: Array.from({ length: 5 }, (_, i) => ({
+				image_url: `https://example.com/p${i}.png`,
+				caption: `View ${i}`
+			}))
+		}),
+		formValid: true
+	},
+	{
+		name: 'a craft entry with six photos',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: Array.from({ length: 6 }, (_, i) => ({
+				image_url: `https://example.com/p${i}.png`,
+				caption: `View ${i}`
+			}))
+		}),
+		formValid: false
+	},
+	{
+		name: 'a craft entry with no photos',
+		entry: draft({ type: 'craft', excerpts: undefined, pages: [] }),
+		formValid: false
+	},
+	{
+		name: 'a craft entry whose photo has no caption',
+		entry: draft({
+			type: 'craft',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png' }]
+		}),
+		formValid: false
+	},
+	{
+		name: 'a craft entry from the site generator branch',
+		entry: draft({
+			type: 'craft',
+			has_own_site: 'no',
+			excerpts: undefined,
+			pages: [{ image_url: 'https://example.com/p1.png', caption: 'Full piece' }]
+		}),
+		// Not a schema rule: the generator has no craft template yet, so the
+		// form refuses the combination while the schema has no opinion on it.
+		formValid: false,
+		formOnly: true
+	},
+	{
 		name: 'an Art entry with one described artwork',
 		entry: draft({
 			type: 'art',
@@ -392,6 +453,48 @@ const cases = [
 	},
 	{ name: 'a nonsense source_url', entry: draft({ source_url: 'not a url' }), formValid: false },
 	{
+		name: 'a ring page on the same site',
+		entry: draft({ ring_page_url: 'https://example.com/webrings' }),
+		formValid: true
+	},
+	{
+		name: 'a ring page that differs only by www.',
+		entry: draft({ ring_page_url: 'https://www.example.com/links' }),
+		formValid: true
+	},
+	{
+		name: 'a ring page on another site',
+		entry: draft({ ring_page_url: 'https://someone-else.net/webrings' }),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
+		name: 'a ring page on a subdomain of the same site',
+		entry: draft({ ring_page_url: 'https://blog.example.com/webrings' }),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
+		name: 'an http ring page',
+		entry: draft({ ring_page_url: 'http://example.com/webrings' }),
+		formValid: false
+	},
+	{
+		name: 'a ring page on the generated-site host',
+		entry: draft({
+			source_url: 'https://pages.kjnet.us/driftwood/',
+			ring_page_url: 'https://pages.kjnet.us/someone-else/'
+		}),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
 		name: 'a cover image rehosted on IndieNodes',
 		entry: draft({ thumb_url: 'https://indienodes.us/cover.png' }),
 		formValid: false
@@ -468,8 +571,18 @@ describe('the media caps match the schema', () => {
 		expect(MAX_ARTWORKS).toBe(schema.properties.artworks.maxItems);
 	});
 
-	it('caps pages where the schema does', () => {
-		expect(MAX_PAGES).toBe(schema.properties.pages.maxItems);
+	/** @param {string} type */
+	const pagesRule = (type) =>
+		schema.allOf.find((/** @type {any} */ rule) => rule.if.properties.type.const === type).then
+			.properties.pages;
+
+	it('caps comic pages where the schema does', () => {
+		expect(MAX_PAGES).toBe(pagesRule('comic').maxItems);
+	});
+
+	it('caps craft pages where the schema does', () => {
+		expect(MAX_CRAFT_PAGES).toBe(pagesRule('craft').maxItems);
+		expect(MAX_CRAFT_PAGES).toBe(schema.properties.pages.maxItems);
 	});
 
 	it('caps feeds where the schema does', () => {
@@ -728,6 +841,17 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 	it('omits explicit rather than writing false', () => {
 		expect(toRingEntry(draft())).not.toHaveProperty('explicit');
 		expect(toRingEntry(draft({ explicit: true })).explicit).toBe(true);
+	});
+
+	it('emits ring_page_url only when it names a different page', () => {
+		expect(toRingEntry(draft())).not.toHaveProperty('ring_page_url');
+		expect(toRingEntry(draft({ ring_page_url: '  ' }))).not.toHaveProperty('ring_page_url');
+		expect(
+			toRingEntry(draft({ ring_page_url: 'https://example.com/loose-leaf' }))
+		).not.toHaveProperty('ring_page_url');
+		expect(
+			toRingEntry(draft({ ring_page_url: ' https://example.com/webrings ' })).ring_page_url
+		).toBe('https://example.com/webrings');
 	});
 
 	it('trims whitespace the submitter did not mean to send', () => {

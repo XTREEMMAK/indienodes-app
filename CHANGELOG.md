@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`craft` entry type.** A made physical object shown in photographs, reusing the comic
+  `pages` shape (1 to 5 photos, caption required). Includes a Craft node stage that pans a
+  detail photo, a craft variant of the shared image viewer with prominent captions, join and
+  update editors, and intake validation. Not yet available to creators without a site of their
+  own. See `docs/decisions.md`.
+- **An optional "Where is the ring embed?" field on `/join` and `/update`.** Some members keep
+  the ring on a links or webrings page rather than on the page they submit or their home page,
+  and the member health check reported them as missing it. The field accepts only a page on the
+  same site as the entry (a leading `www.` aside), is checked in the browser, at intake and again
+  at approval, and is published as `ring_page_url` so the ring's health check can look there.
+  It is never fetched by the submission workflow.
+
 ## [1.11.0] - 2026-09-28
 
 ### Added

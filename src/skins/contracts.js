@@ -7,7 +7,7 @@
  */
 
 export const SKIN_CATEGORIES = /** @type {const} */ (['ui', 'node']);
-export const NODE_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art']);
+export const NODE_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game', 'art', 'craft']);
 
 /**
  * @typedef {object} NodeSkinServices
@@ -41,7 +41,7 @@ export const NODE_TYPES = /** @type {const} */ (['audio', 'comic', 'text', 'game
  * @property {string} label
  * @property {string} description
  * @property {'node'} category
- * @property {readonly ('audio' | 'comic' | 'text' | 'game' | 'art')[]} types
+ * @property {readonly ('audio' | 'comic' | 'text' | 'game' | 'art' | 'craft')[]} types
  * @property {() => Promise<NodeSkinModule>} [load] Omitted by the synchronous default skin.
  */
 

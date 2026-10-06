@@ -579,7 +579,11 @@
 			: (comicViewerStore.entry?.pages ?? [])}
 		creator={comicViewerStore.entry?.creator ?? ''}
 		entryId={comicViewerStore.entry?.id ?? ''}
-		kind={comicViewerStore.entry?.type === 'art' ? 'art' : 'comic'}
+		kind={comicViewerStore.entry?.type === 'art'
+			? 'art'
+			: comicViewerStore.entry?.type === 'craft'
+				? 'craft'
+				: 'comic'}
 		initialPage={comicViewerStore.initialPage}
 		onClose={() => comicViewerStore.hide()}
 	/>

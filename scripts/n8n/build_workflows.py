@@ -1104,7 +1104,35 @@ function mediaUrls(entry) {
 }
 """.strip()
 
-# Well above what the schema allows (3 pages or 3 artworks, a cover and a
+# `ring_page_url`: the optional page, on the same site as source_url, where the
+# member's ring embed lives. The ring's member health check fetches it; nothing
+# in n8n ever does (it is deliberately not in mediaUrls() above), so this is a
+# static check only. Same site is the security control: the checker counts an
+# id-less badge or /go/random link found there as the member's own, so an
+# off-site page anyone already runs the ring on would otherwise pass for a
+# member who never added it. Mirrors ringPageUrlError in
+# src/lib/submissionValidation.js. Interpolated into finalize's intake check
+# and approval's allowlist, so the two cannot drift.
+#
+# The authority must be a bare hostname and optional port. `URL` is not in the
+# sandbox, and a hand parser that splits on '@' reads https://a.net\@b.com as
+# b.com where a browser or fetch() goes to a.net; refusing anything but
+# hostname characters closes that and every other userinfo trick at once.
+RING_PAGE_JS = r"""
+const ringPageHost = (v) => {
+  if (typeof v !== 'string' || v.length > 2000 || /[\s\\]/.test(v)) return '';
+  const m = v.match(/^https:\/\/([A-Za-z0-9.-]+)(?::[0-9]{1,5})?(?:[\/?#]|$)/i);
+  if (!m) return '';
+  const h = m[1].toLowerCase();
+  return h.startsWith('www.') ? h.slice(4) : h;
+};
+const ringPageAllowed = (ringPage, sourceUrl) => {
+  const host = ringPageHost(ringPage);
+  return Boolean(host) && host !== 'pages.kjnet.us' && host === ringPageHost(sourceUrl);
+};
+""".strip()
+
+# Well above what the schema allows (5 craft photos or 3 artworks, a cover and a
 # preview), and low enough that a crafted payload cannot turn one finalize
 # call into hundreds of outbound requests.
 MAX_MEDIA_URLS = 8
@@ -1497,8 +1525,11 @@ const type = S(b.type, 32);
 if (sid === null || nodeId === null || srcUrl === null || type === null) return err('invalid_request');
 
 if (action === 'issue_token') {
-  const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
+  const TYPES = ['audio', 'comic', 'text', 'game', 'art', 'craft'];
   if (!TYPES.includes(type)) return err('invalid_request');
+  // The site generator has no craft template, so a craft token is only ever
+  // issued for a site the submitter already has (a non-empty source_url).
+  if (type === 'craft' && !srcUrl) return err('invalid_request');
   // A null/empty source_url is legitimate here and only here: the site
   // generator bakes the token into an export before the site exists anywhere.
   // bind_source_url is the second half of that flow.
@@ -1937,7 +1968,7 @@ if (!isRemoval) {
 
 // Structural check against schema/ring.schema.json, so a reviewer never sees a
 // submission that cannot pass validate:publish after approval.
-const TYPES = ['audio', 'comic', 'text', 'game', 'art'];
+const TYPES = ['audio', 'comic', 'text', 'game', 'art', 'craft'];
 const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 if (!str(entry.creator, 200)) return bad('invalid_request');
 if (!TYPES.includes(entry.type)) return bad('invalid_request');
@@ -1976,6 +2007,19 @@ if (entry.type === 'art') {
     return bad('invalid_request');
   }
 }
+if (entry.type === 'craft') {
+  // Mirrors the schema's craft rule: one to five photos, each an external
+  // image with a required caption (the caption is the photo's text
+  // alternative). Unlike comic pages, nothing else is allowed on a page.
+  const pageFields = ['image_url', 'caption'];
+  if (!Array.isArray(entry.pages) || entry.pages.length < 1 ||
+      entry.pages.length > 5) return bad('invalid_request');
+  if (!entry.pages.every((page) => page && typeof page === 'object' &&
+      !Array.isArray(page) && Object.keys(page).every((key) => pageFields.includes(key)) &&
+      externalMedia(page.image_url) && str(page.caption, 200))) {
+    return bad('invalid_request');
+  }
+}
 // Optional, every type. `layout` is a closed enum. `feeds` items may carry
 // exactly `type` and `url`: any other key, `verified` above all, is refused
 // here so a hand-built request cannot assert what only a check may set (the
@@ -1992,6 +2036,12 @@ if (entry.feeds !== undefined) {
       str(feed.type, 40) && externalMedia(feed.url) && feed.url.length <= 2000)) {
     return bad('invalid_request');
   }
+}
+// Optional, every type. See RING_PAGE_JS. Checked against the row's
+// source_url, which for an update is the one bound before this call.
+%(ring_page_js)s
+if (entry.ring_page_url !== undefined && !ringPageAllowed(entry.ring_page_url, row.source_url)) {
+  return bad('invalid_request');
 }
 if (entry.type === 'game') {
   if (entry.preview_url !== undefined && !externalMedia(entry.preview_url)) {
@@ -2129,7 +2179,8 @@ return [{ json: {
        "attest_required": "true" if CONTENT_ATTESTATIONS_REQUIRED else "false",
        "stale": STALE_CLAIM_SECONDS * 1000,
        "skip_ttl": REVERIFY_SKIP_TTL_SECONDS * 1000,
-       "canonical_js": CANONICAL_URL_JS}
+       "canonical_js": CANONICAL_URL_JS,
+       "ring_page_js": RING_PAGE_JS}
 
     rate_js = """
 const rows = $input.all().map((i) => i.json).filter((r) => r && r.created_at);
@@ -2785,7 +2836,7 @@ const esc = (v) => (v === undefined || v === null ? '' : v.toString())
 
 const isRemoval = review.mode === 'remove';
 const isUpdate = Boolean(row.node_id) && !isRemoval;
-const safeTypes = ['audio', 'game', 'comic', 'text', 'art'];
+const safeTypes = ['audio', 'game', 'comic', 'text', 'art', 'craft'];
 const submittedType = entry.type || row.type;
 const type = safeTypes.indexOf(submittedType) === -1 ? 'unknown' : submittedType;
 const safeForms = ['music', 'spoken'];
@@ -2803,6 +2854,12 @@ if (entry.type === 'audio' && Array.isArray(entry.tracks) && entry.tracks.length
   mediaHtml = '<section class="section"><p class="section-label">Pages</p><div class="media-grid">' +
     entry.pages.map((pg) =>
       '<figure class="media-card"><img src="' + esc(pg.image_url) + '" alt="" loading="lazy">' +
+      (pg.caption ? '<figcaption>' + esc(pg.caption) + '</figcaption>' : '') + '</figure>'
+    ).join('') + '</div></section>';
+} else if (entry.type === 'craft' && Array.isArray(entry.pages) && entry.pages.length) {
+  mediaHtml = '<section class="section"><p class="section-label">Photos</p><div class="media-grid">' +
+    entry.pages.map((pg) =>
+      '<figure class="media-card"><img src="' + esc(pg.image_url) + '" alt="' + esc(pg.caption) + '" loading="lazy">' +
       (pg.caption ? '<figcaption>' + esc(pg.caption) + '</figcaption>' : '') + '</figure>'
     ).join('') + '</div></section>';
 } else if (entry.type === 'art' && Array.isArray(entry.artworks) && entry.artworks.length) {
@@ -2930,6 +2987,7 @@ const reviewContent = isRemoval
           ${review.adult_content === 'yes' ? `<tr><th scope="row">Adult content confirmation</th><td>${attest(review.adult_content_confirmation)}</td></tr>` : ''}
           <tr><th scope="row">Marked explicit</th><td>${entry.explicit === true ? 'Yes' : 'No'}</td></tr>
           ${entry.layout ? `<tr><th scope="row">Layout hint</th><td>${esc(entry.layout)}</td></tr>` : ''}
+          ${typeof entry.ring_page_url === 'string' && entry.ring_page_url.startsWith('https://') ? `<tr><th scope="row">Ring embed on</th><td><a href="${esc(entry.ring_page_url)}" target="_blank" rel="noopener">${esc(entry.ring_page_url)}</a></td></tr>` : ''}
         </tbody>
       </table>
     </section>`;
@@ -3075,12 +3133,12 @@ const gen = $json;
 // Explicit allowlist, matching toRingEntry in src/lib/submissionValidation.js
 // field for field. Never a denylist: a field added to the form later must be
 // deliberately published, not published by default.
-// `feeds` and `layout` are validated at intake above. `discoverable` is
-// deliberately absent: it is the creator's own switch, set in the member's
-// record, and nothing a submission may assert.
+// `feeds`, `layout` and `ring_page_url` are validated at intake above.
+// `discoverable` is deliberately absent: it is the creator's own switch, set in
+// the member's record, and nothing a submission may assert.
 const allowed = ['creator', 'type', 'form', 'why', 'tags', 'tracks', 'pages', 'artworks',
                  'excerpts', 'thumb_url', 'thumb_position', 'preview_url', 'trailer_url', 'explicit',
-                 'feeds', 'layout'];
+                 'feeds', 'layout', 'ring_page_url'];
 const out = { id: gen.id };
 for (const k of allowed) if (entry[k] !== undefined) out[k] = entry[k];
 
@@ -3102,6 +3160,13 @@ if (!/^[A-Za-z0-9_-]{1,200}$/.test(token)) {
 }
 out.source_url = row.source_url;
 out.verification_token = token;
+// Re-checked against the source_url being published, not only at intake: a
+// row that reached review before intake knew this field never had it checked.
+// Dropped rather than refused, because the entry is fine without it.
+""" + RING_PAGE_JS + r"""
+if (out.ring_page_url !== undefined && !ringPageAllowed(out.ring_page_url, out.source_url)) {
+  delete out.ring_page_url;
+}
 if (gen.creator_id) out.creator_id = gen.creator_id;
 
 // n8n's Code sandbox cannot import the repository's Prettier dependency, but

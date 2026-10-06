@@ -5,7 +5,7 @@ import DOMPurify from 'isomorphic-dompurify';
  * @property {string} id
  * @property {string} creator
  * @property {string} [creator_id]
- * @property {'audio' | 'comic' | 'text' | 'game' | 'art'} type
+ * @property {'audio' | 'comic' | 'text' | 'game' | 'art' | 'craft'} type
  * @property {'music' | 'spoken'} [form] Audio only, required there; absent for every other type. May also be absent on a pre-migration audio entry that predates this field.
  * @property {string} why
  * @property {string} source_url
@@ -203,7 +203,7 @@ export function isVisibleTo(entry, showExplicit) {
 export function coverImageUrl(entry) {
 	return (
 		entry.thumb_url ??
-		(entry.type === 'comic'
+		(entry.type === 'comic' || entry.type === 'craft'
 			? entry.pages?.[0]?.image_url
 			: entry.type === 'art'
 				? entry.artworks?.[0]?.image_url
@@ -303,7 +303,7 @@ function hasValidShape(entry, allowedHttpOrigin = null) {
 		typeof entry.creator === 'string' &&
 		entry.creator.length > 0 &&
 		typeof entry.type === 'string' &&
-		['audio', 'comic', 'text', 'game', 'art'].includes(entry.type) &&
+		['audio', 'comic', 'text', 'game', 'art', 'craft'].includes(entry.type) &&
 		typeof entry.why === 'string' &&
 		isSafeUrl(entry.source_url, allowedHttpOrigin) &&
 		(entry.thumb_url === undefined || isSafeUrl(entry.thumb_url, allowedHttpOrigin)) &&

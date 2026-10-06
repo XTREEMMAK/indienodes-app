@@ -170,6 +170,7 @@
 		{ id: 'audio', label: 'Audio', color: 'var(--type-audio)' },
 		{ id: 'game', label: 'Game', color: 'var(--type-game)' },
 		{ id: 'art', label: 'Art', color: 'var(--type-art)' },
+		{ id: 'craft', label: 'Craft', color: 'var(--type-craft)' },
 		{ id: 'any', label: 'Any type', color: 'var(--text-muted)' },
 		{ id: 'text', label: 'Text', color: 'var(--type-text)' },
 		{ id: 'comic', label: 'Comic', color: 'var(--type-comic)' }
@@ -184,7 +185,8 @@
 		{ id: 'comic', label: 'Comic', color: 'var(--type-comic)' },
 		{ id: 'text', label: 'Text', color: 'var(--type-text)' },
 		{ id: 'game', label: 'Game', color: 'var(--type-game)' },
-		{ id: 'art', label: 'Art', color: 'var(--type-art)' }
+		{ id: 'art', label: 'Art', color: 'var(--type-art)' },
+		{ id: 'craft', label: 'Craft', color: 'var(--type-craft)' }
 	];
 
 	// One line per phone-list row saying what the section is set to now, so

@@ -260,7 +260,45 @@ while (kept.length + generated.length < TARGET_TOTAL) {
 	n += 1;
 }
 
-const ring = [...kept, ...generated];
+// Craft entries are appended after the generated loop rather than added to
+// TYPES, so the type rotation (and every entry's random draws) stay exactly
+// as they were for the existing types. One single-photo and one three-photo
+// entry cover both paths through the shared image viewer. Images are the
+// comic page SVGs already served locally.
+const craftPhoto = (p, caption) => ({
+	image_url: `${LOCAL}/paper-lantern-comics/pages/page-0${p}.svg`,
+	caption
+});
+const craft = [
+	{
+		id: 'gen-craft-01',
+		creator: 'Fictional Loom Works',
+		type: 'craft',
+		why: 'A placeholder weaver, for exercising the craft path with one photo.',
+		source_url: 'https://example.invalid/gen-craft-01',
+		tags: ['weaving', 'textile'],
+		pages: [craftPhoto(1, 'Full piece, 24 x 36 in, wool on linen warp')],
+		verification_token: 'placeholder-token-not-real',
+		_placeholder: true
+	},
+	{
+		id: 'gen-craft-02',
+		creator: 'Imaginary Kiln Studio',
+		type: 'craft',
+		why: 'A placeholder potter, for exercising the craft path with three photos.',
+		source_url: 'https://example.invalid/gen-craft-02',
+		tags: ['ceramics', 'stoneware'],
+		pages: [
+			craftPhoto(1, 'Full view, 8 in tall, glazed stoneware'),
+			craftPhoto(2, 'Rim and glaze pooling'),
+			craftPhoto(3, 'Detail of the thumb-pressed foot')
+		],
+		verification_token: 'placeholder-token-not-real',
+		_placeholder: true
+	}
+];
+
+const ring = [...kept, ...generated, ...craft];
 writeFileSync(FIXTURE_PATH, JSON.stringify(ring, null, '\t') + '\n');
 
 const byType = ring.reduce((acc, e) => ({ ...acc, [e.type]: (acc[e.type] ?? 0) + 1 }), {});
