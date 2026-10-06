@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-06
+
 ### Added
 
 - **`craft` entry type.** A made physical object shown in photographs, reusing the comic
@@ -21,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   same site as the entry (a leading `www.` aside), is checked in the browser, at intake and again
   at approval, and is published as `ring_page_url` so the ring's health check can look there.
   It is never fetched by the submission workflow.
+
+### Fixed
+
+- **The skin laboratory end-to-end test now expects the two craft fixtures,** which had left
+  CI failing on `preview-gated`.
 
 ## [1.11.0] - 2026-09-28
 
