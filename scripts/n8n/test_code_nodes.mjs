@@ -861,6 +861,40 @@ for (const [name, extras] of [
 	);
 }
 
+// ring_page_url: optional, every type, and the same site as the row's
+// source_url (https://example.com/). The checker counts an id-less badge there
+// as the member's own, so an off-site page must never get through.
+for (const [name, url] of [
+	['a page on the same site', 'https://example.com/webrings'],
+	['a page that differs only by www.', 'https://www.example.com/links'],
+	['a page with a port and query', 'https://example.com:443/links?tab=rings']
+]) {
+	check(
+		`finalize accepts a ring page: ${name}`,
+		vrun(ROW, withExtras({ ring_page_url: url }))[0].json.ok,
+		'yes'
+	);
+}
+for (const [name, url] of [
+	['on another site', 'https://someone-else.net/webrings'],
+	['on a subdomain', 'https://blog.example.com/webrings'],
+	['on a look-alike domain', 'https://example.com.evil.net/'],
+	['over http', 'http://example.com/webrings'],
+	['as javascript:', 'javascript:alert(1)'],
+	['with userinfo naming the right host', 'https://evil.net@example.com/'],
+	['with a backslash authority trick', 'https://evil.net\\@example.com/'],
+	['with whitespace', 'https://example.com/ webrings'],
+	['on the generated-site host', 'https://pages.kjnet.us/someone/'],
+	['that is not a string', 42],
+	['past the schema length', `https://example.com/${'a'.repeat(1990)}`]
+]) {
+	check(
+		`finalize rejects a ring page ${name}`,
+		vrun(ROW, withExtras({ ring_page_url: url }))[0].json.error_code,
+		'invalid_request'
+	);
+}
+
 const GAME_ROW = { ...ROW, type: 'game' };
 const GAME_BODY = {
 	...BODY,
@@ -1296,6 +1330,24 @@ check(
 	JSON.stringify([{ type: 'rss', url: 'https://example.com/feed.xml' }])
 );
 check('publish keeps layout', publishedWithExtras.layout, 'desktop-first');
+const ringPageEntry = (ring_page_url) => ({
+	creator: 'Ring Keeper',
+	type: 'text',
+	why: 'Keeps the ring on a links page.',
+	tags: ['essay'],
+	excerpts: [{ text: 'One sample.' }],
+	ring_page_url
+});
+check(
+	'publish keeps a same-site ring_page_url',
+	JSON.parse(generatedMember(ringPageEntry('https://example.com/links'))).ring_page_url,
+	'https://example.com/links'
+);
+check(
+	'publish drops a ring_page_url that is off-site from the published source_url',
+	'ring_page_url' in JSON.parse(generatedMember(ringPageEntry('https://elsewhere.net/links'))),
+	false
+);
 check(
 	'publish never carries discoverable from a submission (the creator sets it)',
 	'discoverable' in publishedWithExtras,
@@ -1450,6 +1502,33 @@ check(
 );
 check('review escapes the layout hint', feedHtml.includes('<b>desktop-first</b>'), false);
 check('review shows the layout hint', feedHtml.includes('Layout hint'), true);
+const ringPageHtml = (ring_page_url) =>
+	prun({
+		submission_id: 'ring1',
+		node_id: '',
+		source_url: 'https://example.com/',
+		type: 'text',
+		entry: JSON.stringify({
+			type: 'text',
+			creator: 'Ring Keeper',
+			why: 'Ring page on the review page.',
+			tags: ['essay'],
+			ring_page_url
+		}),
+		review: JSON.stringify({ email: 'a@b.co', rights_confirmation: true, eula_agreement: true })
+	});
+check(
+	'review links the ring page, escaped',
+	ringPageHtml('https://example.com/links?a=1&b="2"').includes(
+		'href="https://example.com/links?a=1&amp;b=&quot;2&quot;"'
+	),
+	true
+);
+check(
+	'review never renders a non-https ring page',
+	ringPageHtml('javascript:alert(1)').includes('Ring embed on'),
+	false
+);
 check('XSS: track label is escaped, not live markup', html.includes('<b>x</b>'), false);
 
 const removalHtml = prun({

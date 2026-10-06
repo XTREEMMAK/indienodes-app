@@ -193,6 +193,48 @@ function isHttpsUrl(value) {
 }
 
 /**
+ * The one host IndieNodes' generated sites live on. Every generated page
+ * shares it, so "the same site as your page" means nothing there: any other
+ * member's generated page would qualify.
+ */
+const GENERATED_SITE_HOST = 'pages.kjnet.us';
+
+/** @param {string} value @returns {string | null} hostname, `www.`-insensitive */
+function siteHost(value) {
+	try {
+		return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Validates the optional `ring_page_url` against the entry's `source_url`
+ * and returns an error message, or null.
+ *
+ * Same site only. The health checker counts a ring embed found at this URL
+ * as the member's own, and a badge or `/go/random` link carries no site-id,
+ * so an off-site page (anyone's page that already has the ring on it) would
+ * pass the check for someone who never added it. The same rule runs at
+ * intake and at approval in `build_workflows.py`, and in the ring's checker.
+ * @param {string} ringPageUrl
+ * @param {string} sourceUrl
+ * @returns {string | null}
+ */
+export function ringPageUrlError(ringPageUrl, sourceUrl) {
+	if (!isHttpsUrl(ringPageUrl)) return 'Must be a full https:// URL.';
+	const host = siteHost(ringPageUrl);
+	if (host === GENERATED_SITE_HOST) {
+		return 'Pages we build for you already carry the ring, so leave this blank.';
+	}
+	const sourceHost = siteHost(sourceUrl);
+	if (sourceHost && host !== sourceHost) {
+		return `Must be a page on the same site as your entry (${sourceHost}).`;
+	}
+	return null;
+}
+
+/**
  * Validates one media URL and returns an error message, or null.
  *
  * Takes the field's human name so the message can say what is wrong with
@@ -274,6 +316,13 @@ export function validateEntry(entry) {
 		} else if (!isHttpsUrl(entry.source_url)) {
 			errors.source_url = 'Must be a full https:// URL.';
 		}
+	}
+
+	// Optional. Only asked when the submitter has a site of their own: a
+	// generated page carries the ring itself.
+	if (entry?.has_own_site !== 'no' && entry?.ring_page_url?.trim()) {
+		const error = ringPageUrlError(entry.ring_page_url.trim(), entry.source_url?.trim() ?? '');
+		if (error) errors.ring_page_url = error;
 	}
 
 	// minItems: 1 in the schema. An untagged entry joins the ring already
@@ -505,6 +554,9 @@ export function toRingEntry(entry) {
 	if (entry.type === 'audio' && tracks.length) out.tracks = tracks;
 
 	if (entry.layout && LAYOUT_OPTIONS.includes(entry.layout)) out.layout = entry.layout;
+	// Omitted when it names the page itself: the checker reads that one anyway.
+	const ringPageUrl = entry.ring_page_url?.trim();
+	if (ringPageUrl && ringPageUrl !== out.source_url) out.ring_page_url = ringPageUrl;
 
 	const feeds = (entry.feeds ?? [])
 		.filter((/** @type {any} */ f) => f?.type?.trim() && f?.url?.trim())

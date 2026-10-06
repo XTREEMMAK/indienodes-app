@@ -955,8 +955,14 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 					this only changes how much room it takes.
 				</p>
 				<p class="note">
-					It needs to go on <code>{entry.source_url || 'the page you gave us'}</code> — that's where visitors
-					arrive, so that's where the link onward has to be. Anywhere else as well is up to you.
+					{#if entry.ring_page_url?.trim()}
+						It goes on <code>{entry.ring_page_url.trim()}</code>, the page you told us carries it.
+						That's where we look when checking it's still up. Anywhere else as well is up to you.
+					{:else}
+						It needs to go on <code>{entry.source_url || 'the page you gave us'}</code> — that's where
+						visitors arrive, so that's where the link onward has to be. Anywhere else as well is up to
+						you.
+					{/if}
 				</p>
 				<div class="success-tier-grid" role="radiogroup" aria-label="Ring embed style">
 					{#each WIDGET_TIERS as tier (tier.id)}
@@ -1970,6 +1976,10 @@ a { color: #b5502f; font-weight: 700; text-align: center; }
 								<dd>{entry.why}</dd>
 								<dt>Links to</dt>
 								<dd class="wrap">{entry.source_url}</dd>
+								{#if entry.ring_page_url?.trim()}
+									<dt>Ring embed on</dt>
+									<dd class="wrap">{entry.ring_page_url.trim()}</dd>
+								{/if}
 								<dt>Tags</dt>
 								<dd>{entry.tags.join(', ')}</dd>
 								{#if provisionalId}

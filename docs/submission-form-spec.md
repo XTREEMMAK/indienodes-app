@@ -25,26 +25,27 @@ Defines the fields, validation rules, and required consent copy for the entry su
 
 ### 2.1 Core entry data (maps to ring.json)
 
-| Field        | Type                           | Required    | Notes                                                                                                                   |
-| ------------ | ------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| id           | system-generated               | n/a         | Not asked for. See below.                                                                                               |
-| creator      | text                           | yes         | Display name                                                                                                            |
-| creator_id   | system-generated               | n/a         | Not asked for. Links this creator's own nodes. See below.                                                               |
-| type         | enum                           | yes         | audio, comic, text, game, art, craft                                                                                    |
-| form         | enum                           | conditional | Required if type is audio: music or spoken. Must not appear for any other type.                                         |
-| why          | text                           | yes         | One line, capped at 75 characters. Introduction and pitch combined; no separate title field.                            |
-| has_own_site | yes/no radio                   | yes         | Not a ring.json field. See below.                                                                                       |
-| source_url   | url                            | conditional | Required if has_own_site is yes. See below for the no branch.                                                           |
-| tags         | multi-select or free tag input | yes         | At least one tag                                                                                                        |
-| tracks       | repeatable group               | optional    | Audio only. Max 3. Each has label + media_url                                                                           |
-| pages        | repeatable group               | conditional | Required if type is comic (1–3) or craft (1–5). Each has image_url + caption; caption is required for craft             |
-| artworks     | repeatable group               | conditional | Art only. 1–3 works; image_url and alt required, metadata optional                                                      |
-| feeds        | repeatable group               | optional    | Every type. Up to 10 { type, url }; `verified` is never collected (see Section 6)                                       |
-| layout       | select                         | optional    | Every type. `mobile-friendly` or `desktop-first`, self-declared and presentational only                                 |
-| excerpts     | repeatable rich text           | conditional | Text only. Between 1 and 3 nonempty samples; headings and restrained inline formatting survive into generated templates |
-| thumb_url    | url                            | conditional | Required if type is game. Optional and encouraged otherwise                                                             |
-| preview_url  | url                            | conditional | Optional if type is game. Muted preview only                                                                            |
-| trailer_url  | url                            | conditional | Optional if type is game. YouTube only; loaded after explicit play                                                      |
+| Field         | Type                           | Required    | Notes                                                                                                                              |
+| ------------- | ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| id            | system-generated               | n/a         | Not asked for. See below.                                                                                                          |
+| creator       | text                           | yes         | Display name                                                                                                                       |
+| creator_id    | system-generated               | n/a         | Not asked for. Links this creator's own nodes. See below.                                                                          |
+| type          | enum                           | yes         | audio, comic, text, game, art, craft                                                                                               |
+| form          | enum                           | conditional | Required if type is audio: music or spoken. Must not appear for any other type.                                                    |
+| why           | text                           | yes         | One line, capped at 75 characters. Introduction and pitch combined; no separate title field.                                       |
+| has_own_site  | yes/no radio                   | yes         | Not a ring.json field. See below.                                                                                                  |
+| source_url    | url                            | conditional | Required if has_own_site is yes. See below for the no branch.                                                                      |
+| ring_page_url | url                            | optional    | Own-site branch only. A page on the same site as source_url (www. aside) where the ring embed lives; checked by member link health |
+| tags          | multi-select or free tag input | yes         | At least one tag                                                                                                                   |
+| tracks        | repeatable group               | optional    | Audio only. Max 3. Each has label + media_url                                                                                      |
+| pages         | repeatable group               | conditional | Required if type is comic (1–3) or craft (1–5). Each has image_url + caption; caption is required for craft                        |
+| artworks      | repeatable group               | conditional | Art only. 1–3 works; image_url and alt required, metadata optional                                                                 |
+| feeds         | repeatable group               | optional    | Every type. Up to 10 { type, url }; `verified` is never collected (see Section 6)                                                  |
+| layout        | select                         | optional    | Every type. `mobile-friendly` or `desktop-first`, self-declared and presentational only                                            |
+| excerpts      | repeatable rich text           | conditional | Text only. Between 1 and 3 nonempty samples; headings and restrained inline formatting survive into generated templates            |
+| thumb_url     | url                            | conditional | Required if type is game. Optional and encouraged otherwise                                                                        |
+| preview_url   | url                            | conditional | Optional if type is game. Muted preview only                                                                                       |
+| trailer_url   | url                            | conditional | Optional if type is game. YouTube only; loaded after explicit play                                                                 |
 
 The form displays the internal `audio` type as **Audio**. The stored value names the playback
 and media implementation, not a genre: an audio entry now also declares `form` (`music` or

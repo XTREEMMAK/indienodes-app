@@ -453,6 +453,48 @@ const cases = [
 	},
 	{ name: 'a nonsense source_url', entry: draft({ source_url: 'not a url' }), formValid: false },
 	{
+		name: 'a ring page on the same site',
+		entry: draft({ ring_page_url: 'https://example.com/webrings' }),
+		formValid: true
+	},
+	{
+		name: 'a ring page that differs only by www.',
+		entry: draft({ ring_page_url: 'https://www.example.com/links' }),
+		formValid: true
+	},
+	{
+		name: 'a ring page on another site',
+		entry: draft({ ring_page_url: 'https://someone-else.net/webrings' }),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
+		name: 'a ring page on a subdomain of the same site',
+		entry: draft({ ring_page_url: 'https://blog.example.com/webrings' }),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
+		name: 'an http ring page',
+		entry: draft({ ring_page_url: 'http://example.com/webrings' }),
+		formValid: false
+	},
+	{
+		name: 'a ring page on the generated-site host',
+		entry: draft({
+			source_url: 'https://pages.kjnet.us/driftwood/',
+			ring_page_url: 'https://pages.kjnet.us/someone-else/'
+		}),
+		formValid: false,
+		// Same-site is a rule between two fields, which JSON Schema cannot
+		// express; validate-ring.js enforces it on the ring side.
+		formOnly: true
+	},
+	{
 		name: 'a cover image rehosted on IndieNodes',
 		entry: draft({ thumb_url: 'https://indienodes.us/cover.png' }),
 		formValid: false
@@ -799,6 +841,17 @@ describe('toRingEntry produces only ring-shaped fields', () => {
 	it('omits explicit rather than writing false', () => {
 		expect(toRingEntry(draft())).not.toHaveProperty('explicit');
 		expect(toRingEntry(draft({ explicit: true })).explicit).toBe(true);
+	});
+
+	it('emits ring_page_url only when it names a different page', () => {
+		expect(toRingEntry(draft())).not.toHaveProperty('ring_page_url');
+		expect(toRingEntry(draft({ ring_page_url: '  ' }))).not.toHaveProperty('ring_page_url');
+		expect(
+			toRingEntry(draft({ ring_page_url: 'https://example.com/loose-leaf' }))
+		).not.toHaveProperty('ring_page_url');
+		expect(
+			toRingEntry(draft({ ring_page_url: ' https://example.com/webrings ' })).ring_page_url
+		).toBe('https://example.com/webrings');
 	});
 
 	it('trims whitespace the submitter did not mean to send', () => {
