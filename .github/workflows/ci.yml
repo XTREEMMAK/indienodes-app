@@ -42,6 +42,34 @@ jobs:
 
       - run: npm ci
 
+      # Fails if any installed package lacks a valid npm registry signature, or
+      # has an attestation that does not verify. It catches a tampered tarball
+      # or a lockfile pointed at something that did not come from the registry.
+      # It does NOT catch a newly registered look-alike name (slopsquatting):
+      # that package would be signed too. Review new dependency names by hand.
+      - name: Verify registry signatures
+        run: npm audit signatures
+
+      # The check signatures cannot make: is a dependency this change adds a
+      # freshly registered name? See scripts/check-new-dependencies.mjs. The
+      # refs arrive through env, never interpolated into the script, and the
+      # script validates BASE_REF again before git sees it. checkout is
+      # shallow, so the base commit is fetched explicitly. With no base
+      # (workflow_dispatch, first push of a branch) the script skips.
+      - name: Check new dependency names
+        env:
+          PR_BASE: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:+origin/$PR_BASE}"
+          if [ -n "$PR_BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$PR_BASE"
+          elif [ -n "$PUSH_BEFORE" ] && ! [[ "$PUSH_BEFORE" =~ ^0+$ ]]; then
+            git fetch --no-tags --depth=1 origin "$PUSH_BEFORE"
+            base="$PUSH_BEFORE"
+          fi
+          BASE_REF="$base" node scripts/check-new-dependencies.mjs
+
       # Ring data first: it is the cheapest check here and the only one whose
       # failure means the artifact would ship wrong data rather than wrong code.
       #
